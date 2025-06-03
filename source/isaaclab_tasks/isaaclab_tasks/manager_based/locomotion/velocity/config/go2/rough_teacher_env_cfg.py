@@ -68,7 +68,7 @@ class RoughTeacherObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
         mass = ObsTerm(func=mdp.body_mass)
-        com = ObsTerm(func=mdp.cached_body_center_of_mass, params={"asset_cfg": SceneEntityCfg("robot", body_names="base")})
+        com = ObsTerm(func=mdp.CachedBodyCenterOfMassTerm, params={"asset_cfg": SceneEntityCfg("robot", body_names="base")})
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},

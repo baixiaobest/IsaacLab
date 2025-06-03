@@ -199,34 +199,36 @@ def body_center_of_mass(
     return coms
 
 
-# Cache for body center of mass to avoid resending CPU data to GPU
-_cached_body_coms: dict[str, torch.Tensor] = {}
+class CachedBodyCenterOfMassTerm(ManagerTermBase):
+    """ObsTerm that caches the (post‐randomized) body‐COM on the GPU."""
+    # static class‐level cache
+    _cache: dict[str, torch.Tensor] = {}
 
-def cached_body_center_of_mass(
-    env: ManagerBasedEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-) -> torch.Tensor:
-    """Returns the (fixed) center-of-mass of the specified bodies, cached on GPU."""
-    # build a key unique to this asset_cfg
-    key = f"{asset_cfg.name}_{tuple(asset_cfg.body_ids)}"
-    print(f"key: {key}")
-    if key not in _cached_body_coms:
-        print("Key not found")
-        # query once, then move to env.device and squeeze
-        asset: Articulation = env.scene[asset_cfg.name]
-        body_ids = torch.tensor(asset_cfg.body_ids, dtype=torch.int, device="cpu")
-        coms = asset.root_physx_view.get_coms().clone()                   # CPU
-        coms = coms[:, body_ids, :3]                            # select bodies
+    def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+
+    @staticmethod
+    def clear_cache(env_ids: torch.Tensor | None = None):
+        CachedBodyCenterOfMassTerm._cache.clear()
+
+    def __call__(
+            self, 
+            env: ManagerBasedEnv,
+            asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
         
-        if coms.shape[1] == 1:
-            coms = coms.squeeze(1)
-
-        # move _once_ to GPU (or whichever device your env is on)
-        _cached_body_coms[key] = coms.to(env.device)
-    else:
-        print("Key found, using cached value")
-    print(_cached_body_coms[key].cpu())
-    return _cached_body_coms[key]
+        key = f"{asset_cfg.name}_{tuple(asset_cfg.body_ids)}"
+        # build & cache the GPU tensor once
+        if key not in type(self)._cache:
+            asset = env.scene[asset_cfg.name]
+            # select bodies on CPU
+            body_ids = torch.tensor(asset_cfg.body_ids, dtype=torch.int, device="cpu")
+            coms = asset.root_physx_view.get_coms().clone()[:, body_ids, :3]
+            if coms.shape[1] == 1:
+                coms = coms.squeeze(1)
+            # move once to the env.device and stash
+            type(self)._cache[key] = coms.to(env.device)
+        print(type(self)._cache[key].cpu())
+        return type(self)._cache[key]
 
 """
 Joint state.
