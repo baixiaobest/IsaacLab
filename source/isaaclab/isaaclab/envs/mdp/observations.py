@@ -227,7 +227,64 @@ class CachedBodyCenterOfMassTerm(ManagerTermBase):
                 coms = coms.squeeze(1)
             # move once to the env.device and stash
             type(self)._cache[key] = coms.to(env.device)
-        print(type(self)._cache[key].cpu())
+        return type(self)._cache[key]
+
+class CachedBodyMaterialPropertiesTerm(ManagerTermBase):
+    """ObsTerm that caches the (post‐randomized) body material properties on the GPU."""
+    # static class‐level cache
+    _cache: dict[str, torch.Tensor] = {}
+
+    def __init__(self, cfg: ObservationTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+
+    @staticmethod
+    def clear_cache(env_ids: torch.Tensor | None = None):
+        CachedBodyMaterialPropertiesTerm._cache.clear()
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    ) -> torch.Tensor:
+        """The material properties of the bodies in the asset.
+
+        Args:
+            env: The environment.
+            asset_cfg: The SceneEntity associated with this observation.
+
+        Returns:
+            The material properties of the bodies in the asset, shape is [num_envs, num_bodies, 3].
+            The last dimension contains the friction, restitution and density.
+        """
+
+        key = f"{asset_cfg.name}_{tuple(asset_cfg.body_ids)}"
+
+        if key not in type(self)._cache:
+            asset = env.scene[asset_cfg.name]
+            num_shapes_per_body = []
+            for link_path in asset.root_physx_view.link_paths[0]:
+                link_physx_view = asset._physics_sim_view.create_rigid_body_view(link_path)  # type: ignore
+                num_shapes_per_body.append(link_physx_view.max_shapes)
+            # ensure the parsing is correct
+            num_shapes = sum(num_shapes_per_body)
+            expected_shapes = asset.root_physx_view.max_shapes
+            if num_shapes != expected_shapes:
+                raise ValueError(
+                    "body_material_properties failed to parse the number of shapes per body."
+                    f" Expected total shapes: {expected_shapes}, but got: {num_shapes}."
+                )
+
+            material_properties = asset.root_physx_view.get_material_properties().to(env.device)
+            returned_properties = torch.zeros(env.num_envs, len(asset_cfg.body_ids) * 3, dtype=torch.float32, device=env.device)
+
+            for idx, body_id in enumerate(asset_cfg.body_ids):
+                # obtain indices of shapes for the body
+                start_idx = sum(num_shapes_per_body[:body_id])
+                end_idx = start_idx + num_shapes_per_body[body_id]
+                returned_properties[:, idx * 3 : (idx + 1) * 3] = material_properties[:, start_idx, :3].squeeze(1)
+            # cache the properties
+            type(self)._cache[key] = returned_properties
+
         return type(self)._cache[key]
 
 """

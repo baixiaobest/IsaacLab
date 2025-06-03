@@ -68,7 +68,13 @@ class RoughTeacherObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
         mass = ObsTerm(func=mdp.body_mass)
-        com = ObsTerm(func=mdp.CachedBodyCenterOfMassTerm, params={"asset_cfg": SceneEntityCfg("robot", body_names="base")})
+        com = ObsTerm(func=mdp.CachedBodyCenterOfMassTerm, 
+                      params={"asset_cfg": SceneEntityCfg("robot", body_names="base")})
+        
+        foot_materials = ObsTerm(
+            func=mdp.CachedBodyMaterialPropertiesTerm, 
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])})
+        
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
@@ -93,3 +99,11 @@ class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.events.base_com.params['com_range'] = {"x": (-0.10, 0.10), "y": (-0.10, 0.10), "z": (-0.01, 0.01)}
+        self.events.physics_material.params = {
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.4, 0.8),
+            "dynamic_friction_range": (0.2, 0.6),
+            "restitution_range": (0.0, 0.3),
+            "num_buckets": 64,
+            "make_consistent": True
+        }

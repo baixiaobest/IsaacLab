@@ -275,6 +275,10 @@ class randomize_rigid_body_material(ManagerTermBase):
         # apply to simulation
         self.asset.root_physx_view.set_material_properties(materials, env_ids)
 
+        # Reset the cache
+        from isaaclab.envs.mdp.observations import CachedBodyMaterialPropertiesTerm
+        CachedBodyMaterialPropertiesTerm.clear_cache()
+
 
 def randomize_rigid_body_mass(
     env: ManagerBasedEnv,
