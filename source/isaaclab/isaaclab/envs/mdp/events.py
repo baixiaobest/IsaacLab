@@ -391,6 +391,10 @@ def randomize_rigid_body_com(
     # Set the new coms
     asset.root_physx_view.set_coms(coms, env_ids)
 
+    # Very hacky, clear the COM module cache in Observations
+    from isaaclab.envs.mdp.observations import _cached_body_coms
+    _cached_body_coms.clear()
+
 
 def randomize_rigid_body_collider_offsets(
     env: ManagerBasedEnv,

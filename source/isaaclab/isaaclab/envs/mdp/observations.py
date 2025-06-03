@@ -148,6 +148,86 @@ def body_projected_gravity_b(
     return math_utils.quat_rotate_inverse(body_quat, gravity_dir).view(env.num_envs, -1)
 
 
+def body_mass(
+    env: ManagerBasedEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """The mass of the bodies in the asset.
+
+    Note: Only the bodies configured in :attr:`asset_cfg.body_ids` will have their masses returned.
+
+    Args:
+        env: The environment.
+        asset_cfg: The SceneEntity associated with this observation.
+
+    Returns:
+        The sum of mass of the bodies in the asset, shape is [num_envs, 1].
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    masses = asset.root_physx_view.get_masses().to(env.device)
+    return torch.sum(masses, dim=1, keepdim=True)
+
+def body_center_of_mass(
+        env: ManagerBasedEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """The center of mass of the bodies in the asset.
+
+    Note: Only the bodies configured in :attr:`asset_cfg.body_ids` will have their center of mass returned.
+
+    Args:
+        env: The environment.
+        asset_cfg: The SceneEntity associated with this observation.
+
+    Returns:
+        The center of mass of the bodies in the asset, shape is [num_envs, 3].
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    body_ids = torch.tensor(asset_cfg.body_ids[0], dtype=torch.int, device="cpu")
+    coms = asset.root_physx_view.get_coms().clone()
+    coms = coms[:, body_ids, :3]
+
+    if coms.shape[1] == 1:
+        coms = coms.squeeze(1)
+
+    coms = coms.to(env.device)
+
+    print(f"Body IDs: {body_ids.cpu()}")
+    print(f"COMs: {coms.cpu()}")
+    print(f"device1: {coms.device}")
+    return coms
+
+
+# Cache for body center of mass to avoid resending CPU data to GPU
+_cached_body_coms: dict[str, torch.Tensor] = {}
+
+def cached_body_center_of_mass(
+    env: ManagerBasedEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Returns the (fixed) center-of-mass of the specified bodies, cached on GPU."""
+    # build a key unique to this asset_cfg
+    key = f"{asset_cfg.name}_{tuple(asset_cfg.body_ids)}"
+    print(f"key: {key}")
+    if key not in _cached_body_coms:
+        print("Key not found")
+        # query once, then move to env.device and squeeze
+        asset: Articulation = env.scene[asset_cfg.name]
+        body_ids = torch.tensor(asset_cfg.body_ids, dtype=torch.int, device="cpu")
+        coms = asset.root_physx_view.get_coms().clone()                   # CPU
+        coms = coms[:, body_ids, :3]                            # select bodies
+        
+        if coms.shape[1] == 1:
+            coms = coms.squeeze(1)
+
+        # move _once_ to GPU (or whichever device your env is on)
+        _cached_body_coms[key] = coms.to(env.device)
+    else:
+        print("Key found, using cached value")
+    print(_cached_body_coms[key].cpu())
+    return _cached_body_coms[key]
+
 """
 Joint state.
 """
