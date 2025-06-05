@@ -18,7 +18,6 @@ from .symmetry_cfg import RslRlSymmetryCfg
 # Policy configurations #
 #########################
 
-
 @configclass
 class RslRlPpoActorCriticCfg:
     """Configuration for the PPO actor-critic networks."""
@@ -41,6 +40,15 @@ class RslRlPpoActorCriticCfg:
     activation: str = MISSING
     """The activation function for the actor and critic networks."""
 
+@configclass
+class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
+    """Configuration for the PPO actor-critic networks with an encoder."""
+
+    class_name: str = "EncoderActorCritic"
+    """The policy class name. Default is EncoderActorCritic."""
+
+    encoder_dims: list[int] = MISSING
+    """The dimensions of the encoder network."""
 
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
