@@ -1,0 +1,40 @@
+# Use the NVIDIA Isaac Sim 4.5.0 base image
+FROM nvcr.io/nvidia/isaac-sim:4.5.0
+
+# Set EULA acceptance environment variable
+ENV ACCEPT_EULA=Y
+
+# Install git (not included in the base image)
+RUN apt-get update && apt-get install -y git && apt-get clean
+
+# Install build essential
+run yes | apt-get install cmake build-essential
+
+RUN yes | apt-get install pip
+
+# Clone the repository and initialize submodules
+WORKDIR /workspace
+RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git \
+    && cd IsaacLab \
+    && git submodule update --init --recursive
+
+# Set the working directory to IsaacLab and make the script executable
+WORKDIR /workspace/IsaacLab
+
+# link the isaac sim
+RUN ln -s /isaac-sim _isaac_sim
+
+RUN chmod +x isaaclab.sh
+
+# Run the installation script with the -i flag (install mode)
+ENV TERM xterm
+RUN bash ./isaaclab.sh -i rsl_rl
+
+RUN ./isaaclab.sh -p -m pip install wandb
+
+# Set the entrypoint to launch Isaac Sim
+# Set the entrypoint to a shell script
+ENTRYPOINT ["/bin/bash", "-l", "-c"]
+
+# Default command when no arguments are provided
+CMD ["/bin/bash"]

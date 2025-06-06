@@ -93,7 +93,6 @@ def train_isaaclab():
         f"--task Isaac-Velocity-Rough-Unitree-Go2-Teacher-v0 "
         f"--num_envs 4096 "
         f"--headless "
-        f"--video "
         f"--max_iterations 1500"
     )
     
