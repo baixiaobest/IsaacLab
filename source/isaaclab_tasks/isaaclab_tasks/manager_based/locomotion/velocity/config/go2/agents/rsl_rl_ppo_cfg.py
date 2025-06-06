@@ -40,12 +40,12 @@ class UnitreeGo2RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
-    save_interval = 50
-    experiment_name = "unitree_go2_rough"
+    save_interval = 200
+    experiment_name = "unitree_go2_rough_teacher"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=1.0,
-        encoder_dims=[352, 256, 128, 64, 32],
+        encoder_dims=[412, 256, 128, 64, 32],
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
@@ -65,7 +65,19 @@ class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm=1.0,
     )
     logger="wandb"
+    # logger="tensorboard"
     wandb_project="quadruped"
+
+@configclass
+class UnitreeGo2RoughTeacherScandotsOnlyPPORunnerCfg(UnitreeGo2RoughTeacherPPORunnerCfg):
+    experiment_name = "unitree_go2_rough_teacher_scandots_only"
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=1.0,
+        encoder_dims=[336, 256, 128, 64, 32],
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
 
 @configclass
 class UnitreeGo2FlatPPORunnerCfg(UnitreeGo2RoughPPORunnerCfg):

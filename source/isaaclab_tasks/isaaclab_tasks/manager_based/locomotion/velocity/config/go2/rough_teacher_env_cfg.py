@@ -46,7 +46,8 @@ class RoughTeacherSceneCfg(MySceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+    foot_contact_forces = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*foot", history_length=5, track_air_time=True, debug_vis=True)
 
 @configclass
 class RoughTeacherObservationsCfg:
@@ -77,6 +78,10 @@ class RoughTeacherObservationsCfg:
             func=mdp.CachedBodyMaterialPropertiesTerm, 
             params={"asset_cfg": SceneEntityCfg("robot", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])})
         
+        foot_contact_forces = ObsTerm(
+            func=mdp.obs_contact_forces,
+            params={"sensor_cfg": SceneEntityCfg("foot_contact_forces", body_names=["FL_foot", "FR_foot", "RL_foot", "RR_foot"])})
+
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
@@ -91,7 +96,40 @@ class RoughTeacherObservationsCfg:
     # observation groups
     policy: RoughTeacherPolicyCfg = RoughTeacherPolicyCfg()
 
+@configclass
+class RoughTeacherScandotsOnlyObservationsCfg:
+    """Observation specifications for the MDP."""
 
+    @configclass
+    class RoughTeacherScandotsOnlyPolicyCfg(ObsGroup):
+        """Observations for policy group."""
+
+        # observation terms (order preserved)
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        projected_gravity = ObsTerm(
+            func=mdp.projected_gravity,
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
+        actions = ObsTerm(func=mdp.last_action)
+
+        # Privileged information
+        height_scan = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+            clip=(-1.0, 1.0),
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    # observation groups
+    policy: RoughTeacherScandotsOnlyPolicyCfg = RoughTeacherScandotsOnlyPolicyCfg()
 
 @configclass
 class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
@@ -109,3 +147,7 @@ class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
             "num_buckets": 64,
             "make_consistent": True
         }
+
+@configclass
+class UnitreeGo2RoughTeacherScandotsOnlyEnvCfg(UnitreeGo2RoughTeacherEnvCfg):
+    observations: RoughTeacherScandotsOnlyObservationsCfg = RoughTeacherScandotsOnlyObservationsCfg()
