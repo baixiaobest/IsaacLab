@@ -36,6 +36,8 @@ class UnitreeGo2RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         activation="elu",
     )
     algorithm = PPOConfig
+    logger="wandb"
+    wandb_project="quadruped"
 
 @configclass
 class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
