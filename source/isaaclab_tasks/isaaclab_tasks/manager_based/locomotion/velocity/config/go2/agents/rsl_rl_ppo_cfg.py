@@ -40,7 +40,7 @@ class UnitreeGo2RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
-    save_interval = 200
+    save_interval = 100
     experiment_name = "unitree_go2_rough_teacher"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
