@@ -149,9 +149,19 @@ class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
         }
 
 @configclass
+class UnitreeGo2RoughTeacherEnvCfg_v1(UnitreeGo2RoughTeacherEnvCfg):
+
+    def __post_init__(self):
+        super().__post_init__()
+        # remove privileged information
+        self.observations.policy.com = None
+        self.observations.policy.foot_materials = None
+
+@configclass
 class UnitreeGo2RoughTeacherScandotsOnlyEnvCfg(UnitreeGo2RoughTeacherEnvCfg):
     observations: RoughTeacherScandotsOnlyObservationsCfg = RoughTeacherScandotsOnlyObservationsCfg()
 
+#### PLAY configs ####
 
 @configclass
 class UnitreeGo2RoughTeacherCfg_PLAY(UnitreeGo2RoughTeacherEnvCfg):
