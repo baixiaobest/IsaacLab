@@ -60,6 +60,12 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.terminations.base_contact.params["sensor_cfg"].body_names = "base"
 
 
+class UnitreeGo2RoughNonprivilegedEnvCfg(UnitreeGo2RoughEnvCfg):
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.observations.policy.height_scan = None
+
 @configclass
 class UnitreeGo2RoughEnvCfg_PLAY(UnitreeGo2RoughEnvCfg):
     def __post_init__(self):
