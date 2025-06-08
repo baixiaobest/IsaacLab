@@ -1,3 +1,6 @@
 [submodule "source/rsl_rl"]
 	path = source/rsl_rl
 	url = https://github.com/baixiaobest/rsl_rl.git
+[submodule "logs"]
+	path = logs
+	url = https://github.com/baixiaobest/isaaclab_models.git

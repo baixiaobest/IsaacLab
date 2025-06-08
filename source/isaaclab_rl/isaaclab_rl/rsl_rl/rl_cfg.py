@@ -205,3 +205,6 @@ class RslRlOnPolicyRunnerCfg:
 
     If regex expression, the latest (alphabetical order) matching file will be loaded.
     """
+
+    other_dir: str = ""
+    """The extra directory to load the checkpoint from. Default is empty string."""

@@ -37,6 +37,9 @@ def add_rsl_rl_args(parser: argparse.ArgumentParser):
     arg_group.add_argument(
         "--log_project_name", type=str, default=None, help="Name of the logging project when using wandb or neptune."
     )
+    arg_group.add_argument(
+        "--other_dir", type=str, default=None, help="Extra  directory path to load checkpoint."
+    )
 
 
 def parse_rsl_rl_cfg(task_name: str, args_cli: argparse.Namespace) -> RslRlOnPolicyRunnerCfg:
@@ -81,6 +84,10 @@ def update_rsl_rl_cfg(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli: argparse.Name
         agent_cfg.load_checkpoint = args_cli.checkpoint
     if args_cli.run_name is not None:
         agent_cfg.run_name = args_cli.run_name
+    if args_cli.experiment_name is not None:
+        agent_cfg.experiment_name = args_cli.experiment_name
+    if args_cli.other_dir is not None:
+        agent_cfg.other_dir = args_cli.other_dir
     if args_cli.logger is not None:
         agent_cfg.logger = args_cli.logger
     # set the project name for wandb and neptune
