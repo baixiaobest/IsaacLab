@@ -46,6 +46,9 @@ class UniformVelocityCommandCfg(CommandTermCfg):
     command is sampled uniformly from provided range.
     """
 
+    velocity_heading: bool = False
+    """Whether to use the heading of the velocity command as the target heading. Defaults to False."""
+
     heading_control_stiffness: float = 1.0
     """Scale factor to convert the heading error to angular velocity command. Defaults to 1.0."""
 
