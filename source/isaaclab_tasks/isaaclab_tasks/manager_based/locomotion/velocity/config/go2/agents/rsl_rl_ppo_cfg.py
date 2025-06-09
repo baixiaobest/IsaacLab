@@ -58,11 +58,11 @@ class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     wandb_project="quadruped"
 
 @configclass
-class UnitreeGo2RoughTeacherPPORunnerCfg_v1(RslRlOnPolicyRunnerCfg):
+class UnitreeGo2RoughTeacherPPORunnerCfg_v2(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
-    experiment_name = "unitree_go2_rough_teacher_v1"
+    experiment_name = "unitree_go2_rough_teacher_v2"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=1.0,

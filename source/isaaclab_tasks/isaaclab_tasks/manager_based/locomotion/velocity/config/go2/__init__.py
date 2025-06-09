@@ -122,10 +122,10 @@ gym.register(
 )
 
 gym.register(
-    id="Isaac-Velocity-Rough-Unitree-Go2-Teacher-v1",
+    id="Isaac-Velocity-Rough-Unitree-Go2-Teacher-v2",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.rough_teacher_env_cfg:UnitreeGo2RoughTeacherEnvCfg_v1",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RoughTeacherPPORunnerCfg_v1"
+        "env_cfg_entry_point": f"{__name__}.rough_teacher_env_cfg:UnitreeGo2RoughTeacherEnvCfg_v2",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RoughTeacherPPORunnerCfg_v2"
     })
