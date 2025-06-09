@@ -134,8 +134,9 @@ class UniformVelocityCommand(CommandTerm):
             if self.cfg.velocity_heading:
                 self.heading_target[env_ids] = torch.atan2(self.vel_command_b[env_ids, 1], self.vel_command_b[env_ids, 0])
             else:
-                # update heading envs
-                self.is_heading_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_heading_envs
+                self.heading_target[env_ids] = r.uniform_(*self.cfg.ranges.heading)
+            
+            self.is_heading_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_heading_envs
         # update standing envs
         self.is_standing_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_standing_envs
 
