@@ -154,7 +154,7 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # Policy determines heading
-        self.rewards.ang_vel_xy_l2 = None
+        self.rewards.track_ang_vel_z_exp = None
 
 @configclass
 class UnitreeGo2RoughTeacherScandotsOnlyEnvCfg(UnitreeGo2RoughTeacherEnvCfg):
