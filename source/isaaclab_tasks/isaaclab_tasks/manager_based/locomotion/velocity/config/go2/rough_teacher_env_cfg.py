@@ -157,6 +157,7 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
         # self.rewards.track_ang_vel_z_exp = None
         self.commands.base_velocity.velocity_heading = True
         self.commands.base_velocity.world_frame_command = True
+        self.commands.base_velocity.resampling_time_range=(20.0, 50.0)
 
 @configclass
 class UnitreeGo2RoughTeacherScandotsOnlyEnvCfg(UnitreeGo2RoughTeacherEnvCfg):
