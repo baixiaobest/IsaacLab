@@ -202,8 +202,10 @@ class UniformVelocityCommand(CommandTerm):
         
         # Apply inverse rotation to get body-frame velocity
         lin_vel_b = math_utils.quat_rotate_inverse(robot_quat_w[env_ids], lin_vel_w)
+        vel_norm_w = lin_vel_w[:, :2].norm(dim=1, keepdim=True)
+        vel_norm_b = lin_vel_b[:, :2].norm(dim=1, keepdim=True)
         vel_command_b = torch.zeros_like(self.vel_command_b)
-        vel_command_b[env_ids, :2] = lin_vel_b[:, :2]
+        vel_command_b[env_ids, :2] = lin_vel_b[:, :2] * (vel_norm_w / vel_norm_b) # preserve velocity magnitude
 
         # Yaw rates are the same in both frames
         vel_command_b[env_ids, 2] = vel_command_w[env_ids, 2]
