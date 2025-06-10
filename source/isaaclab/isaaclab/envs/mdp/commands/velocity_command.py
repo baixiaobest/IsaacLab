@@ -77,6 +77,7 @@ class UniformVelocityCommand(CommandTerm):
         # crete buffers to store the command
         # -- command: x vel, y vel, yaw vel, heading
         self.vel_command_b = torch.zeros(self.num_envs, 3, device=self.device)
+        self.vel_command_w = torch.zeros_like(self.vel_command_b)
         self.heading_target = torch.zeros(self.num_envs, device=self.device)
         self.is_heading_env = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.is_standing_env = torch.zeros_like(self.is_heading_env)
@@ -129,10 +130,15 @@ class UniformVelocityCommand(CommandTerm):
         self.vel_command_b[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
         # -- ang vel yaw - rotation around z
         self.vel_command_b[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
+
+        if self.cfg.world_frame_command:
+            self.vel_command_w = self.vel_command_b.clone()
+            self.vel_command_b = self._convert_world_command_to_body(self.vel_command_w)
+
         # heading target
         if self.cfg.heading_command:
             if self.cfg.velocity_heading:
-                self.heading_target[env_ids] = torch.atan2(self.vel_command_b[env_ids, 1], self.vel_command_b[env_ids, 0])
+                self.heading_target[env_ids] = torch.atan2(self.vel_command_w[env_ids, 1], self.vel_command_w[env_ids, 0])
             else:
                 self.heading_target[env_ids] = r.uniform_(*self.cfg.ranges.heading)
             
@@ -152,15 +158,62 @@ class UniformVelocityCommand(CommandTerm):
             env_ids = self.is_heading_env.nonzero(as_tuple=False).flatten()
             # compute angular velocity
             heading_error = math_utils.wrap_to_pi(self.heading_target[env_ids] - self.robot.data.heading_w[env_ids])
-            self.vel_command_b[env_ids, 2] = torch.clip(
-                self.cfg.heading_control_stiffness * heading_error,
-                min=self.cfg.ranges.ang_vel_z[0],
-                max=self.cfg.ranges.ang_vel_z[1],
-            )
+            if self.cfg.world_frame_command:
+                self.vel_command_w[env_ids, 2] = torch.clip(
+                    self.cfg.heading_control_stiffness * heading_error,
+                    min=self.cfg.ranges.ang_vel_z[0],
+                    max=self.cfg.ranges.ang_vel_z[1], 
+                )
+            else:
+                self.vel_command_b[env_ids, 2] = torch.clip(
+                    self.cfg.heading_control_stiffness * heading_error,
+                    min=self.cfg.ranges.ang_vel_z[0],
+                    max=self.cfg.ranges.ang_vel_z[1],
+                )
+
+        if self.cfg.world_frame_command:
+            self.vel_command_b = self._convert_world_command_to_body(self.vel_command_w)
+
         # Enforce standing (i.e., zero velocity command) for standing envs
         # TODO: check if conversion is needed
         standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
         self.vel_command_b[standing_env_ids, :] = 0.0
+
+    def _convert_world_command_to_body(self, vel_command_w: torch.Tensor, env_ids: Sequence[int] | None = None) -> torch.Tensor:
+        """Convert velocity commands from world frame to body frame.
+        
+        Args:
+            vel_command_w: Velocity commands in world frame [num_envs, 3].
+                        [:, 0:2] are linear velocities (x, y)
+                        [:, 2] is yaw around z-axis
+        
+        Returns:
+            Equivalent commands in body frame (stored in self.vel_command_b)
+        """
+        # Get current orientation of the robot
+        robot_quat_w = self.robot.data.root_quat_w
+
+        if env_ids is None:
+            env_ids = torch.arange(0, self.num_envs, device=self.device, dtype=torch.int32)
+        
+        # Convert linear velocities from world to body frame
+        lin_vel_w = torch.zeros_like(vel_command_w[env_ids, :])
+        lin_vel_w[:, :2] = vel_command_w[env_ids, :2]
+        
+        # Apply inverse rotation to get body-frame velocity
+        lin_vel_b = math_utils.quat_rotate_inverse(robot_quat_w[env_ids], lin_vel_w)
+        vel_command_b = torch.zeros_like(self.vel_command_b)
+        vel_command_b[env_ids, :2] = lin_vel_b[:, :2]
+
+        # Yaw rates are the same in both frames
+        vel_command_b[env_ids, 2] = vel_command_w[env_ids, 2]
+
+        # Debug
+        # _, _, body_yaw = math_utils.euler_xyz_from_quat(robot_quat_w[env_ids])
+        # command_yaw_w = torch.atan2(vel_command_w[env_ids, 1], vel_command_w[env_ids, 0])
+        # command_yaw_b = torch.atan2(vel_command_b[env_ids, 1], vel_command_b[env_ids, 0])
+
+        return vel_command_b
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         # set visibility of markers
@@ -190,7 +243,10 @@ class UniformVelocityCommand(CommandTerm):
         base_pos_w = self.robot.data.root_pos_w.clone()
         base_pos_w[:, 2] += 0.5
         # -- resolve the scales and quaternions
-        vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_xy_velocity_to_arrow(self.command[:, :2])
+        if self.cfg.world_frame_command:
+            vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_xy_velocity_to_arrow(self.vel_command_w[:, :2], body_frame=False)
+        else:
+            vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_xy_velocity_to_arrow(self.vel_command_b[:, :2], body_frame=True)
         vel_arrow_scale, vel_arrow_quat = self._resolve_xy_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :2])
         # display markers
         self.goal_vel_visualizer.visualize(base_pos_w, vel_des_arrow_quat, vel_des_arrow_scale)
@@ -200,7 +256,7 @@ class UniformVelocityCommand(CommandTerm):
     Internal helpers.
     """
 
-    def _resolve_xy_velocity_to_arrow(self, xy_velocity: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _resolve_xy_velocity_to_arrow(self, xy_velocity: torch.Tensor, body_frame: bool=True) -> tuple[torch.Tensor, torch.Tensor]:
         """Converts the XY base velocity command to arrow direction rotation."""
         # obtain default scale of the marker
         default_scale = self.goal_vel_visualizer.cfg.markers["arrow"].scale
@@ -211,9 +267,11 @@ class UniformVelocityCommand(CommandTerm):
         heading_angle = torch.atan2(xy_velocity[:, 1], xy_velocity[:, 0])
         zeros = torch.zeros_like(heading_angle)
         arrow_quat = math_utils.quat_from_euler_xyz(zeros, zeros, heading_angle)
+        
         # convert everything back from base to world frame
-        base_quat_w = self.robot.data.root_quat_w
-        arrow_quat = math_utils.quat_mul(base_quat_w, arrow_quat)
+        if body_frame:
+            base_quat_w = self.robot.data.root_quat_w
+            arrow_quat = math_utils.quat_mul(base_quat_w, arrow_quat)
 
         return arrow_scale, arrow_quat
 

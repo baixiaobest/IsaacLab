@@ -49,6 +49,9 @@ class UniformVelocityCommandCfg(CommandTermCfg):
     velocity_heading: bool = False
     """Whether to use the heading of the velocity command as the target heading. Defaults to False."""
 
+    world_frame_command: bool = False
+    """Whether the commands are in the world frame or in the robot base frame. Defaults to False."""
+
     heading_control_stiffness: float = 1.0
     """Scale factor to convert the heading error to angular velocity command. Defaults to 1.0."""
 
