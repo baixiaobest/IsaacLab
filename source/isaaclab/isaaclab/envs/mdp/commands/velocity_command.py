@@ -124,16 +124,24 @@ class UniformVelocityCommand(CommandTerm):
     def _resample_command(self, env_ids: Sequence[int]):
         # sample velocity commands
         r = torch.empty(len(env_ids), device=self.device)
-        # -- linear velocity - x direction
-        self.vel_command_b[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
-        # -- linear velocity - y direction
-        self.vel_command_b[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
-        # -- ang vel yaw - rotation around z
-        self.vel_command_b[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
 
         if self.cfg.world_frame_command:
-            self.vel_command_w = self.vel_command_b.clone()
-            self.vel_command_b = self._convert_world_command_to_body(self.vel_command_w)
+            # -- linear velocity - x direction
+            self.vel_command_w[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
+            # -- linear velocity - y direction
+            self.vel_command_w[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
+            # -- ang vel yaw - rotation around z
+            self.vel_command_w[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
+
+            self.vel_command_b[env_ids] = self._convert_world_command_to_body(self.vel_command_w[env_ids], env_ids)
+        else:
+            
+            # -- linear velocity - x direction
+            self.vel_command_b[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
+            # -- linear velocity - y direction
+            self.vel_command_b[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
+            # -- ang vel yaw - rotation around z
+            self.vel_command_b[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
 
         # heading target
         if self.cfg.heading_command:
@@ -183,7 +191,7 @@ class UniformVelocityCommand(CommandTerm):
         """Convert velocity commands from world frame to body frame.
         
         Args:
-            vel_command_w: Velocity commands in world frame [num_envs, 3].
+            vel_command_w: Velocity commands in world frame [num_envs or env_ids.length, 3].
                         [:, 0:2] are linear velocities (x, y)
                         [:, 2] is yaw around z-axis
         
@@ -197,23 +205,19 @@ class UniformVelocityCommand(CommandTerm):
             env_ids = torch.arange(0, self.num_envs, device=self.device, dtype=torch.int32)
         
         # Convert linear velocities from world to body frame
-        lin_vel_w = torch.zeros_like(vel_command_w[env_ids, :])
-        lin_vel_w[:, :2] = vel_command_w[env_ids, :2]
+        lin_vel_w = torch.zeros_like(vel_command_w)
+        lin_vel_w[:, :2] = vel_command_w[:, :2]
         
         # Apply inverse rotation to get body-frame velocity
         lin_vel_b = math_utils.quat_rotate_inverse(robot_quat_w[env_ids], lin_vel_w)
         vel_norm_w = lin_vel_w[:, :2].norm(dim=1, keepdim=True)
         vel_norm_b = lin_vel_b[:, :2].norm(dim=1, keepdim=True)
-        vel_command_b = torch.zeros_like(self.vel_command_b)
-        vel_command_b[env_ids, :2] = lin_vel_b[:, :2] * (vel_norm_w / vel_norm_b + 1e-8) # preserve velocity magnitude
+
+        vel_command_b = torch.zeros_like(vel_command_w)
+        vel_command_b[:, :2] = lin_vel_b[:, :2] * (vel_norm_w / vel_norm_b + 1e-8) # preserve velocity magnitude
 
         # Yaw rates are the same in both frames
-        vel_command_b[env_ids, 2] = vel_command_w[env_ids, 2]
-
-        # Debug
-        # _, _, body_yaw = math_utils.euler_xyz_from_quat(robot_quat_w[env_ids])
-        # command_yaw_w = torch.atan2(vel_command_w[env_ids, 1], vel_command_w[env_ids, 0])
-        # command_yaw_b = torch.atan2(vel_command_b[env_ids, 1], vel_command_b[env_ids, 0])
+        vel_command_b[:, 2] = vel_command_w[:, 2]
 
         return vel_command_b
 
