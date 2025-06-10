@@ -205,7 +205,7 @@ class UniformVelocityCommand(CommandTerm):
         vel_norm_w = lin_vel_w[:, :2].norm(dim=1, keepdim=True)
         vel_norm_b = lin_vel_b[:, :2].norm(dim=1, keepdim=True)
         vel_command_b = torch.zeros_like(self.vel_command_b)
-        vel_command_b[env_ids, :2] = lin_vel_b[:, :2] * (vel_norm_w / vel_norm_b) # preserve velocity magnitude
+        vel_command_b[env_ids, :2] = lin_vel_b[:, :2] * (vel_norm_w / vel_norm_b + 1e-8) # preserve velocity magnitude
 
         # Yaw rates are the same in both frames
         vel_command_b[env_ids, 2] = vel_command_w[env_ids, 2]
