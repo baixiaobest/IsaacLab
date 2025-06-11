@@ -84,7 +84,26 @@ class UniformVelocityCommandCfg(CommandTermCfg):
         This parameter is only used if :attr:`~UniformVelocityCommandCfg.heading_command` is True.
         """
 
-    ranges: Ranges = MISSING
+    @configclass
+    class RangesAngleMag:
+        """Uniform distribution ranges for the velocity commands."""
+
+        lin_vel_mag: tuple[float, float] = MISSING
+        """Range for the linear velocity magnitude command (in m/s)."""
+
+        lin_vel_angle: tuple[float, float] = MISSING
+        """Range for the linear velocity angle command (in rad)."""
+
+        ang_vel_z: tuple[float, float] = MISSING
+        """Range for the angular-z velocity command (in rad/s)."""
+
+        heading: tuple[float, float] | None = None
+        """Range for the heading command (in rad). Defaults to None.
+
+        This parameter is only used if :attr:`~UniformVelocityCommandCfg.heading_command` is True.
+        """
+
+    ranges: Ranges | RangesAngleMag = MISSING
     """Distribution ranges for the velocity commands."""
 
     goal_vel_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(

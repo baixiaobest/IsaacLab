@@ -122,33 +122,48 @@ class UniformVelocityCommand(CommandTerm):
         )
 
     def _resample_command(self, env_ids: Sequence[int]):
+        from isaaclab.envs.mdp.commands.commands_cfg import UniformVelocityCommandCfg
+
         # sample velocity commands
         r = torch.empty(len(env_ids), device=self.device)
 
-        if self.cfg.world_frame_command:
-            # -- linear velocity - x direction
-            self.vel_command_w[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
-            # -- linear velocity - y direction
-            self.vel_command_w[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
-            # -- ang vel yaw - rotation around z
-            self.vel_command_w[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
+        vx = torch.zeros(len(env_ids), device=self.device)
+        vy = torch.zeros_like(vx)
+        vz = torch.zeros_like(vx)
 
+        if isinstance(self.cfg.ranges, UniformVelocityCommandCfg.Ranges):
+            # -- linear velocity - x direction
+            vx = r.uniform_(*self.cfg.ranges.lin_vel_x).clone()
+            # -- linear velocity - y direction
+            vy = r.uniform_(*self.cfg.ranges.lin_vel_y).clone()
+        elif isinstance(self.cfg.ranges, UniformVelocityCommandCfg.RangesAngleMag):
+            # Velocity magnitude and angle
+            mag = r.uniform_(*self.cfg.ranges.lin_vel_mag).clone()
+            angle = r.uniform_(*self.cfg.ranges.lin_vel_angle).clone()
+            vx = mag * torch.cos(angle)
+            vy = mag * torch.sin(angle)
+
+        # -- ang vel yaw - rotation around z
+        vz = r.uniform_(*self.cfg.ranges.ang_vel_z).clone()
+
+        if self.cfg.world_frame_command:
+            self.vel_command_w[env_ids, 0] = vx
+            self.vel_command_w[env_ids, 1] = vy
+            self.vel_command_w[env_ids, 2] = vz
+
+            # convert to body frame
             self.vel_command_b[env_ids] = self._convert_world_command_to_body(self.vel_command_w[env_ids], env_ids)
         else:
-            
-            # -- linear velocity - x direction
-            self.vel_command_b[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
-            # -- linear velocity - y direction
-            self.vel_command_b[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
-            # -- ang vel yaw - rotation around z
-            self.vel_command_b[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
+            self.vel_command_b[env_ids, 0] = vx
+            self.vel_command_b[env_ids, 1] = vy
+            self.vel_command_b[env_ids, 2] = vz
 
         # heading target
         if self.cfg.heading_command:
             if self.cfg.velocity_heading:
                 self.heading_target[env_ids] = torch.atan2(self.vel_command_w[env_ids, 1], self.vel_command_w[env_ids, 0])
             else:
-                self.heading_target[env_ids] = r.uniform_(*self.cfg.ranges.heading)
+                self.heading_target[env_ids] = r.uniform_(*self.cfg.ranges.heading).clone()
             
             self.is_heading_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_heading_envs
         # update standing envs
