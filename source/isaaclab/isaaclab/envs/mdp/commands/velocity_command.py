@@ -201,6 +201,7 @@ class UniformVelocityCommand(CommandTerm):
         # TODO: check if conversion is needed
         standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
         self.vel_command_b[standing_env_ids, :] = 0.0
+        self.vel_command_w[standing_env_ids, :] = 0.0
 
     def _convert_world_command_to_body(self, vel_command_w: torch.Tensor, env_ids: Sequence[int] | None = None) -> torch.Tensor:
         """Convert velocity commands from world frame to body frame.
