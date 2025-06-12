@@ -19,6 +19,9 @@ from isaaclab.assets import Articulation
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
 from isaaclab.envs.mdp.commands import UniformVelocityCommand, UniformVelocityCommandCfg
+from isaaclab.managers.manager_base import ManagerTermBase
+from isaaclab.managers.manager_term_cfg import ManagerTermBaseCfg
+from isaaclab.envs.manager_based_env import ManagerBasedEnv
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -92,4 +95,33 @@ def command_velocity_level(
         command_term.cfg.ranges = terrain_level_to_velocity_range[str(max_level)]
     
     return terrain_level
-    
+
+class GetMeanTerrainLevel(ManagerTermBase):
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self.matched_env_ids = None
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv, 
+        env_ids: Sequence[int],
+        terrain_name: str) -> torch.Tensor:
+        """Get the mean terrain level for the given environment ids.
+        Args:
+            env: The environment to get the terrain level from.
+            env_ids: The environment ids to get the terrain level for.
+            terrain_name: The name of the terrain to get the level for.
+        Returns:
+            The mean terrain level for the given environment ids.
+        """
+        # if not previously computed, compute the env ids that corresponds with terrain name.
+        terrain: TerrainImporter = env.scene.terrain
+        if self.matched_env_ids is None:
+            env_terrain_names = terrain.get_env_terrain_names()
+            self.matched_env_ids = torch.tensor([i for i, name in enumerate(env_terrain_names) if name == terrain_name], dtype=torch.int, device=env.device) 
+
+        if self.matched_env_ids.size() == 0:
+            return torch.zeros(1)
+        
+        matched_env_terrain_levels = terrain.terrain_levels[self.matched_env_ids]
+        return torch.mean(matched_env_terrain_levels, dtype=torch.float32)

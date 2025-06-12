@@ -141,6 +141,10 @@ class TerrainGenerator:
         self.terrain_meshes = list()
         self.terrain_origins = np.zeros((self.cfg.num_rows, self.cfg.num_cols, 3))
 
+        # Terrain names, only used for curriculum-based terrains.
+        # The index corresponds to the column index of the terrain.
+        self.terrain_names = [""] * self.cfg.num_cols
+
         # parse configuration and add sub-terrains
         # create terrains based on curriculum or randomly
         if self.cfg.curriculum:
@@ -177,6 +181,14 @@ class TerrainGenerator:
         terrain_origins_torch = torch.tensor(self.terrain_origins, dtype=torch.float, device=self.device).unsqueeze(2)
         for name, value in self.flat_patches.items():
             self.flat_patches[name] = value + terrain_origins_torch
+
+    def get_terrain_names(self) -> list[str]:
+        """Get the names of the sub-terrains.
+
+        Returns:
+            A list of names of the sub-terrains.
+        """
+        return self.terrain_names
 
     def __str__(self):
         """Return a string representation of the terrain generator."""
@@ -235,6 +247,7 @@ class TerrainGenerator:
         sub_indices = np.array(sub_indices, dtype=np.int32)
         # create a list of all terrain configs
         sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
+        sub_terrains_names = list(self.cfg.sub_terrains.keys())
 
         # curriculum-based sub-terrains
         for sub_col in range(self.cfg.num_cols):
@@ -252,6 +265,8 @@ class TerrainGenerator:
                 mesh, origin = self._get_terrain_mesh(difficulty, sub_terrains_cfgs[sub_indices[sub_col]])
                 # add to sub-terrains
                 self._add_sub_terrain(mesh, origin, sub_row, sub_col, sub_terrains_cfgs[sub_indices[sub_col]])
+                # Store the names
+                self.terrain_names[sub_col] = sub_terrains_names[sub_indices[sub_col]]
 
     """
     Internal helper functions.

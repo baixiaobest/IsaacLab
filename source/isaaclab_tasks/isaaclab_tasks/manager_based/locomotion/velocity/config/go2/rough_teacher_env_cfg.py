@@ -28,6 +28,8 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import My
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
+from isaaclab.terrains.config.rough import DIVERSE_TERRAINS_CFG
+
 
 ##
 # Pre-defined configs
@@ -132,6 +134,19 @@ class RoughTeacherScandotsOnlyObservationsCfg:
     policy: RoughTeacherScandotsOnlyPolicyCfg = RoughTeacherScandotsOnlyPolicyCfg()
 
 @configclass
+class UnitreeGo2RoughTeacherCurriculum:
+    hf_pyramid_slope_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "hf_pyramid_slope"})
+    hf_pyramid_slope_inv_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "hf_pyramid_slope_inv"})
+
+    boxes_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "boxes"})
+    random_rough_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "random_rough"})
+    
+    pyramid_stairs_inv_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "pyramid_stairs_inv"})
+    pyramid_stairs_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "pyramid_stairs"})
+    
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+
+@configclass
 class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
     scene: RoughTeacherSceneCfg = RoughTeacherSceneCfg(num_envs=4096, env_spacing=2.5)
     observations: RoughTeacherObservationsCfg = RoughTeacherObservationsCfg()
@@ -141,12 +156,14 @@ class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
         self.events.base_com.params['com_range'] = {"x": (-0.10, 0.10), "y": (-0.10, 0.10), "z": (-0.01, 0.01)}
         self.events.physics_material.params = {
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.4, 0.8),
-            "dynamic_friction_range": (0.2, 0.6),
+            "static_friction_range": (0.6, 0.8),
+            "dynamic_friction_range": (0.6, 0.8),
             "restitution_range": (0.0, 0.3),
             "num_buckets": 64,
             "make_consistent": True
         }
+
+        self.curriculum = UnitreeGo2RoughTeacherCurriculum()
 
 @configclass
 class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
@@ -154,7 +171,6 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # Policy determines heading
-        # self.rewards.track_ang_vel_z_exp = None
         self.commands.base_velocity.velocity_heading = True
         self.commands.base_velocity.world_frame_command = True
         self.commands.base_velocity.resampling_time_range=(20.0, 50.0)
@@ -162,8 +178,11 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
             lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
 
+        self.scene.terrain.terrain_generator = DIVERSE_TERRAINS_CFG
+        self.scene.terrain.terrain_generator.curriculum = True
+
         # Add command velocity level to curriculum
-        
+
         # self.curriculum.command_levels = CurrTerm(
         #     func=mdp.command_velocity_level, 
         #     params={
