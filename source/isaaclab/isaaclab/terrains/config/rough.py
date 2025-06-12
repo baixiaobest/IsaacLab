@@ -88,8 +88,9 @@ DIVERSE_TERRAINS_CFG = TerrainGeneratorCfg(
         "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
             proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
         ),
+        # Need to flip the rail_height_range to fix the curriculum bug
         "mesh_rail": terrain_gen.MeshRailsTerrainCfg(
-            proportion=0.1, rail_thickness_range=(0.2, 1.0), rail_height_range=(0.05, 0.4), platform_width=3.0
+            proportion=0.1, rail_thickness_range=(1.0, 2.0), rail_height_range=(0.4, 0.05), platform_width=3.0
         ),
         "mesh_pit": terrain_gen.MeshPitTerrainCfg(
             proportion=0.2, pit_depth_range=(0.05, 0.4), platform_width=3.0
@@ -98,7 +99,7 @@ DIVERSE_TERRAINS_CFG = TerrainGeneratorCfg(
             proportion=0.2, box_height_range=(0.1, 0.5), platform_width=2.0
         ),
         "mesh_gap": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.1, gap_width_range=(0.1, 0.4), platform_width=2.0,
+            proportion=0.1, gap_width_range=(0.05, 0.3), platform_width=2.0,
         ),
         "mesh_repeat_object": terrain_gen.MeshRepeatedBoxesTerrainCfg(
             proportion=0.1,
