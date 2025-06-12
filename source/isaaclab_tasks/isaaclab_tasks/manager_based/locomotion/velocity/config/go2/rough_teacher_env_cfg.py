@@ -161,6 +161,17 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.RangesAngleMag(
             lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
+        self.curriculum.command_levels = CurrTerm(
+            func=mdp.command_velocity_level, 
+            params={
+                'command_name': 'base_velocity',
+                'terrain_level_to_velocity_range': {
+                    "0": mdp.UniformVelocityCommandCfg.RangesAngleMag(
+                        lin_vel_mag=(0, 0.5), lin_vel_angle=(-math.pi, math.pi), ang_vel_z=(-0.5, 0.5), heading=(-math.pi, math.pi)),
+                    "3": mdp.UniformVelocityCommandCfg.RangesAngleMag(
+                        lin_vel_mag=(0.0, 1.0), lin_vel_angle=(-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)),
+                    "4": mdp.UniformVelocityCommandCfg.RangesAngleMag(
+                        lin_vel_mag=(0.0, 1.5), lin_vel_angle=(-math.pi, math.pi), ang_vel_z=(-1.5, 1.5), heading=(-math.pi, math.pi))}})
 
 @configclass
 class UnitreeGo2RoughTeacherScandotsOnlyEnvCfg(UnitreeGo2RoughTeacherEnvCfg):
