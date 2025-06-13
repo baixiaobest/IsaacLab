@@ -273,6 +273,14 @@ class TerminationsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
 
+    base_vel_out_of_limit = DoneTerm(
+        func=mdp.root_velocity_out_of_limit,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),  
+            "max_velocity": 10.0      
+        }
+    )
+
 
 @configclass
 class CurriculumCfg:

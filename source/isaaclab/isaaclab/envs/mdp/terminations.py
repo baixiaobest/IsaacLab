@@ -71,6 +71,15 @@ def root_height_below_minimum(
     asset: RigidObject = env.scene[asset_cfg.name]
     return asset.data.root_pos_w[:, 2] < minimum_height
 
+def root_velocity_out_of_limit(
+    env: ManagerBasedRLEnv, max_velocity: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Terminate when the asset's root velocity is outside the provided limits."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # compute any violations
+    return torch.norm(asset.data.root_vel_w[:, :3], dim=1) > max_velocity
+
 
 """
 Joint terminations.

@@ -187,9 +187,6 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
             lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
 
-        self.scene.terrain.terrain_generator = DIVERSE_TERRAINS_CFG
-        self.scene.terrain.terrain_generator.curriculum = True
-
         # Add command velocity level to curriculum
 
         # self.curriculum.command_levels = CurrTerm(
@@ -203,6 +200,22 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
         #                 lin_vel_mag=(0.0, 1.0), lin_vel_angle=(-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)),
         #             "4": mdp.UniformVelocityCommandCfg.RangesAngleMag(
         #                 lin_vel_mag=(0.0, 1.5), lin_vel_angle=(-math.pi, math.pi), ang_vel_z=(-1.5, 1.5), heading=(-math.pi, math.pi))}})
+
+@configclass
+class UnitreeGo2RoughTeacherEnvCfg_v3(UnitreeGo2RoughTeacherEnvCfg):
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Policy determines heading
+        self.commands.base_velocity.velocity_heading = True
+        self.commands.base_velocity.world_frame_command = True
+        self.commands.base_velocity.resampling_time_range=(20.0, 50.0)
+        self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.RangesAngleMag(
+            lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        )
+
+        self.scene.terrain.terrain_generator = DIVERSE_TERRAINS_CFG
+        self.scene.terrain.terrain_generator.curriculum = True
 
 @configclass
 class UnitreeGo2RoughTeacherScandotsOnlyEnvCfg(UnitreeGo2RoughTeacherEnvCfg):
