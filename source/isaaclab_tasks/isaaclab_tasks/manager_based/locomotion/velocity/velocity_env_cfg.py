@@ -238,6 +238,14 @@ class RewardsCfg:
     track_ang_vel_z_exp = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
+    distance_traveled_reward = RewTerm(
+        func=mdp.distance_travelled_exp, 
+        # Default zero weight
+        weight=0.0, 
+        # The distance is scaled by the inverse of half of the subterrain width 8.0 / 2.0
+        # 1.61 makes it such that the reward is 0.8 (80% of the max reward) when the robot travels outside of the terrain.
+        params={'sigma': 2.0/8.0*1.61}
+    )
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)

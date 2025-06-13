@@ -25,6 +25,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import MySceneCfg
+from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import RewardsCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
@@ -153,7 +154,7 @@ class UnitreeGo2RoughTeacherCurriculum:
     random_rough_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "random_rough"})
     box_terrain_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "boxes"})
     
-    
+
 
 @configclass
 class UnitreeGo2RoughTeacherEnvCfg(UnitreeGo2RoughEnvCfg):
@@ -186,6 +187,8 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.RangesAngleMag(
             lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
+
+        self.rewards.distance_traveled_reward.weight = 1.0
 
         # Add command velocity level to curriculum
 

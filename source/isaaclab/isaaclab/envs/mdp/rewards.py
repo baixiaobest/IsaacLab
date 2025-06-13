@@ -307,3 +307,19 @@ def track_ang_vel_z_exp(
     # compute the error
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_b[:, 2])
     return torch.exp(-ang_vel_error / std**2)
+
+
+"""
+Distance rewards.
+"""
+
+def distance_travelled_exp(
+    env: ManagerBasedRLEnv, sigma: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Reward for the distance travelled by the asset using an exponential kernel."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # compute the distance travelled
+    distance = torch.norm(asset.data.root_pos_w[:, :2] - env.scene.env_origins[:, :2], dim=1)
+
+    return torch.full_like(distance, 1.0, device=env.device) - torch.exp(-sigma * distance)
