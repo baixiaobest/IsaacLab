@@ -291,7 +291,7 @@ class TerminationsCfg:
         func=mdp.root_velocity_out_of_limit,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),  
-            "max_velocity": 10.0      
+            "max_velocity": 5.0      
         }
     )
 
