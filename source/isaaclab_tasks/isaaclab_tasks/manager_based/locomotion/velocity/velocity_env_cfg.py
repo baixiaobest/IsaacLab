@@ -242,9 +242,15 @@ class RewardsCfg:
         func=mdp.distance_travelled_exp, 
         # Default zero weight
         weight=0.0, 
-        # The distance is scaled by the inverse of half of the subterrain width 8.0 / 2.0
-        # 1.61 makes it such that the reward is 0.8 (80% of the max reward) when the robot travels outside of the terrain.
-        params={'sigma': 2.0/8.0*1.61}
+        params={
+            # The distance is scaled by the inverse of half of the subterrain width 8.0 / 2.0
+            # 1.61 makes it such that the reward is 0.8 (80% of the max reward) when the robot travels outside of the terrain.
+            'sigma': 2.0/8.0*1.61,
+            # Distance to travel outside of the terrain is 4 meters, the episode length is 20 seconds,
+            # so the robot should be travelling at least 0.2 m/s to get the reward. 
+            'minimum_command_velocity': 0.2,
+            'command_name': "base_velocity",
+            }
     )
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)

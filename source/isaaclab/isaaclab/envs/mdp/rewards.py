@@ -314,12 +314,21 @@ Distance rewards.
 """
 
 def distance_travelled_exp(
-    env: ManagerBasedRLEnv, sigma: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    env: ManagerBasedRLEnv, 
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    sigma: float = 1.0, 
+    minimum_command_velocity: float = 0.1,
+    command_name: str = "base_velocity"
 ) -> torch.Tensor:
     """Reward for the distance travelled by the asset using an exponential kernel."""
-    # extract the used quantities (to enable type-hinting)
+    
     asset: RigidObject = env.scene[asset_cfg.name]
     # compute the distance travelled
     distance = torch.norm(asset.data.root_pos_w[:, :2] - env.scene.env_origins[:, :2], dim=1)
+    # Remove the reward caused by the initial position
+    distance = torch.max(distance - 0.5, torch.zeros_like(distance, device=env.device))
+    commands = env.command_manager.get_command(command_name)
+    min_cmd_vel = torch.full((env.num_envs,), minimum_command_velocity, device=env.device)
+    reward_non_zero = torch.norm(commands[:, :2], dim=1).greater(min_cmd_vel)
 
-    return torch.full_like(distance, 1.0, device=env.device) - torch.exp(-sigma * distance)
+    return reward_non_zero * (torch.full_like(distance, 1.0, device=env.device) - torch.exp(-sigma * distance))

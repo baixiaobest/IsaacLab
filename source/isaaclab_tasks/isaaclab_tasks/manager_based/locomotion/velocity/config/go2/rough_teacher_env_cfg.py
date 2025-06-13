@@ -217,6 +217,8 @@ class UnitreeGo2RoughTeacherEnvCfg_v3(UnitreeGo2RoughTeacherEnvCfg):
             lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
 
+        self.rewards.distance_traveled_reward.weight = 1.0
+
         self.scene.terrain.terrain_generator = DIVERSE_TERRAINS_CFG
         self.scene.terrain.terrain_generator.curriculum = True
 
