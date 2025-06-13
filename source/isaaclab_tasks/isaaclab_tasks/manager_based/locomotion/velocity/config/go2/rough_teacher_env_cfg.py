@@ -263,15 +263,15 @@ class UnitreeGo2RoughTeacherCfg_PLAY_v2(UnitreeGo2RoughTeacherEnvCfg_v2):
         super().__post_init__()
 
         # make a smaller scene for play
-        self.scene.num_envs = 50
-        self.scene.env_spacing = 2.5
+        self.scene.num_envs = 100
         # spawn the robot randomly in the grid (instead of their terrain levels)
         self.scene.terrain.max_init_terrain_level = None
         # reduce the number of terrains to save memory
         if self.scene.terrain.terrain_generator is not None:
             self.scene.terrain.terrain_generator.num_rows = 10
-            self.scene.terrain.terrain_generator.num_cols = 5
+            self.scene.terrain.terrain_generator.num_cols = 10
             self.scene.terrain.terrain_generator.curriculum = True
+            self.scene.terrain.max_init_terrain_level = 10
 
         # disable randomization for play
         self.observations.policy.enable_corruption = False
