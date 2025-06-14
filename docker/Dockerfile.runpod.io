@@ -32,13 +32,6 @@ RUN bash ./isaaclab.sh -i rsl_rl
 
 RUN ./isaaclab.sh -p -m pip install wandb
 
-# Install brev for self-stopping
-RUN curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh | \
-    sed 's/sudo //g' | \
-    bash
-
-# Set the entrypoint to a shell script
-ENTRYPOINT ["/bin/bash", "-l", "-c"]
-
-# Default command when no arguments are provided
-CMD ["/bin/bash"]
+# Setup for runpod.io
+ENTRYPOINT [""]
+CMD ["sleep", "infinity"]
