@@ -19,6 +19,8 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers.manager_term_cfg import RewardTermCfg
 from isaaclab.sensors import ContactSensor, RayCaster
+import isaaclab.utils.math as math_utils
+import math
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -95,6 +97,30 @@ def flat_orientation_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Scen
     # extract the used quantities (to enable type-hinting)
     asset: RigidObject = env.scene[asset_cfg.name]
     return torch.sum(torch.square(asset.data.projected_gravity_b[:, :2]), dim=1)
+
+def flat_orientation_exp(
+        env: ManagerBasedRLEnv, 
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+        threshold_deg: float = 10
+) -> torch.Tensor:
+    """Penalize non-flat base orientation using exponential squared kernel.
+
+    This is computed by penalizing the roll and pitch angle.
+    We penalize the roll and pitch when they are close to zero, but fix the penalty when they are larger than a threshold.
+    This is useful for walking robots that need to maintain a flat orientation while walking.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    roll, pitch, _ = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    roll = math_utils.wrap_to_pi(roll)
+    pitch = math_utils.wrap_to_pi(pitch)
+    threshold_rad = math.radians(threshold_deg)
+    sigma = -1.6/threshold_rad # Why 1.6? this incurs 80% of the penalty at the threshold.
+    # Compute the roll and pitch penalties
+    roll_penalty = torch.full_like(roll, 1.0, device=env.device) - torch.exp(sigma * torch.abs(roll))
+    pitch_penalty = torch.full_like(pitch, 1.0, device=env.device) - torch.exp(sigma * torch.abs(pitch))
+
+    return roll_penalty + pitch_penalty
 
 
 def base_height_l2(

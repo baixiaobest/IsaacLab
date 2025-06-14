@@ -276,6 +276,7 @@ class RewardsCfg:
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
     joint_deviation = RewTerm(func=mdp.joint_deviation_l1, weight=0.0)
+    flat_orientation_exp = RewTerm(func=mdp.flat_orientation_exp, weight=0.0)
 
 
 @configclass
