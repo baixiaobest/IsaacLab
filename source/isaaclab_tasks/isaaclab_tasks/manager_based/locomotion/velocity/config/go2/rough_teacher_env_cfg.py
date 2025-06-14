@@ -221,7 +221,7 @@ class UnitreeGo2RoughTeacherEnvCfg_v3(UnitreeGo2RoughTeacherEnvCfg):
         self.rewards.joint_deviation.params = {
             'asset_cfg': SceneEntityCfg("robot", 
             joint_names=["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint"])}
-        self.rewards.joint_deviation.weight = -0.05
+        self.rewards.joint_deviation.weight = -0.2
 
         self.scene.terrain.terrain_generator = DIVERSE_TERRAINS_CFG
         self.scene.terrain.terrain_generator.curriculum = True
