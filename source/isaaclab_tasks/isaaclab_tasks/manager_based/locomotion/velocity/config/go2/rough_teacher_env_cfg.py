@@ -228,7 +228,8 @@ class UnitreeGo2RoughTeacherEnvCfg_v3(UnitreeGo2RoughTeacherEnvCfg):
         self.rewards.joint_deviation.weight = -0.2
 
         # Encourage larger step
-        self.rewards.feet_air_time.weight = 0.05
+        self.rewards.feet_air_time.weight = 0.1
+        self.rewards.feet_air_time.params['threshold'] = 0.1
 
         # Flater body during walking
         self.rewards.flat_orientation_exp.weight = -0.1
