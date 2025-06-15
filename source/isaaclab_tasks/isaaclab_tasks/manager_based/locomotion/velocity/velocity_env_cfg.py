@@ -273,8 +273,8 @@ class RewardsCfg:
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
             "command_name": "base_velocity",
-            "range": (0.6, 1.2),
-            "T": 0.4
+            "range": (0.5, 1.7),
+            "T": 0.5
         },
     )
     undesired_contacts = RewTerm(
