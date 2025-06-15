@@ -232,7 +232,7 @@ class UnitreeGo2RoughTeacherEnvCfg_v3(UnitreeGo2RoughTeacherEnvCfg):
         self.rewards.feet_air_time_range.weight = 0.1
 
         # Flater body during walking
-        self.rewards.flat_orientation_exp.weight = -0.1
+        self.rewards.flat_orientation_range.weight = -0.1
 
         self.scene.terrain.terrain_generator = DIVERSE_TERRAINS_CFG
         self.scene.terrain.terrain_generator.curriculum = True

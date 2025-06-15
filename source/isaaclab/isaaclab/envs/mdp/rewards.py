@@ -122,6 +122,46 @@ def flat_orientation_exp(
 
     return roll_penalty + pitch_penalty
 
+def flat_orientation_range(
+    env: ManagerBasedRLEnv, 
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"), 
+    range_deg: tuple[float, float] = (-10, 10),
+    T: float = 0.26, # 15 degrees
+) -> torch.Tensor:
+    """ Penalize non-flat base orientation using range penalty.
+    This is computed by penalizing the roll and pitch angle if they are outside the specified range.
+    
+    First, define a preliminary penalty function as f1(x) = 1 - 1 / (1 + exp(-c * (x-r1))) + 1 / (1 + exp(-c * (x-r2))),
+    where r1 and r2 are the lower and upper bounds of the range, respectively, and c is a constant that controls
+    the steepness of the sigmoid function.
+
+    The steepness c is defined by: c = 4.39 / T. This means that the function increase/decrease from 0.1 to 0.9 in range of T at
+    the boundary r1 and r2.
+
+    The problem with f1 is that the penalty is only 0.5 when x is at the boundary r1 or r2. We can make the penalty to 0.9 
+    by defining:
+        f2(x) = 1 - 1 / (1 + exp(-c * (x - r1 + T/2))) + 1 / (1 + exp(-c * (x - r2 -T/2))), 
+    which shifts the sigmoid function outward so that f2(r1) = 0.1 and f2(r2) = 0.1.
+
+    f2(x) is what we compute for the penalty.
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    roll, pitch, _ = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    roll = math_utils.wrap_to_pi(roll)
+    pitch = math_utils.wrap_to_pi(pitch)
+    c = 4.39 / T  # steepness of the sigmoid function
+    r1, r2 = math.radians(range_deg[0]), math.radians(range_deg[1])  # lower and upper bounds of the range
+    # compute the penalty using the double sigmoid function
+    roll_penalty = (
+        1.0 - 1.0 / (1.0 + torch.exp(-c * (roll - r1 + T / 2))) +
+        1.0 / (1.0 + torch.exp(-c * (roll - r2 - T / 2)))
+    )
+    pitch_penalty = (
+        1.0 - 1.0 / (1.0 + torch.exp(-c * (pitch - r1 + T / 2))) + 
+        1.0 / (1.0 + torch.exp(-c * (pitch - r2 - T / 2)))
+    )
+    penalty = (roll_penalty + pitch_penalty) / 2.0
+    return penalty
 
 def base_height_l2(
     env: ManagerBasedRLEnv,
