@@ -43,6 +43,53 @@ def feet_air_time(
     reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
     return reward
 
+def feet_air_time_range(
+    env: ManagerBasedRLEnv, 
+    command_name: str, 
+    sensor_cfg: SceneEntityCfg, 
+    range: tuple[float, float] = (0.5, 1.0),
+    T: float = 0.3
+) -> torch.Tensor:
+    """ Reward long steps taken by the feet within a specified range.
+
+    This function rewards the agent for taking steps that are within a specified range. The reward is computed
+    using double sigmoid function, which decreases to zero outside the range and increases to 1 within the range.
+
+    First, define a preliminary function as f1(x) = 1 / (1 + exp(-c * (x-r1))) - 1 / (1 + exp(-c * (x-r2))),
+    where r1 and r2 are the lower and upper bounds of the range, respectively, and c is a constant that controls
+    the steepness of the sigmoid function.
+
+    The steepness c is defined by: c = 4.39 / T. This means that the function increase from 0.1 to 0.9 in range of T at
+    the boundary r1 and r2.
+
+    The problem with f1 is that the reward is only 0.5 when x is at the boundary r1 or r2. We can make the reward to 0.9 
+    by defining:
+        f2(x) = 1 / (1 + exp(-c * (x - r1 + T/2))) - 1 / (1 + exp(-c * (x - r2 -T/2))), 
+    which shifts the sigmoid function outward so that f2(r1) = 0.9 and f2(r2) = 0.9.
+
+    f2(x) is what we compute for the reward.
+
+    """
+
+    # extract the used quantities (to enable type-hinting)
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    # compute the reward
+    first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
+    last_air_time = contact_sensor.data.last_air_time[:, sensor_cfg.body_ids]
+    c = 4.39 / T  # steepness of the sigmoid function
+    r1, r2 = range  # lower and upper bounds of the range
+    # compute the reward using the double sigmoid function
+    reward = (
+        1.0 / (1.0 + torch.exp(-c * (last_air_time - r1 + T / 2))) -
+        1.0 / (1.0 + torch.exp(-c * (last_air_time - r2 - T / 2)))
+    ) * first_contact
+    reward_dim1 = reward.size(dim=1)
+    reward = torch.sum(reward, dim=1) / reward_dim1
+    # no reward for zero command
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    # return the reward
+    return reward
+
 
 def feet_air_time_positive_biped(env, command_name: str, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """Reward long steps taken by the feet for bipeds.
