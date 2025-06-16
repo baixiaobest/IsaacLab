@@ -126,7 +126,7 @@ def flat_orientation_range(
     env: ManagerBasedRLEnv, 
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"), 
     range_deg: tuple[float, float] = (-10, 10),
-    T: float = 0.26, # 15 degrees
+    T: float = 0.17, # 10 degrees
 ) -> torch.Tensor:
     """ Penalize non-flat base orientation using range penalty.
     This is computed by penalizing the roll and pitch angle if they are outside the specified range.

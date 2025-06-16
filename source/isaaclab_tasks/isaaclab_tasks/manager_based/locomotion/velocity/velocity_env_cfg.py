@@ -289,8 +289,8 @@ class RewardsCfg:
     flat_orientation_range = RewTerm(func=mdp.flat_orientation_range, 
                                      weight=0.0,
                                      params={
-                                         "range_deg": (-10.0, 10.0),
-                                         "T": 0.26 # 15 degrees
+                                         "range_deg": (-5.0, 5.0),
+                                         "T": 0.17 # 10 degrees
                                      })
 
 
