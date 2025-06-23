@@ -916,3 +916,117 @@ def repeated_objects_terrain(
     meshes_list.append(platform)
 
     return meshes_list, origin
+
+
+def room_terrain(
+        difficulty: float, cfg: mesh_terrains_cfg.MeshRoomTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    ground_plane = make_plane(cfg.size, height=0.0, center_zero=False)
+
+    origin = np.asarray([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    
+    door_width = cfg.door_width_range[1] - difficulty * (cfg.door_width_range[1] - cfg.door_width_range[0])
+    wall_length = cfg.room_size * 0.5 + cfg.wall_thickness - 0.5 * door_width
+
+    vertical_wall_dim = (cfg.wall_thickness, wall_length, cfg.wall_height)
+    horizontal_wall_dim = (wall_length, cfg.wall_thickness, cfg.wall_height)
+
+    left_bottom_wall_pos = np.array([
+        origin[0] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        origin[1] - door_width * 0.5 - wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    left_top_wall_pos = np.array([
+        origin[0] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        origin[1] + door_width * 0.5 + wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    right_bottom_wall_pos = np.array([
+        origin[0] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        origin[1] - door_width * 0.5 - wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    right_top_wall_pos = np.array([
+        origin[0] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        origin[1] + door_width * 0.5 + wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    top_left_wall_pos = np.array([
+        origin[0] - door_width * 0.5 - wall_length * 0.5,
+        origin[1] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    top_right_wall_pos = np.array([
+        origin[0] + door_width * 0.5 + wall_length * 0.5,
+        origin[1] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    bottom_left_wall_pos = np.array([
+        origin[0] - door_width * 0.5 - wall_length * 0.5,
+        origin[1] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    bottom_right_wall_pos = np.array([
+        origin[0] + door_width * 0.5 + wall_length * 0.5,
+        origin[1] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    # Create the walls
+    left_bottom_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(left_bottom_wall_pos))
+    left_top_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(left_top_wall_pos))
+    right_bottom_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(right_bottom_wall_pos))
+    right_top_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(right_top_wall_pos))
+    top_left_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(top_left_wall_pos))
+    top_right_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(top_right_wall_pos))
+    bottom_left_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(bottom_left_wall_pos))
+    bottom_right_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(bottom_right_wall_pos))
+
+    # Create the door
+    door_top_rail_height = cfg.wall_height - cfg.door_height
+    door_top_rail_dim_vertical = (cfg.wall_thickness, door_width, door_top_rail_height)
+    door_top_rail_dim_horizontal = (door_width, cfg.wall_thickness, door_top_rail_height)
+
+    door_top_rail_left_pos = np.array([
+        origin[0] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        origin[1],
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+
+    door_top_rail_right_pos = np.array([
+        origin[0] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        origin[1],
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+
+    door_top_rail_top_pos = np.array([
+        origin[0],
+        origin[1] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+
+    door_top_rail_bottom_pos = np.array([
+        origin[0],
+        origin[1] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+    door_top_rail_left = trimesh.creation.box(door_top_rail_dim_vertical, trimesh.transformations.translation_matrix(door_top_rail_left_pos))
+    door_top_rail_right = trimesh.creation.box(door_top_rail_dim_vertical, trimesh.transformations.translation_matrix(door_top_rail_right_pos))
+    door_top_rail_top = trimesh.creation.box(door_top_rail_dim_horizontal, trimesh.transformations.translation_matrix(door_top_rail_top_pos))
+    door_top_rail_bottom = trimesh.creation.box(door_top_rail_dim_horizontal, trimesh.transformations.translation_matrix(door_top_rail_bottom_pos))
+
+    mesh_list = [
+        ground_plane,
+        left_bottom_wall, left_top_wall, right_bottom_wall, right_top_wall,
+        top_left_wall, top_right_wall, bottom_left_wall, bottom_right_wall,
+        door_top_rail_left, door_top_rail_right, door_top_rail_top, door_top_rail_bottom
+    ]
+
+    return mesh_list, origin

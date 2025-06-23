@@ -122,30 +122,36 @@ COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
     slope_threshold=0.75,
     use_cache=False,
     sub_terrains={
-        # "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
-        #     proportion=1.0,
-        #     step_height_range=(0.05, 0.15),
-        #     num_steps=10,
-        #     step_width=0.2,
-        #     stairs_width=2.0,
-        #     stairs_length=6.0,
-        #     origin_offset_y=4.5),
-        # "linear_stairs_top": terrain_gen.MeshLinearStairsTerrainCfg(
-        #     proportion=1.0,
-        #     step_height_range=(0.05, 0.15),
-        #     num_steps=10,
-        #     step_width=0.2,
-        #     stairs_width=2.0,
-        #     stairs_length=6.0,
-        #     origin_offset_y=0.0),
-        # "twosided_rails": terrain_gen.MeshTwosidedRailsTerrainCfg(
-        #     proportion=1.0,
-        #     rail_thickness=0.5,
-        #     rail_height_range=(0.05, 0.6),
-        #     rail_width=4.0,
-        #     platform_width=2.0
-        # ),
-        
+        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=4.5),
+        "linear_stairs_top": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=0.0),
+        "twosided_rails": terrain_gen.MeshTwosidedRailsTerrainCfg(
+            proportion=1.0,
+            rail_thickness=0.5,
+            rail_height_range=(0.05, 0.6),
+            rail_width=4.0,
+            platform_width=2.0
+        ),
+        "room": terrain_gen.MeshRoomTerrainCfg(
+            proportion=1.0,
+            room_size=6.0,
+            wall_thickness=0.2,
+            wall_height=3.0,
+            door_width_range=(0.5, 1.5),
+            door_height=2.0)
     }
 )
 

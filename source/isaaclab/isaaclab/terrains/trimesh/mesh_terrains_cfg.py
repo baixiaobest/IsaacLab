@@ -312,3 +312,21 @@ class MeshRepeatedCylindersTerrainCfg(MeshRepeatedObjectsTerrainCfg):
     """The box curriculum parameters at the start of the curriculum."""
     object_params_end: ObjectCfg = MISSING
     """The box curriculum parameters at the end of the curriculum."""
+
+
+@configclass
+class MeshRoomTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with a room-like structure."""
+
+    function = mesh_terrains.room_terrain
+
+    wall_thickness: float = MISSING
+    """The thickness of the walls (in m)."""
+    wall_height: float = MISSING
+    """The height of the walls (in m)."""
+    door_width_range: tuple[float, float] = MISSING
+    """The width of the door (in m)."""
+    door_height: float = MISSING
+    """The height of the door (in m)."""
+    room_size: float = 1.0
+    """The width of the square platform at the center of the terrain. Defaults to 1.0."""
