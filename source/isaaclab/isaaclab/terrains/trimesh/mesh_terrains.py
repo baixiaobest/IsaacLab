@@ -459,6 +459,38 @@ def rails_terrain(
     return meshes_list, origin
 
 
+def two_sided_rails_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshTwosidedRailsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """
+    Generate a terrain with a single rail on one side, and flat on the other side.
+    """
+    # resolve the terrain configuration (similar to rails_terrain)
+    rail_height = cfg.rail_height_range[0] + difficulty * (cfg.rail_height_range[1] - cfg.rail_height_range[0])
+    rail_thickness = cfg.rail_thickness
+
+    meshes_list = []
+
+    # create ground
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    meshes_list.append(ground_mesh)
+
+    # create a single rail along the "top" side
+    # (width covers entire x dimension; thickness is minimal in y; rail_height in z)
+    rail_dim = (cfg.rail_width, rail_thickness, rail_height)
+    rail_pos = (0.5 * cfg.size[0], 0.5 * cfg.size[1] + rail_thickness * 0.5 + cfg.platform_width * 0.5, rail_height * 0.5)
+    rail_pos2 = (0.5 * cfg.size[0], 0.5 * cfg.size[1] - rail_thickness * 0.5 - cfg.platform_width * 0.5, rail_height * 0.5)
+    rail_mesh = trimesh.creation.box(rail_dim, trimesh.transformations.translation_matrix(rail_pos))
+    rail_mesh2 = trimesh.creation.box(rail_dim, trimesh.transformations.translation_matrix(rail_pos2))
+    meshes_list.append(rail_mesh)
+    meshes_list.append(rail_mesh2)
+
+    # specify the origin of the terrain
+    origin = np.array([cfg.size[0] * 0.5, cfg.size[1] * 0.5, 0.0])
+
+    return meshes_list, origin
+
+
 def pit_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshPitTerrainCfg
 ) -> tuple[list[trimesh.Trimesh], np.ndarray]:
