@@ -247,6 +247,35 @@ def inverted_pyramid_stairs_terrain(
     return meshes_list, origin
 
 
+def linear_stairs_terrain(
+    difficulty: float,
+    cfg: mesh_terrains_cfg.MeshLinearStairsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    
+    terrain_center = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    # compute the vertices of the terrain
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    mesh_list = [ground_mesh]
+    step_height = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+    box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
+    box_length = cfg.stairs_length
+
+    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
+        distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
+        origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
+        origin[2] = origin_height
+
+    for i in range(cfg.num_steps):
+        box_dim = (cfg.stairs_width, box_length, step_height)
+        box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(box_center))
+        mesh_list.append(box)
+        box_length -= 2*cfg.step_width
+        box_center[2] += step_height
+
+    return mesh_list, origin
+
+
 def random_grid_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshRandomGridTerrainCfg
 ) -> tuple[list[trimesh.Trimesh], np.ndarray]:

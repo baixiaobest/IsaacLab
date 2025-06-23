@@ -111,4 +111,34 @@ DIVERSE_TERRAINS_CFG = TerrainGeneratorCfg(
         ),
     },
 )
+
+COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_height=20.0,
+    num_rows=10,
+    num_cols=1,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    sub_terrains={
+        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=4.5),
+        "linear_stairs_top": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=0.0)
+    }
+)
+
 """Rough terrains configuration."""
