@@ -8,6 +8,7 @@
 import isaaclab.terrains as terrain_gen
 
 from ..terrain_generator_cfg import TerrainGeneratorCfg
+from ..single_terrain_generator_cfg import SingleTerrainGeneratorCfg
 
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
@@ -154,5 +155,9 @@ COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
             door_height=2.0)
     }
 )
+
+MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
+    size=(100.0, 100.0),
+    seed=89)
 
 """Rough terrains configuration."""
