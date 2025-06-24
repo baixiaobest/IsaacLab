@@ -157,7 +157,16 @@ COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
 )
 
 MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
-    size=(100.0, 100.0),
-    seed=89)
+    terrain_config=terrain_gen.HfMountainTerrainCfg(
+        size=(100.0, 100.0),
+        mountain_height_range=(-15.0, 15.0),
+        scale=1000.0,
+        amplitudes=[0.4, 1.0, 0.0, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005],
+        lacunarity=2.0,
+        seed=2,
+        horizontal_scale=0.1,
+        vertical_scale=0.005,
+    )
+)
 
 """Rough terrains configuration."""

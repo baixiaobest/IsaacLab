@@ -112,7 +112,7 @@ class TerrainImporter:
                 cfg=self.cfg.single_terrain_generator, device=self.device
             )
             self.import_mesh("terrain", self._single_terrain_generator.terrain_mesh)
-            self.configure_env_origins()
+            self.configure_env_origins(self._single_terrain_generator.terrain_origins)
         else:
             raise ValueError(f"Terrain type '{self.cfg.terrain_type}' not available.")
 

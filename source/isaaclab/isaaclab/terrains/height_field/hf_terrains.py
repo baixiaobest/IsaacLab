@@ -11,7 +11,8 @@ import numpy as np
 import scipy.interpolate as interpolate
 from typing import TYPE_CHECKING
 
-from .utils import height_field_to_mesh
+from .utils import height_field_to_mesh, height_field_to_mesh2
+from .utils import generate_all_noise_maps, custom_perlin_noise
 
 if TYPE_CHECKING:
     from . import hf_terrains_cfg
@@ -434,3 +435,50 @@ def stepping_stones_terrain(difficulty: float, cfg: hf_terrains_cfg.HfSteppingSt
     hf_raw[x1:x2, y1:y2] = 0
     # round off the heights to the nearest vertical step
     return np.rint(hf_raw).astype(np.int16)
+
+
+@height_field_to_mesh2
+def mountain_terrain(difficulty: float, cfg: hf_terrains_cfg.HfMountainTerrainCfg) -> np.ndarray:
+    """Generate a terrain with a mountain pattern.
+
+    The terrain is a mountain pattern which trims to a flat platform at the center of the terrain.
+
+    .. image:: ../../_static/terrains/height_field/mountain_terrain.jpg
+       :width: 40%
+       :align: center
+
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        The height field of the terrain as a 2D numpy array with discretized heights.
+        The shape of the array is (width, length), where width and length are the number of points
+        along the x and y axis, respectively.
+    """
+    # resolve terrain configuration
+    mountain_height = cfg.mountain_height_range[0] + difficulty * (
+        cfg.mountain_height_range[1] - cfg.mountain_height_range[0]
+    )
+    # switch parameters to discrete units
+    # -- terrain
+    width_pixels = int(cfg.size[0] / cfg.horizontal_scale)
+    length_pixels = int(cfg.size[1] / cfg.horizontal_scale)
+
+    min_height = int(cfg.mountain_height_range[0] / cfg.vertical_scale)
+    max_height = int(cfg.mountain_height_range[1] / cfg.vertical_scale)
+
+    param_set = [{
+        "width": length_pixels, 
+        "length": length_pixels, 
+        "scale": cfg.scale, 
+        "amplitudes": cfg.amplitudes, 
+        "lacunarity": cfg.lacunarity
+    }]
+    # generate the height field using custom perlin noise
+    noise = generate_all_noise_maps(custom_perlin_noise, param_set, seed=cfg.seed)[0]
+
+    # scale the noise to the height range
+    height_map = min_height + (max_height - min_height) * (noise + 1.0) / 2.0
+
+    return np.rint(height_map).astype(np.int16)

@@ -75,6 +75,65 @@ def height_field_to_mesh(func: Callable) -> Callable:
 
     return wrapper
 
+def height_field_to_mesh2(func: Callable) -> Callable:
+    """Decorator to convert a height field function to a mesh function.
+
+    This decorator converts a height field function to a mesh function by sampling the heights
+    at a specified resolution and performing interpolation to obtain the intermediate heights.
+    Additionally, it adds a border around the terrain to avoid artifacts at the edges.
+
+    Args:
+        func: The height field function to convert. The function should return a 2D numpy array
+            with the heights of the terrain.
+
+    Returns:
+        The mesh function. The mesh function returns a tuple containing a list of ``trimesh``
+        mesh objects, the origin of the terrain and heights.
+    """
+
+    @functools.wraps(func)
+    def wrapper(difficulty: float, cfg: HfTerrainBaseCfg):
+        # check valid border width
+        if cfg.border_width > 0 and cfg.border_width < cfg.horizontal_scale:
+            raise ValueError(
+                f"The border width ({cfg.border_width}) must be greater than or equal to the"
+                f" horizontal scale ({cfg.horizontal_scale})."
+            )
+        # allocate buffer for height field (with border)
+        width_pixels = int(cfg.size[0] / cfg.horizontal_scale) + 1
+        length_pixels = int(cfg.size[1] / cfg.horizontal_scale) + 1
+        border_pixels = int(cfg.border_width / cfg.horizontal_scale) + 1
+        heights = np.zeros((width_pixels, length_pixels), dtype=np.int16)
+        # override size of the terrain to account for the border
+        sub_terrain_size = [width_pixels - 2 * border_pixels, length_pixels - 2 * border_pixels]
+        sub_terrain_size = [dim * cfg.horizontal_scale for dim in sub_terrain_size]
+        # update the config
+        terrain_size = copy.deepcopy(cfg.size)
+        cfg.size = tuple(sub_terrain_size)
+        # generate the height field
+        z_gen = func(difficulty, cfg)
+        # handle the border for the terrain
+        heights[border_pixels:-border_pixels, border_pixels:-border_pixels] = z_gen
+        # set terrain size back to config
+        cfg.size = terrain_size
+
+        # convert to trimesh
+        vertices, triangles = convert_height_field_to_mesh(
+            heights, cfg.horizontal_scale, cfg.vertical_scale, cfg.slope_threshold
+        )
+        mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        # compute origin
+        x1 = int((cfg.size[0] * 0.5 - 1) / cfg.horizontal_scale)
+        x2 = int((cfg.size[0] * 0.5 + 1) / cfg.horizontal_scale)
+        y1 = int((cfg.size[1] * 0.5 - 1) / cfg.horizontal_scale)
+        y2 = int((cfg.size[1] * 0.5 + 1) / cfg.horizontal_scale)
+        origin_z = np.mean(heights[x1:x2, y1:y2]) * cfg.vertical_scale
+        origin = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], origin_z])
+        # return mesh and origin
+        return [mesh], origin, heights
+
+    return wrapper
+
 
 def convert_height_field_to_mesh(
     height_field: np.ndarray, horizontal_scale: float, vertical_scale: float, slope_threshold: float | None = None
@@ -171,3 +230,59 @@ def convert_height_field_to_mesh(
         triangles[start + 1 : stop : 2, 2] = ind3
 
     return vertices, triangles
+
+
+def custom_perlin_noise(width, length, scale, amplitudes, lacunarity=2.0, seed=None):
+    from noise import pnoise2
+    noise_grid = np.zeros((length, width))
+    max_val = 0  # for normalization
+    for i in range(length):
+        for j in range(width):
+            x = j / scale
+            y = i / scale
+            value = 0
+            frequency = 1.0
+            for amp in amplitudes:
+                value += amp * pnoise2(x * frequency, y * frequency, repeatx=width, repeaty=length, base=seed or 0)
+                frequency *= lacunarity
+                max_val += amp
+            noise_grid[i][j] = value
+    # Normalize to [0, 1]
+    noise_grid = (noise_grid - noise_grid.min()) / (noise_grid.max() - noise_grid.min())
+    return noise_grid
+
+def generate_perlin_noise(width, length, scale=10.0, octaves=1, persistence=0.5, lacunarity=2.0, seed=None):
+    noise_grid = np.zeros((length, width))
+    for i in range(length):
+        for j in range(width):
+            x = j / scale
+            y = i / scale
+            noise_val = pnoise2(x, y, octaves=octaves, persistence=persistence,
+                                lacunarity=lacunarity, repeatx=width, repeaty=length, base=seed or 0)
+            noise_grid[i][j] = noise_val
+    noise_grid = (noise_grid - noise_grid.min()) / (noise_grid.max() - noise_grid.min())
+    return noise_grid
+
+def stepped_interp(x, steps):
+    """Convert values in [-1, 1] to stepped levels with given number of steps in [-1, 1]."""
+    if steps < 2:
+        raise ValueError("steps must be ≥ 2")
+    # Map from [-1, 1] → [0, 1]
+    x_norm = (x + 1) / 2
+    # Quantize into steps
+    x_stepped = np.floor(x_norm * steps) / (steps - 1)
+    # Map back to [-1, 1]
+    return x_stepped * 2 - 1
+
+def generate_all_noise_maps(generator_func, parameter_sets, seed=None, step_levels=None):
+    """Generate and optionally quantize all noise maps."""
+    noise_maps = []
+    for params in parameter_sets:
+        try:
+            noise = generator_func(**params, seed=seed)
+            if step_levels is not None:
+                noise = stepped_interp(noise, step_levels)
+        except Exception as e:
+            noise = None
+        noise_maps.append(noise)
+    return noise_maps

@@ -1,15 +1,13 @@
 from isaaclab.utils import configclass
 from dataclasses import MISSING
+from .height_field.hf_terrains_cfg import HfMountainTerrainCfg
 
 @configclass
 class SingleTerrainGeneratorCfg:
     """Configuration for the single terrain generator."""
 
-    seed: int | None = None
-    """The seed for the random number generator. Defaults to None, in which case the seed from the
-    current NumPy's random state is used.
-    """
+    terrain_config: type = HfMountainTerrainCfg
+    """The terrain configuration to use for generating the terrain."""
 
-    size: tuple[float, float] = MISSING
-    """The width (along x) and length (along y) of the terrain (in m).
-    """
+    size: tuple[float, float] = (100.0, 100.0)
+    """The size of the terrain in meters (width, length)."""

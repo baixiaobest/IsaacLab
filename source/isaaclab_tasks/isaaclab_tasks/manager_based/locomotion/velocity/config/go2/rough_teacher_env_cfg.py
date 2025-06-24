@@ -29,7 +29,7 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import Re
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
-from isaaclab.terrains.config.rough import DIVERSE_TERRAINS_CFG
+from isaaclab.terrains.config.rough import DIVERSE_TERRAINS_CFG, COST_MAP_TERRAINS_CFG, MOUNTAIN_TERRAINS_CFG
 
 
 ##
