@@ -53,7 +53,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
             prim_path="/World/ground",
             terrain_type="single_terrain_generator",
             single_terrain_generator=MOUNTAIN_TERRAINS_CFG,
-            max_init_terrain_level=5,
+            max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
                 friction_combine_mode="multiply",

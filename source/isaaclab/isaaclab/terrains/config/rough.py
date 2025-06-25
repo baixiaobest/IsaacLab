@@ -157,11 +157,18 @@ COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
 )
 
 MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
+    goal_num_rows=2,
+    goal_num_cols=2,
+    goal_grid_area_size= (60.0, 60.0),
+    total_terrain_levels=5,
+    distance_increment_per_level=10.0,
+    origins_per_level=8,
+
     terrain_config=terrain_gen.HfMountainTerrainCfg(
-        size=(100.0, 100.0),
+        size=(150.0, 150.0),
         mountain_height_range=(-15.0, 15.0),
         scale=1000.0,
-        amplitudes=[0.4, 1.0, 0.0, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005],
+        amplitudes=[0.4, 1.0, 0.2, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005],
         lacunarity=2.0,
         seed=2,
         horizontal_scale=0.1,

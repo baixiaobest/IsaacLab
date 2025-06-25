@@ -103,8 +103,8 @@ if __name__ == "__main__":
     ]
 
     parameter_sets_2 = [
-        {"width": 1000, "length": 1000, "scale": 1000, "amplitudes": [0.4, 1.0, 0.0, 0.1, 0.0, 0.0, 0.02], "lacunarity": 2.0},
-        {"width": 1000, "length": 1000, "scale": 1000, "amplitudes": [0.4, 1.0, 0.0, 0.1, 0.0, 0.0, 0.02, 0.0, 0.01], "lacunarity": 2.0},
+        {"width": 1000, "length": 1000, "scale": 1000, "amplitudes": [0.4, 1.0, 0.0, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005], "lacunarity": 2.0},
+        {"width": 1000, "length": 1000, "scale": 1000, "amplitudes": [0.4, 1.0, 0.2, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005], "lacunarity": 2.0},
 
     ]
 

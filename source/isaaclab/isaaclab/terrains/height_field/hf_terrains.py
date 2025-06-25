@@ -456,10 +456,6 @@ def mountain_terrain(difficulty: float, cfg: hf_terrains_cfg.HfMountainTerrainCf
         The shape of the array is (width, length), where width and length are the number of points
         along the x and y axis, respectively.
     """
-    # resolve terrain configuration
-    mountain_height = cfg.mountain_height_range[0] + difficulty * (
-        cfg.mountain_height_range[1] - cfg.mountain_height_range[0]
-    )
     # switch parameters to discrete units
     # -- terrain
     width_pixels = int(cfg.size[0] / cfg.horizontal_scale)
@@ -468,9 +464,9 @@ def mountain_terrain(difficulty: float, cfg: hf_terrains_cfg.HfMountainTerrainCf
     min_height = int(cfg.mountain_height_range[0] / cfg.vertical_scale)
     max_height = int(cfg.mountain_height_range[1] / cfg.vertical_scale)
 
-    param_set = [{
-        "width": length_pixels, 
+    param_set = [{ 
         "length": length_pixels, 
+        "width": width_pixels,
         "scale": cfg.scale, 
         "amplitudes": cfg.amplitudes, 
         "lacunarity": cfg.lacunarity
