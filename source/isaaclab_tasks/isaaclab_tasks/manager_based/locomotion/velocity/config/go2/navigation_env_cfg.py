@@ -35,7 +35,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    pass
+    terrain_levels = CurrTerm(func=mdp.single_terrain_level)
 
 ##
 # Environment configuration
@@ -48,7 +48,9 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
-        self.curriculum = None
+
+        self.curriculum = CurriculumCfg()
+
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="single_terrain_generator",
