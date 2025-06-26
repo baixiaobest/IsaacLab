@@ -37,6 +37,18 @@ class CurriculumCfg:
     """Curriculum terms for the MDP."""
     terrain_levels = CurrTerm(func=mdp.single_terrain_level)
 
+@configclass
+class CommandsCfg:
+    navigation_command = mdp.NavigationPositionCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(20, 30),
+        debug_vis=True,
+        command=mdp.NavigationPositionCommandCfg.VelocityCommand(
+            max_velocity=1.0,
+            P_heading=0.1
+        )
+    )
+
 ##
 # Environment configuration
 ##
@@ -50,6 +62,13 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         super().__post_init__()
 
         self.curriculum = CurriculumCfg()
+        self.commands = CommandsCfg()
+
+        self.rewards = None
+
+        self.observations.policy.velocity_commands = ObsTerm(
+            func=mdp.generated_commands, params={"command_name": "navigation_command"}
+        )
 
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",

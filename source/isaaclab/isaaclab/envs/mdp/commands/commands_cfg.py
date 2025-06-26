@@ -15,6 +15,7 @@ from .null_command import NullCommand
 from .pose_2d_command import TerrainBasedPose2dCommand, UniformPose2dCommand
 from .pose_command import UniformPoseCommand
 from .velocity_command import NormalVelocityCommand, UniformVelocityCommand
+from .navigation_command import NavigationPositionCommand
 
 
 @configclass
@@ -271,3 +272,23 @@ class TerrainBasedPose2dCommandCfg(UniformPose2dCommandCfg):
 
     ranges: Ranges = MISSING
     """Distribution ranges for the sampled commands."""
+
+
+@configclass
+class NavigationPositionCommandCfg(CommandTermCfg):
+    """Configuration for the single terrain navigation command generator."""
+
+    class_type: type = NavigationPositionCommand
+
+    asset_name: str = MISSING
+    """Name of the asset in the environment for which the commands are generated."""
+
+    @configclass
+    class VelocityCommand:
+        max_velocity: float = 1.0
+        """Maximum velocity for the navigation command (in m/s)."""
+        P_heading = 0.1
+        """Proportional gain for the velocity command."""
+
+    command: VelocityCommand | None = None
+    """Configuration for the velocity command used in the navigation command generator."""
