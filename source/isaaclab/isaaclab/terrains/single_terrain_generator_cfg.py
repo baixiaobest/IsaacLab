@@ -29,3 +29,28 @@ class SingleTerrainGeneratorCfg:
 
     origins_per_level: int = 4
     """Number of origins per goal."""
+
+    @configclass
+    class ObstaclesGeneratorConfig:
+        scale: float = 20.0
+        """The scale of the perlin noise generator."""
+
+        amplitudes: list[float] = [0.5, 0.3, 0.5, 1.0]
+        """The amplitudes of the perlin noise generator."""
+
+        lacunarity: float = 2.0
+        """The lacunarity of the perlin noise generator."""
+
+        threshold: float = 0.87
+        """The threshold for the perlin noise generator to create obstacles."""
+
+        seed: int = 1
+        """The seed for the perlin noise generator."""
+
+        size_range = (0.1, 1.0)
+        """The range of sizes for the obstacles."""
+
+        obstacles_types: list[str] = ["cube", "cylinder", "sphere"]
+        """The types of obstacles to generate."""
+
+    obstacles_generator_config: ObstaclesGeneratorConfig = ObstaclesGeneratorConfig()

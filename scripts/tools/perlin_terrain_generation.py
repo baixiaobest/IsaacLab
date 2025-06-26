@@ -57,13 +57,23 @@ def generate_all_noise_maps(generator_func, parameter_sets, seed=None, step_leve
         noise_maps.append(noise)
     return noise_maps
 
+def threshold_noise_maps(noise, threshold):
+    """Apply a threshold to the noise maps."""
+    return np.where(noise < threshold, 0, noise)
+
+def indices_of_nonzero(noise: np.ndarray) -> np.ndarray:
+    """Get indices of non-zero elements in the noise map."""
+    return np.argwhere(noise > 0)
+
 # -------------------------------------
 # 2. Plotting Functions
 # -------------------------------------
-def plot_2d_heatmaps(noise_maps, parameter_sets, title="Perlin Noise 2D Heatmap with Colorbar"):
+def plot_2d_heatmaps(noise_maps, parameter_sets, title="Perlin Noise 2D Heatmap with Colorbar", threshold=None):
     fig, axes = plt.subplots(1, 2, figsize=(25, 15))
     for ax, noise, params in zip(axes.flat, noise_maps, parameter_sets):
         if noise is not None:
+            if threshold is not None:
+                noise = threshold_noise_maps(noise, threshold)
             im = ax.imshow(noise, cmap='terrain', origin='lower')
             ax.set_title(f"Oct: {params.get('octaves', 'N/A')} | Pers: {params.get('persistence', 'N/A')} | Lac: {params.get('lacunarity', 'N/A')}")
             fig.colorbar(im, ax=ax, shrink=0.8, label='Normalized Height')
@@ -108,12 +118,17 @@ if __name__ == "__main__":
 
     ]
 
-    selected_parameter_set = parameter_sets_2
+    parameter_sets_3 = [
+        {"width": 1000, "length": 1000, "scale": 20, "amplitudes": [0.5, 0.3, 0.5, 1.0], "lacunarity": 2.0},
+        {"width": 1000, "length": 1000, "scale": 20, "amplitudes": [0.5, 0.3, 0.5, 1.0, 1.0], "lacunarity": 2.0}
+    ]
+
+    selected_parameter_set = parameter_sets_3
     selected_generator = custom_perlin_noise
 
     noise_maps = generate_all_noise_maps(selected_generator, selected_parameter_set, seed=20)
 
     # Plot 2D and 3D
-    plot_2d_heatmaps(noise_maps, selected_parameter_set)
+    plot_2d_heatmaps(noise_maps, selected_parameter_set, threshold=0.85)
     plot_3d_surfaces(noise_maps, selected_parameter_set)
     plt.show()

@@ -1,6 +1,7 @@
 from .single_terrain_generator_cfg import SingleTerrainGeneratorCfg
 from isaaclab.markers.config import CUBOID_MARKER_CFG
 from .height_field.hf_terrains import mountain_terrain
+from .height_field.utils import custom_perlin_noise
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 import isaaclab.sim as sim_utils
 import trimesh
@@ -28,6 +29,10 @@ class SingleTerrainGenerator:
         
         self.terrain_meshes += mountain_meshes
 
+        if cfg.obstacles_generator_config is not None:
+            obstacle_meshes = self._generate_obstacles(heights, cfg.obstacles_generator_config)
+            self.terrain_meshes += obstacle_meshes
+
         self.terrain_mesh = trimesh.util.concatenate(self.terrain_meshes)
 
         goal_locations_np = \
@@ -53,7 +58,7 @@ class SingleTerrainGenerator:
 
         self._visualize_goals()
 
-    def _compute_goal_locations(self, heights):
+    def _compute_goal_locations(self, heights: np.ndarray) -> np.ndarray:
         """Compute the goal locations based on the terrain size."""
         terrain_length_pixels = heights.shape[0]
         terrain_width_pixels = heights.shape[1]
@@ -84,7 +89,7 @@ class SingleTerrainGenerator:
 
         return goal_locations
     
-    def _compute_terrain_origins(self, heights, goal_locations):
+    def _compute_terrain_origins(self, heights: np.ndarray, goal_locations: np.ndarray) -> np.ndarray:
         """
         Compute terrain origins for each goal location across multiple terrain levels.
         For each level and goal, creates origins_per_level origins at evenly spaced angles.
@@ -147,6 +152,170 @@ class SingleTerrainGenerator:
         
         return terrain_origins
     
+    def _generate_obstacles(self, heights: np.ndarray, obstacle_cfg: SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig) -> list[trimesh.Trimesh]:
+        """Generate obstacle meshes based on perlin noise map and obstacle configuration."""
+        num_rows, num_cols = heights.shape
+        noise = custom_perlin_noise(
+            num_cols, num_rows, obstacle_cfg.scale, obstacle_cfg.amplitudes, obstacle_cfg.lacunarity, 
+            obstacle_cfg.seed)
+        noise = np.where(noise < obstacle_cfg.threshold, 0, noise)
+        indices = np.argwhere(noise > 0)
+        
+        # Convert pixel resolution for height mapping
+        pixels_per_meter_col = num_cols / self.cfg.terrain_config.size[0]
+        pixels_per_meter_row = num_rows / self.cfg.terrain_config.size[1]
+        
+        obstacle_meshes = []
+        
+        # Randomly select obstacle types for each position
+        num_obstacles = len(indices)
+        if num_obstacles > 0:
+            # Choose random obstacle types from the available types
+            obstacle_types = np.random.choice(
+                obstacle_cfg.obstacles_types,
+                size=num_obstacles
+            )
+            
+            # Pre-draw random sizes for all obstacles
+            size_low, size_high = obstacle_cfg.size_range
+            random_sizes = {
+                'cube_size_x': np.random.uniform(size_low, size_high, num_obstacles),
+                'cube_size_y': np.random.uniform(size_low, size_high, num_obstacles),
+                'cube_size_z': np.random.uniform(size_low, size_high, num_obstacles),
+                'cylinder_radius': np.random.uniform(size_low/2, size_high/2, num_obstacles),
+                'cylinder_height': np.random.uniform(size_low, size_high, num_obstacles),
+                'sphere_radius': np.random.uniform(size_low/2, size_high/2, num_obstacles)
+            }
+            
+            # Pre-draw random orientations (rotations around each axis)
+            random_rotations = {
+                'roll': np.random.uniform(-np.pi, np.pi, num_obstacles),  # rotation around x-axis
+                'pitch': np.random.uniform(-np.pi, np.pi, num_obstacles), # rotation around y-axis
+                'yaw': np.random.uniform(-np.pi, np.pi, num_obstacles)    # rotation around z-axis
+            }
+            
+            for i, (row, col) in enumerate(indices):
+                # Get height at this position
+                height = heights[row, col] * self.cfg.terrain_config.vertical_scale
+                
+                # Convert to world coordinates
+                col = col / pixels_per_meter_col
+                row = row / pixels_per_meter_row
+                
+                # Get selected obstacle type
+                obstacle_type = obstacle_types[i]
+                
+                # Create obstacle-specific size dictionary
+                obstacle_sizes = {
+                    'cube_size_x': random_sizes['cube_size_x'][i],
+                    'cube_size_y': random_sizes['cube_size_y'][i],
+                    'cube_size_z': random_sizes['cube_size_z'][i],
+                    'cylinder_radius': random_sizes['cylinder_radius'][i],
+                    'cylinder_height': random_sizes['cylinder_height'][i],
+                    'sphere_radius': random_sizes['sphere_radius'][i]
+                }
+                
+                # Create obstacle-specific rotation dictionary
+                obstacle_rotations = {
+                    'roll': random_rotations['roll'][i],
+                    'pitch': random_rotations['pitch'][i],
+                    'yaw': random_rotations['yaw'][i]
+                }
+                
+                # Create trimesh for this obstacle
+                obstacle_mesh = self._create_obstacle_mesh(
+                    obstacle_type, row, col, height, obstacle_cfg, 
+                    obstacle_sizes, obstacle_rotations
+                )
+                if obstacle_mesh is not None:
+                    obstacle_meshes.append(obstacle_mesh)
+    
+        return obstacle_meshes
+
+    def _create_obstacle_mesh(self, obstacle_type: str, row: int, col: int, height: int, 
+            obstacle_cfg: SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig, obstacle_sizes: dict=None, 
+            obstacle_rotations: dict=None) ->trimesh.Trimesh:
+        """Create a trimesh for an obstacle of the given type at the specified position with orientation."""
+        # Import utility functions from math module
+        from isaaclab.utils.math import matrix_from_euler
+    
+        # Base position (bottom center of the obstacle)
+        position = [row, col, height]
+        
+        # Use provided sizes or get from config
+        if obstacle_sizes is None:
+            obstacle_sizes = {}
+        
+        # Use provided rotations or use defaults (no rotation)
+        if obstacle_rotations is None:
+            obstacle_rotations = {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
+        
+        # Get Euler angles for rotation
+        roll = obstacle_rotations.get('roll', 0.0)
+        pitch = obstacle_rotations.get('pitch', 0.0)
+        yaw = obstacle_rotations.get('yaw', 0.0)
+        
+        # Create rotation matrix from Euler angles using utility function
+        euler_angles = torch.tensor([roll, pitch, yaw], dtype=torch.float)
+        R = matrix_from_euler(euler_angles, convention="XYZ").numpy()
+        
+        if obstacle_type == "cube":
+            # Get cube dimensions from sizes, config or use defaults
+            size_x = obstacle_sizes.get('cube_size_x', getattr(obstacle_cfg, 'cube_size_x', 1.0))
+            size_y = obstacle_sizes.get('cube_size_y', getattr(obstacle_cfg, 'cube_size_y', 1.0))
+            size_z = obstacle_sizes.get('cube_size_z', getattr(obstacle_cfg, 'cube_size_z', 1.0))
+            
+            # Create cube mesh
+            cube = trimesh.creation.box(extents=[size_x, size_y, size_z])
+            
+            # Create transformation matrix with both rotation and translation
+            transform = np.eye(4)
+            transform[:3, :3] = R
+            transform[0:3, 3] = [position[0], position[1], position[2] + size_z/2]
+            
+            cube.apply_transform(transform)
+            return cube
+        
+        elif obstacle_type == "cylinder":
+            # Get cylinder dimensions from sizes, config or use defaults
+            radius = obstacle_sizes.get('cylinder_radius', getattr(obstacle_cfg, 'cylinder_radius', 0.5))
+            height_cyl = obstacle_sizes.get('cylinder_height', getattr(obstacle_cfg, 'cylinder_height', 1.0))
+            
+            # Create cylinder mesh
+            cylinder = trimesh.creation.cylinder(radius=radius, height=height_cyl)
+            
+            # For cylinders, we only allow rotation around Z-axis to keep them upright
+            if obstacle_type == "cylinder":
+                # Cylinders should only rotate around Z-axis
+                R_cylinder = matrix_from_euler(torch.tensor([0.0, 0.0, yaw]), convention="XYZ").numpy()
+                transform = np.eye(4)
+                transform[:3, :3] = R_cylinder
+            else:
+                transform = np.eye(4)
+                transform[:3, :3] = R
+            
+            transform[0:3, 3] = [position[0], position[1], position[2] + height_cyl/2]
+            
+            cylinder.apply_transform(transform)
+            return cylinder
+        
+        elif obstacle_type == "sphere":
+            # Get sphere dimensions from sizes, config or use defaults
+            radius = obstacle_sizes.get('sphere_radius', getattr(obstacle_cfg, 'sphere_radius', 0.5))
+            
+            # Create sphere mesh
+            sphere = trimesh.creation.icosphere(radius=radius)
+            
+            # For spheres, rotation doesn't matter, just apply translation
+            transform = np.eye(4)
+            transform[0:3, 3] = [position[0], position[1], position[2] + radius]
+            
+            sphere.apply_transform(transform)
+            return sphere
+        
+        # Return None for unknown obstacle types
+        return None
+
     def _visualize_goals(self):
         self.goal_markers = []
 

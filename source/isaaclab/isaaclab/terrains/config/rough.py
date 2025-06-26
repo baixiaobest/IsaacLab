@@ -163,6 +163,15 @@ MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
     total_terrain_levels=5,
     distance_increment_per_level=10.0,
     origins_per_level=8,
+    obstacles_generator_config=SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig(
+        scale=20.0,
+        amplitudes=[0.5, 0.3, 0.5, 1.0, 1.0],
+        lacunarity=2.0,
+        threshold=0.85,
+        seed=1,
+        size_range=(0.1, 1.0),
+        obstacles_types=["cube", "cylinder", "sphere"]
+    ),
 
     terrain_config=terrain_gen.HfMountainTerrainCfg(
         size=(150.0, 150.0),
@@ -170,7 +179,7 @@ MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
         scale=1000.0,
         amplitudes=[0.4, 1.0, 0.2, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005],
         lacunarity=2.0,
-        seed=2,
+        seed=7,
         horizontal_scale=0.1,
         vertical_scale=0.005,
     )
