@@ -156,3 +156,21 @@ gym.register(
         "env_cfg_entry_point": f"{__name__}.rough_teacher_env_cfg:UnitreeGo2RoughTeacherCfg_PLAY_v3",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RoughTeacherPPORunnerCfg_v3"
     })
+
+gym.register(
+    id="Isaac-Velocity-Rough-Unitree-Go2-Test-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rough_teacher_env_cfg:UnitreeGo2Test_v0",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RoughTeacherPPORunnerCfg_test"
+    })
+
+gym.register(
+    id="Isaac-Velocity-Rough-Unitree-Go2-Depth-Camera-Only-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rough_teacher_env_cfg:UnitreeGo2RoughStudentEnvCfg_v0",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RoughDepthCameraOnlyPPORunnerCfg_v0"
+    })

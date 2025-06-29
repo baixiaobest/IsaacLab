@@ -20,7 +20,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns, RayCasterCameraCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
@@ -51,6 +51,27 @@ class RoughTeacherSceneCfg(MySceneCfg):
     )
     foot_contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*foot", history_length=5, track_air_time=True, debug_vis=True)
+
+@configclass
+class RoughDepthCameraOnlySceneCfg(MySceneCfg):
+    # Add a depth sensor
+    depth_sensor = RayCasterCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",  # Attach to the robot's base
+        offset=RayCasterCameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 1.0),  # Position offset (x, y, z)
+            rot=(1.0, 0.0, 0.0, 0.0),  # Quaternion rotation (w, x, y, z)
+            convention="ros",  # Use ROS convention for the camera frame
+        ),
+        attach_yaw_only=True,
+        data_types=["distance_to_image_plane"],  # Depth data type
+        depth_clipping_behavior="max",  # Clip values to the maximum range
+        pattern_cfg=patterns.PinholeCameraPatternCfg(
+            width=64,  # Image width
+            height=48,  # Image height
+        ),
+        debug_vis=True,  # Enable visualization for debugging
+        mesh_prim_paths=["/World/ground"],
+    )
 
 @configclass
 class RoughTeacherObservationsCfg:
@@ -133,6 +154,29 @@ class RoughTeacherScandotsOnlyObservationsCfg:
 
     # observation groups
     policy: RoughTeacherScandotsOnlyPolicyCfg = RoughTeacherScandotsOnlyPolicyCfg()
+
+@configclass
+class RoughDepthCameraOnlyObservationsCfg:
+    """Observation specifications for the student MDP."""
+
+    @configclass
+    class RoughDepthCameraOnlyPolicyCfg(ObsGroup):
+        """Observations for policy group."""
+
+        # Add depth sensor observation
+        depth_scan = ObsTerm(
+            func=mdp.depth_camera_scan,  # Replace with the appropriate function for depth data
+            params={"sensor_cfg": SceneEntityCfg("depth_sensor")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),  # Add noise if needed
+            clip=(0.0, 10.0),  # Clip the depth values
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    # Observation groups
+    policy: RoughDepthCameraOnlyPolicyCfg = RoughDepthCameraOnlyPolicyCfg()
 
 @configclass
 class UnitreeGo2RoughTeacherCurriculum:
@@ -334,3 +378,45 @@ class UnitreeGo2RoughTeacherCfg_PLAY_v3(UnitreeGo2RoughTeacherEnvCfg_v3):
         # remove random pushing event
         self.events.base_external_force_torque = None
         self.events.push_robot = None
+
+@configclass
+class UnitreeGo2Test_v0(UnitreeGo2RoughEnvCfg):
+    scene: RoughTeacherSceneCfg = RoughTeacherSceneCfg(num_envs=4096, env_spacing=2.5)
+    observations: RoughTeacherObservationsCfg = RoughTeacherObservationsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.events.base_com.params['com_range'] = {"x": (-0.10, 0.10), "y": (-0.10, 0.10), "z": (-0.01, 0.01)}
+        self.events.physics_material.params = {
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.6, 0.8),
+            "dynamic_friction_range": (0.6, 0.8),
+            "restitution_range": (0.0, 0.3),
+            "num_buckets": 64,
+            "make_consistent": True
+        }
+        self.commands.base_velocity.velocity_heading = True
+        self.commands.base_velocity.world_frame_command = True
+
+        self.curriculum = UnitreeGo2RoughTeacherCurriculum()
+
+@configclass
+class UnitreeGo2RoughStudentEnvCfg_v0(UnitreeGo2RoughEnvCfg):
+    scene: RoughDepthCameraOnlySceneCfg = RoughDepthCameraOnlySceneCfg(num_envs=4096, env_spacing=2.5)
+    observations: RoughDepthCameraOnlyObservationsCfg = RoughDepthCameraOnlyObservationsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.events.base_com.params['com_range'] = {"x": (-0.10, 0.10), "y": (-0.10, 0.10), "z": (-0.01, 0.01)}
+        self.events.physics_material.params = {
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.6, 0.8),
+            "dynamic_friction_range": (0.6, 0.8),
+            "restitution_range": (0.0, 0.3),
+            "num_buckets": 64,
+            "make_consistent": True
+        }
+        self.commands.base_velocity.velocity_heading = True
+        self.commands.base_velocity.world_frame_command = True
+
+        self.curriculum = UnitreeGo2RoughTeacherCurriculum()

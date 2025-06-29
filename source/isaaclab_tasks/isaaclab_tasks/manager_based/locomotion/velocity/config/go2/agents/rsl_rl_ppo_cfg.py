@@ -94,6 +94,45 @@ class UnitreeGo2RoughTeacherPPORunnerCfg_v3(RslRlOnPolicyRunnerCfg):
     wandb_project="quadruped"
 
 @configclass
+class UnitreeGo2RoughTeacherPPORunnerCfg_test(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    experiment_name = "unitree_go2_rough_teacher_test"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=1.0,
+        encoder_dims=[397, 256, 128, 64, 32],
+        actor_hidden_dims=[512, 256, 128, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = PPOConfig
+    # resume = True
+    # run_name = "2025-06-21_23-16-12"
+    # load_checkpoint = "model_199.pt"
+    logger="wandb"
+    wandb_project="isaaclab"
+
+@configclass
+class UnitreeGo2RoughDepthCameraOnlyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    experiment_name = "unitree_go2_rough_depth_camera_only"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=1.0,
+        encoder_dims=[3072, 256, 128, 64, 32],
+        actor_hidden_dims=[512, 256, 128, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = PPOConfig
+    logger="wandb"
+    wandb_project="isaaclab"
+
+@configclass
 class UnitreeGo2RoughTeacherScandotsOnlyPPORunnerCfg(UnitreeGo2RoughTeacherPPORunnerCfg):
     experiment_name = "unitree_go2_rough_teacher_scandots_only"
     policy = RslRlPpoEncoderActorCriticCfg(

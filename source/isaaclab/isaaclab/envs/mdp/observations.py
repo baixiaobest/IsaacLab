@@ -385,8 +385,27 @@ def height_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: float 
     # extract the used quantities (to enable type-hinting)
     sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
     # height scan: height = sensor_height - hit_point_z - offset
+    print(f"-----------------height sensor:{sensor.data.pos_w[:, 2].unsqueeze(1)}")
     return sensor.data.pos_w[:, 2].unsqueeze(1) - sensor.data.ray_hits_w[..., 2] - offset
 
+def depth_camera_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """
+    Process depth camera data to extract depth information.
+    Args:
+        env: The environment.
+        sensor_cfg: The depth camera sensor configuration.
+    Returns:
+        Flattened depth data.
+    """
+    sensor: RayCasterCamera = env.scene.sensors[sensor_cfg.name]
+    # Access the depth data
+    depth_data = sensor.data.output["distance_to_image_plane"]
+    print(f"-----------------Depth data shape: {depth_data.shape}")
+    print(f"-----------------Depth data: {depth_data}")
+    # Flatten the depth data
+    flattened_depth_data = depth_data.view(depth_data.shape[0], -1)  # Flatten to [num_envs, height * width]
+    print(f"-----------------Flattened depth data shape: {flattened_depth_data.shape}")
+    return flattened_depth_data
 
 def body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Incoming spatial wrench on bodies of an articulation in the simulation world frame.
@@ -493,7 +512,6 @@ def image(
             images[images == float("inf")] = 0
 
     return images.clone()
-
 
 class image_features(ManagerTermBase):
     """Extracted image features from a pre-trained frozen encoder.
