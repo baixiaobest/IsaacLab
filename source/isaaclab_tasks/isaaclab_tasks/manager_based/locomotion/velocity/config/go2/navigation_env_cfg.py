@@ -154,8 +154,8 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         """Post initialization."""
         super().__post_init__()
 
-        self.sim.physx.gpu_max_rigid_patch_count = 2_000_000
-        self.sim.physx.gpu_collision_stack_size = 300_000_000
+        # self.sim.physx.gpu_max_rigid_patch_count = 2_000_000
+        # self.sim.physx.gpu_collision_stack_size = 300_000_000
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
@@ -166,7 +166,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
 
         self.observations = NavigationObservationsCfg()
 
-        self.terminations.base_contact.params["sensor_cfg"] = SceneEntityCfg("contact_forces", body_names=["base", ".*hip"])
+        self.terminations.base_contact.params["sensor_cfg"] = SceneEntityCfg("contact_forces", body_names=["base"])
 
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",
