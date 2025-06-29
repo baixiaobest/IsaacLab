@@ -38,14 +38,14 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 MOUNTAIN_TERRAINS_TRAIN_CFG = MOUNTAIN_TERRAINS_CFG.replace(
     goal_num_rows=5,
     goal_num_cols=5,
-    goal_grid_area_size= (100.0, 100.0),
+    goal_grid_area_size= (60.0, 60.0),
     total_terrain_levels=5,
-    distance_increment_per_level=15.0,
+    distance_increment_per_level=10.0,
     origins_per_level=8)
 
 MOUNTAIN_TERRAINS_TRAIN_CFG.terrain_config = \
     MOUNTAIN_TERRAINS_TRAIN_CFG.terrain_config.replace(
-        size=(260.0, 260.0)
+        size=(170.0, 170.0)
     )
 
 @configclass
