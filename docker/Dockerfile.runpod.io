@@ -32,7 +32,7 @@ RUN bash ./isaaclab.sh -i rsl_rl
 
 RUN ./isaaclab.sh -p -m pip install wandb
 
-RUN pip install noise
+RUN ./isaaclab.sh -p -m pip install noise
 
 # Setup for runpod.io
 ENTRYPOINT [""]

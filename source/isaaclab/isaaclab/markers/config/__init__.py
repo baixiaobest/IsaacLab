@@ -86,7 +86,7 @@ BLUE_ARROW_X_MARKER_CFG = VisualizationMarkersCfg(
 )
 """Configuration for the blue arrow marker (along x-direction)."""
 
-GREEN_ARROW_X_MARKER_CFG = VisualizationMarkersCfg(
+RED_ARROW_X_MARKER_CFG = VisualizationMarkersCfg(
     markers={
         "arrow": sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",

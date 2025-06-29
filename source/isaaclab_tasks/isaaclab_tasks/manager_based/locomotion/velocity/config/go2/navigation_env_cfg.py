@@ -103,6 +103,8 @@ class ActionsCfg:
         low_level_decimation=4,
         low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
+        enable_velocity_heading=True,
+        velocity_heading_gain=0.1,
     )
 
 @configclass
@@ -161,11 +163,13 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
 
         self.observations = NavigationObservationsCfg()
 
+        self.terminations.base_contact.params["sensor_cfg"] = SceneEntityCfg("contact_forces", body_names=["base", ".*hip"])
+
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="single_terrain_generator",
             single_terrain_generator=MOUNTAIN_TERRAINS_TRAIN_CFG,
-            max_init_terrain_level=10,
+            max_init_terrain_level=5,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
                 friction_combine_mode="multiply",
@@ -185,4 +189,9 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
 
 @configclass
 class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
-    pass
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
+
+    

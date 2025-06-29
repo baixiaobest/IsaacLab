@@ -13,7 +13,7 @@ import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation
 from isaaclab.managers import ActionTerm, ActionTermCfg, ObservationGroupCfg, ObservationManager
 from isaaclab.markers import VisualizationMarkers
-from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
+from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, RED_ARROW_X_MARKER_CFG
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import check_file_path, read_file
 
@@ -88,6 +88,13 @@ class PreTrainedPolicyAction(ActionTerm):
     """
 
     def process_actions(self, actions: torch.Tensor):
+        if self.cfg.enable_velocity_heading:
+            velocity_cmd_heading = torch.atan2(actions[:, 1], actions[:, 0])
+            robot_heading = math_utils.euler_xyz_from_quat(self.robot.data.root_quat_w)[2]
+            heading_error = velocity_cmd_heading - robot_heading
+            angular_vel_cmd = self.cfg.velocity_heading_gain * heading_error
+            actions[:, 2] = angular_vel_cmd
+
         self._raw_actions[:] = actions
 
     def apply_actions(self):
@@ -110,7 +117,7 @@ class PreTrainedPolicyAction(ActionTerm):
             # create markers if necessary for the first tome
             if not hasattr(self, "base_vel_goal_visualizer"):
                 # -- goal
-                marker_cfg = GREEN_ARROW_X_MARKER_CFG.copy()
+                marker_cfg = RED_ARROW_X_MARKER_CFG.copy()
                 marker_cfg.prim_path = "/Visuals/Actions/velocity_goal"
                 marker_cfg.markers["arrow"].scale = (0.5, 0.5, 0.5)
                 self.base_vel_goal_visualizer = VisualizationMarkers(marker_cfg)
@@ -184,5 +191,9 @@ class PreTrainedPolicyActionCfg(ActionTermCfg):
     """Low level action configuration."""
     low_level_observations: ObservationGroupCfg = MISSING
     """Low level observation configuration."""
+    enable_velocity_heading: bool = False
+    """Whether to use the velocity vector as the heading direction for the robot."""
+    velocity_heading_gain: float = 0.1
+    """Proportional gain for the velocity heading control."""
     debug_vis: bool = True
     """Whether to visualize debug information. Defaults to False."""

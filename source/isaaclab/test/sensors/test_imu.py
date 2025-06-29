@@ -24,7 +24,7 @@ import isaaclab.sim as sim_utils
 import isaaclab.utils.math as math_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg
-from isaaclab.markers.config import GREEN_ARROW_X_MARKER_CFG, RED_ARROW_X_MARKER_CFG
+from isaaclab.markers.config import RED_ARROW_X_MARKER_CFG, RED_ARROW_X_MARKER_CFG
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sensors.imu import ImuCfg
 from isaaclab.terrains import TerrainImporterCfg
@@ -137,7 +137,7 @@ class MySceneCfg(InteractiveSceneCfg):
             rot=PEND_ROT_OFFSET,
         ),
         debug_vis=not app_launcher._headless,
-        visualizer_cfg=GREEN_ARROW_X_MARKER_CFG.replace(prim_path="/Visuals/Acceleration/base"),
+        visualizer_cfg=RED_ARROW_X_MARKER_CFG.replace(prim_path="/Visuals/Acceleration/base"),
         gravity_bias=(0.0, 0.0, 9.81),
     )
 

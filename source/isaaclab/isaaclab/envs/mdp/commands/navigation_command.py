@@ -16,7 +16,7 @@ from isaaclab.assets import Articulation
 from isaaclab.managers import CommandTerm
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.terrains import TerrainImporter
-from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
+from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, RED_ARROW_X_MARKER_CFG
 
 if TYPE_CHECKING:
     from .commands_cfg import NavigationPositionCommandCfg
@@ -120,7 +120,7 @@ class NavigationPositionCommand(CommandTerm):
             # create markers if necessary for the first tome
             if not hasattr(self, "goal_vel_visualizer"):
                 # -- goal
-                self.goal_vel_visualizer = VisualizationMarkers(GREEN_ARROW_X_MARKER_CFG.replace(
+                self.goal_vel_visualizer = VisualizationMarkers(RED_ARROW_X_MARKER_CFG.replace(
                     prim_path="/Visuals/Command/navigation_velocity_goal"
                 ))
                 # -- current
