@@ -80,6 +80,7 @@ class UnitreeGo2RoughTeacherPPORunnerCfg_v3(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
+    save_jit = True
     experiment_name = "unitree_go2_rough_teacher_v2"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
@@ -124,9 +125,9 @@ class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=1.0,
-        encoder_dims=[397, 256, 128, 64, 32],
-        actor_hidden_dims=[512, 256, 128, 128],
-        critic_hidden_dims=[512, 256, 128],
+        encoder_dims=[336, 128, 64, 32],
+        actor_hidden_dims=[64, 64, 64, 32],
+        critic_hidden_dims=[256, 256, 128],
         activation="elu",
     )
     algorithm = PPOConfig
