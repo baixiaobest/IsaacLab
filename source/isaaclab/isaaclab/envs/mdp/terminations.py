@@ -41,6 +41,13 @@ def command_resample(env: ManagerBasedRLEnv, command_name: str, num_resamples: i
     command: CommandTerm = env.command_manager.get_term(command_name)
     return torch.logical_and((command.time_left <= env.step_dt), (command.command_counter == num_resamples))
 
+def goal_reached(env: ManagerBasedRLEnv, command_name: str, threshold: float=0.5) -> torch.Tensor:
+    """Terminate the episode when the goal is reached.
+
+    This is useful for tasks where the goal is to reach a specific position or orientation.
+    """
+    command = env.command_manager.get_command(command_name)
+    return torch.norm(command[:, :3], dim=1) < threshold
 
 """
 Root terminations.
