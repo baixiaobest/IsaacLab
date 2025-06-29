@@ -35,6 +35,19 @@ LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v3()
 from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG  # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
+MOUNTAIN_TERRAINS_TRAIN_CFG = MOUNTAIN_TERRAINS_CFG.replace(
+    goal_num_rows=5,
+    goal_num_cols=5,
+    goal_grid_area_size= (100.0, 100.0),
+    total_terrain_levels=5,
+    distance_increment_per_level=15.0,
+    origins_per_level=8)
+
+MOUNTAIN_TERRAINS_TRAIN_CFG.terrain_config = \
+    MOUNTAIN_TERRAINS_TRAIN_CFG.terrain_config.replace(
+        size=(260.0, 260.0)
+    )
+
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
@@ -151,7 +164,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="single_terrain_generator",
-            single_terrain_generator=MOUNTAIN_TERRAINS_CFG,
+            single_terrain_generator=MOUNTAIN_TERRAINS_TRAIN_CFG,
             max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
