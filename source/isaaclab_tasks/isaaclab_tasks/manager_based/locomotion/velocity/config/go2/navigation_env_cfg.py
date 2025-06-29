@@ -142,6 +142,32 @@ class NavigationObservationsCfg:
     # observation groups
     policy: NavigationPolicyCfg = NavigationPolicyCfg()
 
+@configclass
+class TerminationsCfg:
+    """Termination terms for the MDP."""
+
+    time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    base_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
+    )
+
+    base_vel_out_of_limit = DoneTerm(
+        func=mdp.root_velocity_out_of_limit,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),  
+            "max_velocity": 5.0      
+        }
+    )
+
+    # goal_reached = DoneTerm(
+    #     func=mdp.goal_reached,
+    #     params={
+    #         "command_name": "navigation_command",
+    #         "threshold": 0.5,
+    #     }
+    # )
+
 ##
 # Environment configuration
 ##
@@ -154,7 +180,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         """Post initialization."""
         super().__post_init__()
 
-        self.sim.physx.gpu_max_rigid_patch_count = 2_000_000
+        self.sim.physx.gpu_max_rigid_patch_count = 3_000_000
         self.sim.physx.gpu_collision_stack_size = 300_000_000
 
         self.curriculum = CurriculumCfg()
@@ -166,7 +192,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
 
         self.observations = NavigationObservationsCfg()
 
-        self.terminations.base_contact.params["sensor_cfg"] = SceneEntityCfg("contact_forces", body_names=["base"])
+        self.terminations = TerminationsCfg()
 
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",
