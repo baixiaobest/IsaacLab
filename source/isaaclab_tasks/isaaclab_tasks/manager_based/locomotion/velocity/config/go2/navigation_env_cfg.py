@@ -181,6 +181,8 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
             debug_vis=False,
         )
 
+        self.episode_length_s = 75.0
+
 @configclass
 class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
     pass
