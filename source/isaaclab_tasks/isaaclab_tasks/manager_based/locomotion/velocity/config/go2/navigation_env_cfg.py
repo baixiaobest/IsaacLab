@@ -26,6 +26,7 @@ from .rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
+from isaaclab.sim.simulation_cfg import SimulationCfg
 
 LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v3()
 
@@ -171,6 +172,10 @@ class TerminationsCfg:
     #     }
     # )
 
+SIM_CONFIG = SimulationCfg()
+SIM_CONFIG.physx.gpu_collision_stack_size = 300_000_000
+SIM_CONFIG.physx.gpu_max_rigid_patch_count = 600_000
+
 ##
 # Environment configuration
 ##
@@ -178,16 +183,12 @@ class TerminationsCfg:
 @configclass
 class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
     """Configuration for the locomotion velocity-tracking environment."""
+      # Override the sim configuration from the parent class
+    sim = SIM_CONFIG
 
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
-
-        # Modify the PhysX configuration before any simulation is created
-        self.sim.physx.gpu_max_rigid_patch_count = 10_000_000
-        self.sim.physx.gpu_collision_stack_size = 300_000_000
-        self.sim.physx.gpu_heap_capacity = 2**28
-        self.sim.physx.gpu_temp_buffer_capacity = 2**26
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
