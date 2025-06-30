@@ -77,7 +77,7 @@ class RewardsCfg:
             "std": 50.0
             }
     )
-    progress_reward_rew_mid_distance = RewTerm(
+    progress_reward_mid_distance = RewTerm(
         func=nav_mdp.position_command_error_tanh,
         weight=1.0,
         params={
@@ -85,7 +85,7 @@ class RewardsCfg:
             "std": 10.0
             }
     )
-    progress_reward_rew_short_distance = RewTerm(
+    progress_reward_short_distance = RewTerm(
         func=nav_mdp.position_command_error_tanh,
         weight=1.0,
         params={
@@ -93,8 +93,8 @@ class RewardsCfg:
             "std": 0.5
             }
     )
-    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
-                             weight=-0.05)
+    # action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
+    #                          weight=-0.05)
 
 @configclass
 class ActionsCfg:
