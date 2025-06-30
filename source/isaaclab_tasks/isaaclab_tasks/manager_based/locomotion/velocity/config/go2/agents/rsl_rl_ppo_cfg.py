@@ -129,6 +129,7 @@ class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         actor_hidden_dims=[64, 64, 64, 32],
         critic_hidden_dims=[256, 256, 128],
         activation="elu",
+        tanh_output=True,
     )
     algorithm = PPOConfig
     logger="wandb"

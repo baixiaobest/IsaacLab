@@ -45,7 +45,8 @@ MOUNTAIN_TERRAINS_TRAIN_CFG = MOUNTAIN_TERRAINS_CFG.replace(
 
 MOUNTAIN_TERRAINS_TRAIN_CFG.terrain_config = \
     MOUNTAIN_TERRAINS_TRAIN_CFG.terrain_config.replace(
-        size=(170.0, 170.0)
+        size=(170.0, 170.0),
+        mountain_height_range=(-5.0, 5.0),
     )
 
 @configclass
@@ -58,7 +59,7 @@ class CommandsCfg:
     navigation_command = mdp.NavigationPositionCommandCfg(
         asset_name="robot",
         resampling_time_range=(20, 30),
-        debug_vis=False,
+        debug_vis=True,
         # command=mdp.NavigationPositionCommandCfg.VelocityCommand(
         #     max_velocity=1.0,
         #     P_heading=0.1
@@ -105,6 +106,8 @@ class ActionsCfg:
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
         enable_velocity_heading=True,
         velocity_heading_gain=0.1,
+        action_scales=(1.0, 1.0, 1.0),
+        debug_vis=True
     )
 
 @configclass
@@ -149,7 +152,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]), "threshold": 0.1},
     )
 
     base_vel_out_of_limit = DoneTerm(
@@ -221,6 +224,8 @@ class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
+        self.sim.physx.gpu_max_rigid_patch_count = 5 * 2**15
+        self.sim.physx.gpu_collision_stack_size = 2**26
         self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
 
     

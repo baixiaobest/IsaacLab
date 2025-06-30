@@ -95,6 +95,7 @@ class PreTrainedPolicyAction(ActionTerm):
             angular_vel_cmd = self.cfg.velocity_heading_gain * heading_error
             actions[:, 2] = angular_vel_cmd
 
+        actions = actions * torch.tensor(self.cfg.action_scales, device=self.device)
         self._raw_actions[:] = actions
 
     def apply_actions(self):
@@ -195,5 +196,7 @@ class PreTrainedPolicyActionCfg(ActionTermCfg):
     """Whether to use the velocity vector as the heading direction for the robot."""
     velocity_heading_gain: float = 0.1
     """Proportional gain for the velocity heading control."""
+    action_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    """Scales for the actions."""
     debug_vis: bool = True
     """Whether to visualize debug information. Defaults to False."""

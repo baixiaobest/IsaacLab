@@ -50,6 +50,9 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     encoder_dims: list[int] = MISSING
     """The dimensions of the encoder network."""
 
+    tanh_output: bool = False
+    """Whether to apply a tanh activation to the output of the actor network."""
+
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
     """Configuration for the PPO actor-critic networks with recurrent layers."""
