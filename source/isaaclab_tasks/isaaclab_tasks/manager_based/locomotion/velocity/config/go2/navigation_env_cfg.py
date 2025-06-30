@@ -178,16 +178,15 @@ class TerminationsCfg:
 @configclass
 class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
     """Configuration for the locomotion velocity-tracking environment."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Modify the PhysX configuration before any simulation is created
-        self.sim.physx.gpu_max_rigid_patch_count = 3_000_000
-        self.sim.physx.gpu_collision_stack_size = 300_000_000
+     
 
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
+
+        # Modify the PhysX configuration before any simulation is created
+        self.sim.physx.gpu_max_rigid_patch_count = 10_000_000
+        self.sim.physx.gpu_collision_stack_size = 300_000_000
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
