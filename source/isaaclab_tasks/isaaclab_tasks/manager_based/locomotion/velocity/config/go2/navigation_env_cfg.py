@@ -172,10 +172,6 @@ class TerminationsCfg:
     #     }
     # )
 
-SIM_CONFIG = SimulationCfg()
-SIM_CONFIG.physx.gpu_collision_stack_size = 300_000_000
-SIM_CONFIG.physx.gpu_max_rigid_patch_count = 600_000
-
 ##
 # Environment configuration
 ##
@@ -183,12 +179,13 @@ SIM_CONFIG.physx.gpu_max_rigid_patch_count = 600_000
 @configclass
 class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
     """Configuration for the locomotion velocity-tracking environment."""
-      # Override the sim configuration from the parent class
-    sim = SIM_CONFIG
 
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
+
+        self.sim.physx.gpu_collision_stack_size = 300_000_000
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
@@ -228,8 +225,8 @@ class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.sim.physx.gpu_max_rigid_patch_count = 5 * 2**15
-        self.sim.physx.gpu_collision_stack_size = 2**26
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        self.sim.physx.gpu_collision_stack_size = 600_000
         self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
 
     
