@@ -68,7 +68,7 @@ class CommandsCfg:
 
 @configclass
 class RewardsCfg:
-    position_error_long_distance = RewTerm(
+    progress_reward_long_distance = RewTerm(
         func=nav_mdp.position_command_error_tanh,
         weight=1.0,
         params={
@@ -76,7 +76,7 @@ class RewardsCfg:
             "std": 50.0
             }
     )
-    position_error_mid_distance = RewTerm(
+    progress_reward_rew_mid_distance = RewTerm(
         func=nav_mdp.position_command_error_tanh,
         weight=1.0,
         params={
@@ -84,7 +84,7 @@ class RewardsCfg:
             "std": 10.0
             }
     )
-    position_error_short_distance = RewTerm(
+    progress_reward_rew_short_distance = RewTerm(
         func=nav_mdp.position_command_error_tanh,
         weight=1.0,
         params={
@@ -186,6 +186,8 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         # Modify the PhysX configuration before any simulation is created
         self.sim.physx.gpu_max_rigid_patch_count = 10_000_000
         self.sim.physx.gpu_collision_stack_size = 300_000_000
+        self.sim.physx.gpu_heap_capacity = 2**28
+        self.sim.physx.gpu_temp_buffer_capacity = 2**26
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
