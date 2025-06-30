@@ -93,7 +93,8 @@ class RewardsCfg:
             "std": 0.5
             }
     )
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.05)
+    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
+                             weight=-0.05)
 
 @configclass
 class ActionsCfg:
@@ -107,7 +108,7 @@ class ActionsCfg:
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
         enable_velocity_heading=True,
         velocity_heading_gain=0.1,
-        action_scales=(1.0, 1.0, 1.0),
+        action_scales=(0.7, 0.7, 0.7),
         debug_vis=True
     )
 
@@ -122,6 +123,7 @@ class NavigationObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        euler_angles = ObsTerm(func=mdp.root_euler_angles, noise=Unoise(n_min=-0.05, n_max=0.05))
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),

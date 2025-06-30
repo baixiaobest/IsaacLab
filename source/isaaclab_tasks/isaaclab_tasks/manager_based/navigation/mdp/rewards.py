@@ -7,6 +7,11 @@ from __future__ import annotations
 
 import torch
 from typing import TYPE_CHECKING
+from isaaclab.managers import SceneEntityCfg
+import isaaclab.utils.math as math_utils
+from isaaclab.managers.manager_base import ManagerTermBase
+from isaaclab.envs import ManagerBasedEnv
+from isaaclab.managers import RewardTermCfg
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -25,3 +30,85 @@ def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torc
     command = env.command_manager.get_command(command_name)
     heading_b = command[:, 3]
     return heading_b.abs()
+
+class navigation_command_w_penalty_l2(ManagerTermBase):
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self.prev_quat = None
+
+    def __call__(
+        self, env, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+        """Penalize the difference between the current and previous actions in the world frame."""
+        asset = env.scene[asset_cfg.name]
+        current_quat = asset.data.root_quat_w
+
+        # Initialize reward tensor
+        penalty = torch.zeros(env.num_envs, device=env.device)
+        
+        # First call - initialize quaternions for all environments
+        if self.prev_quat is None:
+            self.prev_quat = current_quat.clone()
+            return penalty
+            
+        # Create mask for valid quaternions (norm should be close to 1)
+        quat_norm = torch.norm(self.prev_quat, dim=1)
+        valid_quat_mask = torch.logical_and(quat_norm > 0.9, quat_norm < 1.1)
+        
+        # Only compute penalties for environments with valid quaternions
+        if torch.any(valid_quat_mask):
+            # action b is vx, vy, angular velocity z, we want to convert vx, vy into global frame
+            action_b = env.action_manager.action
+            action_ang_vel = action_b[:, 2]
+            action_vel_xy_b = torch.zeros((env.num_envs, 3), device=env.device)
+            action_vel_xy_b[:, :2] = action_b[:, :2]
+
+            prev_action_b = env.action_manager.prev_action
+            prev_action_ang_vel = prev_action_b[:, 2]
+            prev_action_vel_xy_b = torch.zeros((env.num_envs, 3), device=env.device)
+            prev_action_vel_xy_b[:, :2] = prev_action_b[:, :2]
+
+            action_w = torch.zeros((env.num_envs, 4), device=env.device)
+            prev_action_w = torch.zeros((env.num_envs, 4), device=env.device)
+            
+            # Convert all to world frame
+            action_w[:, :3] = math_utils.quat_rotate_inverse(current_quat, action_vel_xy_b)
+            
+            # Only compute for valid quaternions to avoid errors in quat_rotate_inverse
+            # For environments with valid quaternions:
+            prev_action_w[valid_quat_mask, :3] = math_utils.quat_rotate_inverse(
+                self.prev_quat[valid_quat_mask], 
+                prev_action_vel_xy_b[valid_quat_mask]
+            )
+            
+            action_w[:, 3] = action_ang_vel
+            prev_action_w[:, 3] = prev_action_ang_vel
+
+            # Compute penalty only for environments with valid quaternions
+            penalty[valid_quat_mask] = torch.sum(
+                torch.square(
+                    action_w[valid_quat_mask] - prev_action_w[valid_quat_mask]
+                ), 
+                dim=1
+            )
+
+        # Update previous quaternion for next iteration - use current for all envs
+        self.prev_quat = current_quat.clone()
+
+        return penalty
+
+    def reset(self, env_ids=None):
+        """Reset the previous quaternion state for specified environments.
+        
+        Args:
+            env_ids: Indices of environments to reset. If None, reset all environments.
+        """
+        if env_ids is None:
+            # Reset all environments
+            self.prev_quat = None
+        elif self.prev_quat is not None:
+            # For partial resets, set quaternions to invalid values
+            # We use zeros which will be detected as invalid in the next call
+            self.prev_quat[env_ids] = 0.0
+

@@ -82,6 +82,20 @@ def root_quat_w(
     return math_utils.quat_unique(quat) if make_quat_unique else quat
 
 
+def root_euler_angles(
+    env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Asset root heading in the environment frame.
+
+    The heading is computed as the angle of the asset's root X-axis direction with respect to global x axis.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    roll, pitch, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    # stack r p y
+    euler_angles = torch.stack((roll, pitch, yaw), dim=-1)
+    return euler_angles
+
 def root_lin_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Asset root linear velocity in the environment frame."""
     # extract the used quantities (to enable type-hinting)
