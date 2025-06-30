@@ -53,6 +53,9 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     tanh_output: bool = False
     """Whether to apply a tanh activation to the output of the actor network."""
 
+    noise_clip: float = 1.0
+    """The clipping value for the noise standard deviation."""
+
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
     """Configuration for the PPO actor-critic networks with recurrent layers."""

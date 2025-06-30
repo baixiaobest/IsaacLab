@@ -57,6 +57,21 @@ class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     logger="wandb"
     wandb_project="quadruped"
 
+NavPPOConfig = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
+
 @configclass
 class UnitreeGo2RoughTeacherPPORunnerCfg_v2(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
@@ -65,13 +80,14 @@ class UnitreeGo2RoughTeacherPPORunnerCfg_v2(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_rough_teacher_v2"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.8,
+        noise_clip=1.0,
         encoder_dims=[397, 256, 128, 64, 32],
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
     )
-    algorithm = PPOConfig
+    algorithm = NavPPOConfig
     logger="wandb"
     wandb_project="quadruped"
 
