@@ -178,7 +178,6 @@ class TerminationsCfg:
 @configclass
 class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
     """Configuration for the locomotion velocity-tracking environment."""
-     
 
     def __post_init__(self):
         """Post initialization."""
