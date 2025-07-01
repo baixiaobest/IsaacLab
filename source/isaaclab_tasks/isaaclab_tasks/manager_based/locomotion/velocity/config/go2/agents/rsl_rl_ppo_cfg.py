@@ -151,7 +151,7 @@ class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     wandb_project="navigation"
 
 @configclass
-class UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100

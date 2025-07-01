@@ -181,7 +181,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.navigation_env_cfg:NavigationMountainNoScandotsCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0"
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0"
     })
 
 gym.register(
@@ -190,7 +190,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.navigation_env_cfg:NavigationMountainNoScandotsCfg_PLAY",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0"
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0"
     })
 
 gym.register(
