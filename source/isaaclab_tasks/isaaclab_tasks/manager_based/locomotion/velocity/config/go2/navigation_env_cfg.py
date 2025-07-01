@@ -230,8 +230,6 @@ class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
         """Post initialization."""
         super().__post_init__()
 
-        self.scene.height_scanner = None
-
         # Remove the height scan observation
         self.observations.policy.height_scan = None
 
