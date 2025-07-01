@@ -108,7 +108,7 @@ class ActionsCfg:
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
         enable_velocity_heading=True,
         velocity_heading_gain=0.1,
-        action_scales=(0.7, 0.7, 0.7),
+        action_scales=(0.8, 0.8, 0.3),
         debug_vis=True
     )
 
@@ -220,7 +220,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
             debug_vis=False,
         )
 
-        self.episode_length_s = 75.0
+        self.episode_length_s = 40.0
 
 @configclass
 class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
