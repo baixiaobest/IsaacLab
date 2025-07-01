@@ -61,7 +61,7 @@ class RewardsCfg:
         weight=1.0,
         params={
             "command_term_name": "navigation_command",
-            "scale": 1.0
+            "scale": 200.0
             }
     )
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
