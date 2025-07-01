@@ -37,7 +37,7 @@ class NavigationPositionCommand(CommandTerm):
         self.robot: Articulation = env.scene[cfg.asset_name]
 
         # Position of the goal in world frame.
-        self.goal_positions = self._get_goal_positions(torch.arange(env.num_envs, device=env.device))
+        self._goal_positions = self._get_goal_positions(torch.arange(env.num_envs, device=env.device))
 
         # Relative position of the goal in the robot base frame.
         self.navigation_commands = torch.zeros(
@@ -67,7 +67,7 @@ class NavigationPositionCommand(CommandTerm):
         return self._goal_positions
     
     def _resample_command(self, env_ids):
-        self.goal_positions[env_ids] = self._get_goal_positions(env_ids)
+        self._goal_positions[env_ids] = self._get_goal_positions(env_ids)
     
     def _update_metrics(self):
         """Update metrics for the navigation command."""
@@ -76,7 +76,7 @@ class NavigationPositionCommand(CommandTerm):
         robot_rot_quat_w = self.robot.data.root_quat_w
         
         # Calculate position error (distance to goal)
-        relative_position = self.goal_positions - robot_pos
+        relative_position = self._goal_positions - robot_pos
         distance_to_goal = torch.norm(relative_position, dim=1)
         
         # Convert the relative position to the robot's base frame
@@ -99,7 +99,7 @@ class NavigationPositionCommand(CommandTerm):
     def _update_command(self):
         robot_pos = self.robot.data.root_pos_w
         robot_rot_quat_w = self.robot.data.root_quat_w
-        relative_position = self.goal_positions - robot_pos
+        relative_position = self._goal_positions - robot_pos
 
         if self.output_velocity:
             distance_to_goal = torch.norm(relative_position, dim=1, keepdim=True)
