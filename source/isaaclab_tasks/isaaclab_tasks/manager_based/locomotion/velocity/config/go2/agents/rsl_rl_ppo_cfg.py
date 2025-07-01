@@ -169,3 +169,51 @@ class UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     algorithm = NavPPOConfig
     logger="wandb"
     wandb_project="navigation"
+
+cnn_config = [
+    # First layer: reshape flat input to image dimensions
+    {
+        'type': 'reshape',
+        'input_size': 336,       # Input size of encoder
+        'shape': [1, 16, 21]     # Reshape to 1-channel image of size 16x21, need to modify this if height scans changes
+    },
+    # Convolutional layer
+    {
+        'type': 'conv',
+        'out_channels': 4,
+        'kernel_size': 3,
+        'dilation': 2,
+        'stride': 1,
+        'padding': 1
+    },
+    # Another convolutional layer
+    {
+        'type': 'conv',
+        'out_channels': 16,
+        'kernel_size': 3,
+        'dilation': 3,
+        'stride': 1,
+        'padding': 1
+    }
+]
+
+@configclass
+class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    experiment_name = "unitree_go2_navigation_v0"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=0.6,
+        noise_clip=0.8,
+        encoder_dims=cnn_config,
+        encoder_type="cnn",
+        actor_hidden_dims=[64, 64, 64, 32],
+        critic_hidden_dims=[256, 256, 128],
+        activation="elu",
+        tanh_output=True,
+    )
+    algorithm = NavPPOConfig
+    logger="wandb"
+    wandb_project="navigation"

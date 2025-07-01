@@ -158,8 +158,8 @@ COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
 )
 
 MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
-    goal_num_rows=2,
-    goal_num_cols=2,
+    goal_num_rows=5,
+    goal_num_cols=5,
     goal_grid_area_size= (60.0, 60.0),
     total_terrain_levels=5,
     distance_increment_per_level=10.0,

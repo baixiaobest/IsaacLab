@@ -47,8 +47,11 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     class_name: str = "EncoderActorCritic"
     """The policy class name. Default is EncoderActorCritic."""
 
-    encoder_dims: list[int] | None = MISSING
+    encoder_dims: list[int] | list[dict] | None = MISSING
     """The dimensions of the encoder network."""
+
+    encoder_type: Literal["mlp", "cnn"] = "mlp"
+    """The type of encoder network. Default is "mlp"."""
 
     tanh_output: bool = False
     """Whether to apply a tanh activation to the output of the actor network."""
