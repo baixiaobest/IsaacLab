@@ -178,8 +178,8 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         """Post initialization."""
         super().__post_init__()
 
-        # self.sim.physx.gpu_collision_stack_size = 300_000_000
-        # self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        self.sim.physx.gpu_collision_stack_size = 600_000
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
