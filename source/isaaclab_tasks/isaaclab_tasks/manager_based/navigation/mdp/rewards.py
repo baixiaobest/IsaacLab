@@ -40,10 +40,9 @@ class navigation_progress(ManagerTermBase):
             (env.num_envs,), -1.0, device=env.device
         )
 
-    def __call__(self, env: ManagerBasedRLEnv, command_name: str, scale: float=1.0) -> torch.Tensor:
+    def __call__(self, env: ManagerBasedRLEnv, command_term_name: str, scale: float=1.0) -> torch.Tensor:
         """Reward for moving towards the goal position."""
-        command = env.command_manager.get_command(command_name)
-        goal_positions = command.goal_positions
+        goal_positions = env.command_manager.get_term(command_term_name).goal_positions
         robot_pos = env.scene["robot"].data.root_pos_w
         # Calculate the distance to the goal position
         distance_to_goal = torch.norm(goal_positions - robot_pos, dim=1)

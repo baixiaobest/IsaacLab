@@ -60,7 +60,7 @@ class RewardsCfg:
         func=nav_mdp.navigation_progress,
         weight=1.0,
         params={
-            "command_name": "navigation_command",
+            "command_term_name": "navigation_command",
             "scale": 1.0
             }
     )
