@@ -292,3 +292,6 @@ class NavigationPositionCommandCfg(CommandTermCfg):
 
     command: VelocityCommand | None = None
     """Configuration for the velocity command used in the navigation command generator."""
+
+    command_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    """Scales for the navigation command. Sometimes scale the command to stabilize the training."""

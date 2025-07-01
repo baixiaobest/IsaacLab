@@ -61,6 +61,7 @@ class CommandsCfg:
         asset_name="robot",
         resampling_time_range=(20, 30),
         debug_vis=True,
+        command_scales=(0.02, 0.02, 0.02), # Scale to stabilize the training
         # command=mdp.NavigationPositionCommandCfg.VelocityCommand(
         #     max_velocity=1.0,
         #     P_heading=0.1
@@ -94,7 +95,12 @@ class RewardsCfg:
             }
     )
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
-                             weight=-0.05)
+                             weight=-0.01)
+    ang_vel_penalty = RewTerm(
+        func=nav_mdp.action_idx_l2,
+        weight=-0.01,
+        params={"action_idx": 2}  # Angular velocity is at index 2
+    )
 
 @configclass
 class ActionsCfg:
@@ -223,6 +229,15 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         self.episode_length_s = 40.0
 
 @configclass
+class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        self.sim.physx.gpu_collision_stack_size = 600_000
+        self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
+
+@configclass
 class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
     """Configuration for the locomotion velocity-tracking environment without scan dots."""
 
@@ -234,8 +249,11 @@ class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
         self.observations.policy.height_scan = None
 
 @configclass
-class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
+class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
+    """Configuration for the locomotion velocity-tracking environment without scan dots in play mode."""
+
     def __post_init__(self):
+        """Post initialization."""
         super().__post_init__()
 
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000

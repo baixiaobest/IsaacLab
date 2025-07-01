@@ -44,6 +44,10 @@ class NavigationPositionCommand(CommandTerm):
             (env.num_envs, 3), dtype=torch.float32, device=env.device
         )
 
+        self.command_scales = torch.tensor(
+            cfg.command_scales, dtype=torch.float32, device=env.device
+        )
+
         if not env.scene.terrain.cfg.terrain_type == "single_terrain_generator":
             raise ValueError(
                 "The NavigationPositionCommand can only be used with the single_terrain_generator terrain type."
@@ -113,6 +117,8 @@ class NavigationPositionCommand(CommandTerm):
             )
             self.navigation_commands = goal_position_local
 
+        self.navigation_commands *= self.command_scales
+
     def _set_debug_vis_impl(self, debug_vis: bool):
         # set visibility of markers
         # note: parent only deals with callbacks. not their visibility
@@ -145,25 +151,33 @@ class NavigationPositionCommand(CommandTerm):
         base_pos_w = self.robot.data.root_pos_w.clone()
         base_pos_w[:, 2] += 0.5
         # -- resolve the scales and quaternions
-        vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_xy_velocity_to_arrow(self.navigation_commands[:, :2], body_frame=True)
-        vel_arrow_scale, vel_arrow_quat = self._resolve_xy_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :2])
+        if self.output_velocity:
+            vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_velocity_to_arrow(self.navigation_commands[:, :2], body_frame=True)
+            vel_arrow_scale, vel_arrow_quat = self._resolve_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :2])
+        else:
+            vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_velocity_to_arrow(self.navigation_commands[:, :3], body_frame=True)
+            vel_arrow_scale, vel_arrow_quat = self._resolve_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :3], body_frame=True)
         # display markers
         self.goal_vel_visualizer.visualize(base_pos_w, vel_des_arrow_quat, vel_des_arrow_scale)
         self.current_vel_visualizer.visualize(base_pos_w, vel_arrow_quat, vel_arrow_scale)
 
     """ Helper functions"""
 
-    def _resolve_xy_velocity_to_arrow(self, xy_velocity: torch.Tensor, body_frame: bool=True) -> tuple[torch.Tensor, torch.Tensor]:
+    def _resolve_velocity_to_arrow(self, velocity: torch.Tensor, body_frame: bool=True) -> tuple[torch.Tensor, torch.Tensor]:
         """Converts the XY base velocity command to arrow direction rotation."""
         # obtain default scale of the marker
         default_scale = torch.tensor([1.0, 1.0, 0.1], device=self.device)
         # arrow-scale
-        arrow_scale = torch.tensor(default_scale, device=self.device).repeat(xy_velocity.shape[0], 1)
-        arrow_scale[:, 0] *= torch.linalg.norm(xy_velocity, dim=1) * 3.0
+        arrow_scale = torch.tensor(default_scale, device=self.device).repeat(velocity.shape[0], 1)
+        arrow_scale[:, 0] *= torch.linalg.norm(velocity, dim=1) * 3.0
         # arrow-direction
-        heading_angle = torch.atan2(xy_velocity[:, 1], xy_velocity[:, 0])
+        heading_angle = torch.atan2(velocity[:, 1], velocity[:, 0])
         zeros = torch.zeros_like(heading_angle)
-        arrow_quat = math_utils.quat_from_euler_xyz(zeros, zeros, heading_angle)
+        if velocity.shape[1] == 3:
+            pitch_angle = torch.atan2(-velocity[:, 2], torch.linalg.norm(velocity[:, :2], dim=1))
+            arrow_quat = math_utils.quat_from_euler_xyz(zeros, pitch_angle, heading_angle)
+        else:
+            arrow_quat = math_utils.quat_from_euler_xyz(zeros, zeros, heading_angle)
         
         # convert everything back from base to world frame
         if body_frame:

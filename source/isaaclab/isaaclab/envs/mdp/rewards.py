@@ -317,6 +317,10 @@ def action_l2(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Penalize the actions using L2 squared kernel."""
     return torch.sum(torch.square(env.action_manager.action), dim=1)
 
+def action_idx_l2(env: ManagerBasedRLEnv, action_idx: int) -> torch.Tensor:
+    """Penalize the action at the given index using L2 squared kernel."""
+    return torch.square(env.action_manager.action[:, action_idx])
+
 
 """
 Contact sensor.
