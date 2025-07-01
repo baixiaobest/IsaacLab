@@ -73,11 +73,11 @@ class navigation_command_w_penalty_l2(ManagerTermBase):
             prev_action_w = torch.zeros((env.num_envs, 4), device=env.device)
             
             # Convert all to world frame
-            action_w[:, :3] = math_utils.quat_rotate_inverse(current_quat, action_vel_xy_b)
+            action_w[:, :3] = math_utils.quat_rotate(current_quat, action_vel_xy_b)
             
             # Only compute for valid quaternions to avoid errors in quat_rotate_inverse
             # For environments with valid quaternions:
-            prev_action_w[valid_quat_mask, :3] = math_utils.quat_rotate_inverse(
+            prev_action_w[valid_quat_mask, :3] = math_utils.quat_rotate(
                 self.prev_quat[valid_quat_mask], 
                 prev_action_vel_xy_b[valid_quat_mask]
             )
