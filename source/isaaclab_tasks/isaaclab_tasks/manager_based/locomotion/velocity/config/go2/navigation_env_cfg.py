@@ -57,27 +57,11 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     progress_reward_long_distance = RewTerm(
-        func=nav_mdp.position_command_error_tanh,
+        func=nav_mdp.navigation_progress,
         weight=1.0,
         params={
             "command_name": "navigation_command",
-            "std": 50.0
-            }
-    )
-    progress_reward_mid_distance = RewTerm(
-        func=nav_mdp.position_command_error_tanh,
-        weight=1.0,
-        params={
-            "command_name": "navigation_command",
-            "std": 10.0
-            }
-    )
-    progress_reward_short_distance = RewTerm(
-        func=nav_mdp.position_command_error_tanh,
-        weight=1.0,
-        params={
-            "command_name": "navigation_command",
-            "std": 0.5
+            "scale": 1.0
             }
     )
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  

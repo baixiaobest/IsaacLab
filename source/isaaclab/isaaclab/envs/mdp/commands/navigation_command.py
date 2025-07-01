@@ -61,6 +61,11 @@ class NavigationPositionCommand(CommandTerm):
         """The desired position in robot base frame. Shape is (num_envs, 3)."""
         return self.navigation_commands
     
+    @property
+    def goal_positions(self) -> torch.Tensor:
+        """The goal positions in world frame. Shape is (num_envs, 3)."""
+        return self._goal_positions
+    
     def _resample_command(self, env_ids):
         self.goal_positions[env_ids] = self._get_goal_positions(env_ids)
     
