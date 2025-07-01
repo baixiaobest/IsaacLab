@@ -149,3 +149,23 @@ class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     algorithm = NavPPOConfig
     logger="wandb"
     wandb_project="navigation"
+
+@configclass
+class UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    experiment_name = "unitree_go2_navigation_v0"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=0.8,
+        noise_clip=1.0,
+        encoder_dims=None,
+        actor_hidden_dims=[64, 128, 64],
+        critic_hidden_dims=[64, 128, 64],
+        activation="elu",
+        tanh_output=True,
+    )
+    algorithm = NavPPOConfig
+    logger="wandb"
+    wandb_project="navigation"

@@ -47,7 +47,7 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     class_name: str = "EncoderActorCritic"
     """The policy class name. Default is EncoderActorCritic."""
 
-    encoder_dims: list[int] = MISSING
+    encoder_dims: list[int] | None = MISSING
     """The dimensions of the encoder network."""
 
     tanh_output: bool = False

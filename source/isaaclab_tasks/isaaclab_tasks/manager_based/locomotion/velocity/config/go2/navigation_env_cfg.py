@@ -223,6 +223,19 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         self.episode_length_s = 40.0
 
 @configclass
+class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
+    """Configuration for the locomotion velocity-tracking environment without scan dots."""
+
+    def __post_init__(self):
+        """Post initialization."""
+        super().__post_init__()
+
+        self.scene.height_scanner = None
+
+        # Remove the height scan observation
+        self.observations.policy.height_scan = None
+
+@configclass
 class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
     def __post_init__(self):
         super().__post_init__()
