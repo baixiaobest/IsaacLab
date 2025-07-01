@@ -183,3 +183,12 @@ gym.register(
         "env_cfg_entry_point": f"{__name__}.navigation_env_cfg:NavigationMountainNoScandotsCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0"
     })
+
+gym.register(
+    id="Isaac-Navigation-Flat-Terrain-Unitree-Go2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.navigation_env_cfg:NavigationFlatTerrain",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationPPORunnerCfg_v0"
+    })

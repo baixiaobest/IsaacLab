@@ -3,6 +3,8 @@ from isaaclab.markers.config import CUBOID_MARKER_CFG
 from .height_field.hf_terrains import mountain_terrain
 from .height_field.utils import custom_perlin_noise
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from .height_field.hf_terrains_cfg import HfMountainTerrainCfg
+from .terrain_generator_cfg import SubTerrainBaseCfg
 import isaaclab.sim as sim_utils
 import trimesh
 import numpy as np
@@ -25,9 +27,15 @@ class SingleTerrainGenerator:
 
         self.terrain_meshes = list()
 
-        mountain_meshes, origin, heights = mountain_terrain(0, self.cfg.terrain_config)
+        heights = None
+        if isinstance(cfg.terrain_config, HfMountainTerrainCfg):
+            terrain_meshes, origin, heights = mountain_terrain(0, self.cfg.terrain_config)
+        elif isinstance(cfg.terrain_config, SubTerrainBaseCfg):
+            terrain_meshes, origins = cfg.terrain_config.function(0, self.cfg.terrain_config)
+        else:
+            raise ValueError(f"Unsupported terrain configuration type: {type(cfg.terrain_config)}")
         
-        self.terrain_meshes += mountain_meshes
+        self.terrain_meshes += terrain_meshes
 
         if cfg.obstacles_generator_config is not None:
             obstacle_meshes = self._generate_obstacles(heights, cfg.obstacles_generator_config)
@@ -36,7 +44,8 @@ class SingleTerrainGenerator:
         self.terrain_mesh = trimesh.util.concatenate(self.terrain_meshes)
 
         goal_locations_np = \
-            self._compute_goal_locations(heights)
+                self._compute_goal_locations(heights)
+        
         goal_locations_np = goal_locations_np.reshape(-1, 3)
 
         terrain_origins_np = self._compute_terrain_origins(heights, goal_locations_np)
@@ -58,35 +67,69 @@ class SingleTerrainGenerator:
 
         self._visualize_goals()
 
-    def _compute_goal_locations(self, heights: np.ndarray) -> np.ndarray:
-        """Compute the goal locations based on the terrain size."""
-        terrain_length_pixels = heights.shape[0]
-        terrain_width_pixels = heights.shape[1]
-
-        goal_region_length_pixels = int(self.cfg.goal_grid_area_size[1] / self.cfg.terrain_config.size[1] * terrain_length_pixels)
-        goal_region_width_pixels = int(self.cfg.goal_grid_area_size[0] / self.cfg.terrain_config.size[0] * terrain_width_pixels)
+    def _compute_goal_locations(self, heights: np.ndarray | None = None) -> np.ndarray:
+        """Compute goal locations in a grid pattern across the terrain.
         
-        row_step = int(goal_region_length_pixels / self.cfg.goal_num_rows)
-        col_step = int(goal_region_width_pixels / self.cfg.goal_num_cols)
-
-        goal_region_length_border = int((terrain_length_pixels - goal_region_length_pixels) / 2)
-        goal_region_width_border = int((terrain_width_pixels - goal_region_width_pixels) / 2)
-
-        row = np.arange(goal_region_length_border + int(row_step / 2), 
-                        terrain_length_pixels - goal_region_length_border, 
+        Args:
+            heights: Optional height field. If provided, goal z-values will use terrain heights.
+                    If None, goal z-values will be zero.
+        
+        Returns:
+            np.ndarray: Goal locations with shape (num_goals, 3)
+        """
+        # Always work with metric coordinates first
+        terrain_length = self.cfg.terrain_config.size[0]  # x dimension
+        terrain_width = self.cfg.terrain_config.size[1]   # y dimension
+        
+        goal_region_length = self.cfg.goal_grid_area_size[0]
+        goal_region_width = self.cfg.goal_grid_area_size[1]
+        
+        # Calculate borders (how much space to leave around the edges)
+        goal_region_length_border = (terrain_length - goal_region_length) / 2
+        goal_region_width_border = (terrain_width - goal_region_width) / 2
+        
+        # Calculate step size between goals
+        row_step = goal_region_length / self.cfg.goal_num_rows
+        col_step = goal_region_width / self.cfg.goal_num_cols
+        
+        # Create goal coordinates in metric space
+        row = np.arange(goal_region_length_border + row_step / 2,
+                        terrain_length - goal_region_length_border,
                         row_step)
-        
-        col = np.arange(goal_region_width_border + int(col_step / 2), 
-                        terrain_width_pixels - goal_region_width_border, 
+        col = np.arange(goal_region_width_border + col_step / 2,
+                        terrain_width - goal_region_width_border,
                         col_step)
         
+        # Create grid of coordinates
         cc, rr = np.meshgrid(col, row)
-        goal_heights = heights[rr, cc] * self.cfg.terrain_config.vertical_scale
-
-        rr_metrics = rr * self.cfg.terrain_config.horizontal_scale
-        cc_metrics = cc * self.cfg.terrain_config.horizontal_scale
-        goal_locations = np.stack((rr_metrics, cc_metrics, goal_heights), axis=-1)
-
+        
+        # Initialize goal heights to zero
+        goal_heights = np.zeros_like(rr)
+        
+        # If heights are provided, sample from heightmap
+        if heights is not None:
+            # Get pixel dimensions
+            terrain_length_pixels = heights.shape[0]
+            terrain_width_pixels = heights.shape[1]
+            
+            # Calculate pixels per meter
+            pixels_per_meter_row = terrain_length_pixels / terrain_length
+            pixels_per_meter_col = terrain_width_pixels / terrain_width
+            
+            # Convert metric coordinates to pixel indices
+            row_pixels = np.round(rr * pixels_per_meter_row).astype(int)
+            col_pixels = np.round(cc * pixels_per_meter_col).astype(int)
+            
+            # Clip to valid pixel range
+            row_pixels = np.clip(row_pixels, 0, terrain_length_pixels - 1)
+            col_pixels = np.clip(col_pixels, 0, terrain_width_pixels - 1)
+            
+            # Sample heights at these pixel locations
+            goal_heights = heights[row_pixels, col_pixels] * self.cfg.terrain_config.vertical_scale
+        
+        # Combine coordinates with heights
+        goal_locations = np.stack((rr, cc, goal_heights), axis=-1)
+        
         return goal_locations
     
     def _compute_terrain_origins(self, heights: np.ndarray, goal_locations: np.ndarray) -> np.ndarray:
@@ -105,10 +148,11 @@ class SingleTerrainGenerator:
         terrain_origins = np.zeros((self.cfg.total_terrain_levels, total_origins_per_level, 3))
         
         # Calculate pixel resolution for height mapping
-        terrain_length_pixels = heights.shape[0]
-        terrain_width_pixels = heights.shape[1]
-        pixels_per_meter_col = terrain_width_pixels / self.cfg.terrain_config.size[0]
-        pixels_per_meter_row = terrain_length_pixels / self.cfg.terrain_config.size[1]
+        if heights is not None:
+            terrain_length_pixels = heights.shape[0]
+            terrain_width_pixels = heights.shape[1]
+            pixels_per_meter_col = terrain_width_pixels / self.cfg.terrain_config.size[0]
+            pixels_per_meter_row = terrain_length_pixels / self.cfg.terrain_config.size[1]
         
         # Calculate angle step for evenly distributing origins
         angle_step = 2 * np.pi / self.cfg.origins_per_level
@@ -134,15 +178,18 @@ class SingleTerrainGenerator:
                     new_y = np.clip(new_y, 0, self.cfg.terrain_config.size[1] - 1e-6)
                     
                     # Convert to pixel coordinates to get height
-                    pixel_col = int(new_x * pixels_per_meter_col)
-                    pixel_row = int(new_y * pixels_per_meter_row)
-                    
-                    # Ensure pixel coordinates are within bounds
-                    pixel_col = np.clip(pixel_col, 0, terrain_width_pixels - 1)
-                    pixel_row = np.clip(pixel_row, 0, terrain_length_pixels - 1)
-                    
-                    # Get height at this location
-                    height = heights[pixel_row, pixel_col] * self.cfg.terrain_config.vertical_scale
+                    if heights is not None:
+                        pixel_col = int(new_x * pixels_per_meter_col)
+                        pixel_row = int(new_y * pixels_per_meter_row)
+                        
+                        # Ensure pixel coordinates are within bounds
+                        pixel_col = np.clip(pixel_col, 0, terrain_width_pixels - 1)
+                        pixel_row = np.clip(pixel_row, 0, terrain_length_pixels - 1)
+                        
+                        # Get height at this location
+                        height = heights[pixel_row, pixel_col] * self.cfg.terrain_config.vertical_scale
+                    else:
+                        height = 0.0
                     
                     # Calculate the index in the flattened array
                     flat_idx = goal_idx * self.cfg.origins_per_level + origin_idx

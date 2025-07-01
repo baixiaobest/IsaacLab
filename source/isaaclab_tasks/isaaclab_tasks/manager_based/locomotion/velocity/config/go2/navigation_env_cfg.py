@@ -33,7 +33,7 @@ LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v3()
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG  # isort: skip
+from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG, FLAT_TERRAINS_CFG  # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 MOUNTAIN_TERRAINS_TRAIN_CFG = MOUNTAIN_TERRAINS_CFG.replace(
@@ -242,4 +242,14 @@ class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
         self.sim.physx.gpu_collision_stack_size = 600_000
         self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
 
-    
+
+@configclass
+class NavigationFlatTerrain(NavigationMountainEnvCfg):
+    def __post_init__(self):
+        """Post initialization."""
+        super().__post_init__()
+
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        self.sim.physx.gpu_collision_stack_size = 600_000
+
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG

@@ -1,12 +1,12 @@
 from isaaclab.utils import configclass
 from dataclasses import MISSING
-from .height_field.hf_terrains_cfg import HfMountainTerrainCfg
+from .terrain_generator_cfg import SubTerrainBaseCfg
 
 @configclass
 class SingleTerrainGeneratorCfg:
     """Configuration for the single terrain generator."""
 
-    terrain_config: HfMountainTerrainCfg = MISSING
+    terrain_config: SubTerrainBaseCfg = MISSING
     """The terrain configuration to use for generating the terrain."""
 
     size: tuple[float, float] = (100.0, 100.0)
@@ -53,4 +53,4 @@ class SingleTerrainGeneratorCfg:
         obstacles_types: list[str] = ["cube", "cylinder", "sphere"]
         """The types of obstacles to generate."""
 
-    obstacles_generator_config: ObstaclesGeneratorConfig = ObstaclesGeneratorConfig()
+    obstacles_generator_config: ObstaclesGeneratorConfig | None = ObstaclesGeneratorConfig()

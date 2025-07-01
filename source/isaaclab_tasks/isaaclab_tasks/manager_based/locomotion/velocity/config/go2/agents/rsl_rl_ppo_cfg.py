@@ -155,7 +155,7 @@ class UnitreeGo2NavigationNoScandotssPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
-    experiment_name = "unitree_go2_navigation_v0"
+    experiment_name = "unitree_go2_navigation_no_scandots_v0"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=0.8,

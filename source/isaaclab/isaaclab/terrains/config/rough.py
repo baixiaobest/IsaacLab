@@ -9,6 +9,7 @@ import isaaclab.terrains as terrain_gen
 
 from ..terrain_generator_cfg import TerrainGeneratorCfg
 from ..single_terrain_generator_cfg import SingleTerrainGeneratorCfg
+from ..trimesh.mesh_terrains_cfg import MeshPlaneTerrainCfg
 
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
@@ -182,6 +183,21 @@ MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
         seed=7,
         horizontal_scale=0.1,
         vertical_scale=0.005,
+    )
+)
+
+FLAT_TERRAINS_CFG = SingleTerrainGeneratorCfg(
+    goal_num_rows=5,
+    goal_num_cols=5,
+    goal_grid_area_size= (60.0, 60.0),
+    total_terrain_levels=5,
+    distance_increment_per_level=10.0,
+    origins_per_level=8,
+
+    obstacles_generator_config=None,
+
+    terrain_config=terrain_gen.MeshPlaneTerrainCfg(
+        size=(170.0, 170.0)
     )
 )
 
