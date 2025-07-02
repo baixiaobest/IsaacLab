@@ -144,7 +144,9 @@ class NavigationObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        euler_angles = ObsTerm(func=mdp.root_euler_angles, noise=Unoise(n_min=-0.05, n_max=0.05))
+        heading_sin_cos = ObsTerm(
+            func=mdp.root_yaw_sin_cos, noise=Unoise(n_min=-0.05, n_max=0.05)
+        )
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),

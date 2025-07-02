@@ -96,6 +96,20 @@ def root_euler_angles(
     euler_angles = torch.stack((roll, pitch, yaw), dim=-1)
     return euler_angles
 
+def root_yaw_sin_cos(
+    env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor: 
+    """Asset root yaw sine and cosine in the environment frame.
+
+    The yaw is computed as the angle of the asset's root X-axis direction with respect to global x axis.
+    This can prevent discontinuities in the observation when the asset turns around.
+    Returns a tensor of shape [num_envs, 2] with [sin(yaw), cos(yaw)].
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
+    return torch.stack((torch.sin(yaw), torch.cos(yaw)), dim=-1)
+
 def root_lin_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Asset root linear velocity in the environment frame."""
     # extract the used quantities (to enable type-hinting)
