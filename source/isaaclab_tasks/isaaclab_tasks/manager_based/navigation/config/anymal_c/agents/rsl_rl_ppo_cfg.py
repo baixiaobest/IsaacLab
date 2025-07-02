@@ -52,7 +52,7 @@ class NavigationEnvModPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         actor_hidden_dims=[128, 128],
         critic_hidden_dims=[128, 128],
         activation="elu",
-        tanh_output=False,
+        tanh_output=True,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
