@@ -49,8 +49,8 @@ class NavigationEnvModPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         init_noise_std=0.5,
         noise_clip=0.6,
         encoder_dims=None,
-        actor_hidden_dims=[64, 64, 128, 64],
-        critic_hidden_dims=[64, 64, 128, 64],
+        actor_hidden_dims=[128, 128],
+        critic_hidden_dims=[128, 128],
         activation="elu",
         tanh_output=True,
     )
