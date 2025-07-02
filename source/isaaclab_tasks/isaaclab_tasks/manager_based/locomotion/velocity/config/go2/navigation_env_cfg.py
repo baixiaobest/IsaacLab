@@ -89,11 +89,8 @@ class RewardsType1Cfg:
         params={"action_idx": 2}  # Angular velocity is at index 2
     )
 
-    ang_vel_penalty = RewTerm(
-        func=mdp.action_idx_l2,
-        weight=-0.05,
-        params={"action_idx": 2}  # Angular velocity is at index 2
-    )
+    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
+                             weight=-0.01)
 
 @configclass
 class RewardsType2Cfg:
