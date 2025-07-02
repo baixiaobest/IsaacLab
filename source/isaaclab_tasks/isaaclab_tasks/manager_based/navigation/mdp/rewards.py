@@ -24,12 +24,21 @@ def position_command_error_tanh(env: ManagerBasedRLEnv, std: float, command_name
     distance = torch.norm(des_pos_b, dim=1)
     return 1 - torch.tanh(distance / std)
 
-
 def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     """Penalize tracking orientation error."""
     command = env.command_manager.get_command(command_name)
     heading_b = command[:, 3]
     return heading_b.abs()
+
+def goal_position_error_tanh(env: ManagerBasedRLEnv, std: float, command_term_name: str) -> torch.Tensor:
+    """Reward for moving towards the goal position with tanh kernel."""
+    command_term = env.command_manager.get_term(command_term_name)
+    goal_positions = command_term.goal_positions
+    robot_pos = env.scene["robot"].data.root_pos_w
+    # Calculate the distance to the goal position
+    distance_to_goal = torch.norm(goal_positions - robot_pos, dim=1)
+
+    return 1 - torch.tanh(distance_to_goal / std)
 
 class navigation_progress(ManagerTermBase):
     

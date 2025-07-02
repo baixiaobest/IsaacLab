@@ -158,11 +158,11 @@ class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_navigation_no_scandots_v0"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
+        init_noise_std=0.5,
+        noise_clip=0.6,
         encoder_dims=None,
-        actor_hidden_dims=[64, 128, 64],
-        critic_hidden_dims=[64, 128, 64],
+        actor_hidden_dims=[64, 64, 128, 64],
+        critic_hidden_dims=[64, 64, 128, 64],
         activation="elu",
         tanh_output=True,
     )

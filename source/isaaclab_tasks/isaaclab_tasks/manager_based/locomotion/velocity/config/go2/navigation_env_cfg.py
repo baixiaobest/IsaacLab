@@ -55,22 +55,67 @@ class CommandsCfg:
     )
 
 @configclass
-class RewardsCfg:
+class RewardsType1Cfg:
+    progress_reward_long_distance = RewTerm(
+        func=nav_mdp.goal_position_error_tanh,
+        weight=1.0,
+        params={
+            "command_term_name": "navigation_command",
+            "std": 50.0
+            }
+    )
+    progress_reward_mid_distance = RewTerm(
+        func=nav_mdp.goal_position_error_tanh,
+        weight=1.0,
+        params={
+            "command_term_name": "navigation_command",
+            "std": 10.0
+            }
+    )
+    progress_reward_short_distance = RewTerm(
+        func=nav_mdp.goal_position_error_tanh,
+        weight=1.0,
+        params={
+            "command_term_name": "navigation_command",
+            "std": 0.5
+            }
+    )
+    action_penalty = RewTerm(func=mdp.action_l2, weight=-0.01)
+
+    # Extra penalty for angular velocity
+    ang_vel_penalty = RewTerm(
+        func=nav_mdp.action_idx_l2,
+        weight=-0.05,
+        params={"action_idx": 2}  # Angular velocity is at index 2
+    )
+
+    ang_vel_penalty = RewTerm(
+        func=mdp.action_idx_l2,
+        weight=-0.05,
+        params={"action_idx": 2}  # Angular velocity is at index 2
+    )
+
+@configclass
+class RewardsType2Cfg:
     progress_reward_long_distance = RewTerm(
         func=nav_mdp.navigation_progress,
         weight=1.0,
         params={
             "command_term_name": "navigation_command",
-            "scale": 200.0
+            "scale": 200.0 # Scale to compensate for small simulation time step
             }
     )
-    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
-                             weight=-0.01)
+    action_penalty = RewTerm(func=mdp.action_l2, weight=-0.01)
+
+    # Extra penalty for angular velocity
     ang_vel_penalty = RewTerm(
         func=nav_mdp.action_idx_l2,
-        weight=-0.01,
+        weight=-0.05,
         params={"action_idx": 2}  # Angular velocity is at index 2
     )
+
+    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
+                             weight=-0.01)
 
 @configclass
 class ActionsCfg:
@@ -162,13 +207,17 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         """Post initialization."""
         super().__post_init__()
 
-        self.sim.physx.gpu_collision_stack_size = 300_000_000
-        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        if self.scene.num_envs > 500:
+            self.sim.physx.gpu_collision_stack_size = 300_000_000
+            self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        else:
+            self.sim.physx.gpu_collision_stack_size = 600_000
+            self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
 
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
 
-        self.rewards = RewardsCfg()
+        self.rewards = RewardsType1Cfg()
 
         self.actions = ActionsCfg()
 
@@ -217,6 +266,7 @@ class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
 
         # Remove the height scan observation
         self.observations.policy.height_scan = None
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
 
 @configclass
 class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
@@ -236,8 +286,5 @@ class NavigationFlatTerrain(NavigationMountainEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
-
-        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
-        self.sim.physx.gpu_collision_stack_size = 600_000
 
         self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
