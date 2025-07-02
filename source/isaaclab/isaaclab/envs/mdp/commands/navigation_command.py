@@ -160,7 +160,8 @@ class NavigationPositionCommand(CommandTerm):
             vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_velocity_to_arrow(self.navigation_commands[:, :2], body_frame=True)
             vel_arrow_scale, vel_arrow_quat = self._resolve_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :2])
         else:
-            vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_velocity_to_arrow(self.navigation_commands[:, :3], body_frame=True)
+            relative_position = self._goal_positions - self.robot.data.root_pos_w
+            vel_des_arrow_scale, vel_des_arrow_quat = self._resolve_velocity_to_arrow(relative_position[:, :3], body_frame=False)
             vel_arrow_scale, vel_arrow_quat = self._resolve_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :3], body_frame=True)
         # display markers
         self.goal_vel_visualizer.visualize(base_pos_w, vel_des_arrow_quat, vel_des_arrow_scale)
