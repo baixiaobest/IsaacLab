@@ -80,12 +80,12 @@ class RewardsType1Cfg:
             "std": 0.5
             }
     )
-    action_penalty = RewTerm(func=mdp.action_l2, weight=-0.1)
+    action_penalty = RewTerm(func=mdp.action_l2, weight=-0.05)
 
     # Extra penalty for angular velocity
     ang_vel_penalty = RewTerm(
         func=mdp.ang_vel_z_l2,
-        weight=-0.5
+        weight=-0.2
     )
 
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
