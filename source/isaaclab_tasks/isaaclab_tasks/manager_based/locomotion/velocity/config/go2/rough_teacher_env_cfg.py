@@ -181,11 +181,11 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # Policy determines heading
-        self.commands.base_velocity.velocity_heading = True
+        self.commands.base_velocity.velocity_heading = False
         self.commands.base_velocity.world_frame_command = True
         self.commands.base_velocity.resampling_time_range=(20.0, 50.0)
         self.commands.base_velocity.ranges = mdp.UniformVelocityCommandCfg.RangesAngleMag(
-            lin_vel_mag = (0.3, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_mag = (0.0, 1.0), lin_vel_angle= (-math.pi, math.pi), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         )
 
         self.rewards.distance_traveled_reward.weight = 1.0
