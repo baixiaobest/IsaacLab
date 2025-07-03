@@ -47,7 +47,8 @@ class UnitreeGo2RoughTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_rough_teacher"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.8,
+        noise_clip=1.0,
         encoder_dims=[412, 256, 128, 64, 32],
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
@@ -66,7 +67,8 @@ class UnitreeGo2RoughTeacherPPORunnerCfg_v2(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_rough_teacher_v2"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.8,
+        noise_clip=1.0,
         encoder_dims=[397, 256, 128, 64, 32],
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
@@ -85,7 +87,8 @@ class UnitreeGo2RoughTeacherPPORunnerCfg_v3(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_rough_teacher_v2"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.8,
+        noise_clip=1.0,
         encoder_dims=[397, 256, 128, 64, 32],
         actor_hidden_dims=[512, 256, 128, 128],
         critic_hidden_dims=[512, 256, 128],
@@ -99,7 +102,8 @@ class UnitreeGo2RoughTeacherPPORunnerCfg_v3(RslRlOnPolicyRunnerCfg):
 class UnitreeGo2RoughTeacherScandotsOnlyPPORunnerCfg(UnitreeGo2RoughTeacherPPORunnerCfg):
     experiment_name = "unitree_go2_rough_teacher_scandots_only"
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.8, 
+        noise_clip=1.0,
         encoder_dims=[336, 256, 128, 64, 32],
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
