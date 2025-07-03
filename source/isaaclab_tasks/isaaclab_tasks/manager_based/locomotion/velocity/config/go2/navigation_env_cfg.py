@@ -121,7 +121,7 @@ class ActionsCfg:
 
     pre_trained_policy_action: nav_mdp.PreTrainedPolicyActionCfg = nav_mdp.PreTrainedPolicyActionCfg(
         asset_name="robot",
-        policy_path=f"logs/rsl_rl/EncoderActorCriticGO2/Teacher-v3/2025-06-15_15-38-10/model_jit.pt",
+        policy_path=f"logs/rsl_rl/EncoderActorCriticGO2/Teacher-v2/2025-07-03_06-06-34/model_jit.pt",
         low_level_decimation=4,
         low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
