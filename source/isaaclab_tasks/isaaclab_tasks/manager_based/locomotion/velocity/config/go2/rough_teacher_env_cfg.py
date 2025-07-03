@@ -189,11 +189,15 @@ class UnitreeGo2RoughTeacherEnvCfg_v2(UnitreeGo2RoughTeacherEnvCfg):
         )
 
         self.rewards.distance_traveled_reward.weight = 1.0
-        
+
         self.rewards.joint_deviation.params = {
             'asset_cfg': SceneEntityCfg("robot", 
             joint_names=["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint"])}
         self.rewards.joint_deviation.weight = -0.1
+
+        # Terminate when fall
+        self.terminations.base_contact.params["sensor_cfg"].body_names = ["base", ".*hip"]
+        self.terminations.base_contact.params["threshold"] = 0.1
 
         # Add command velocity level to curriculum
 
