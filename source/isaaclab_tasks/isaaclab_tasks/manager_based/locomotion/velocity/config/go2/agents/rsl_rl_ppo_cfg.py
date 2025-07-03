@@ -131,6 +131,10 @@ NavPPOConfig = RslRlPpoAlgorithmCfg(
         max_grad_norm=1.0,
     )
 
+"""
+NAVIGATION
+"""
+
 @configclass
 class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
