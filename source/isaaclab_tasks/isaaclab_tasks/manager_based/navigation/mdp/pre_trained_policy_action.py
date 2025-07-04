@@ -88,13 +88,6 @@ class PreTrainedPolicyAction(ActionTerm):
     """
 
     def process_actions(self, actions: torch.Tensor):
-        if self.cfg.enable_velocity_heading:
-            velocity_cmd_heading = torch.atan2(actions[:, 1], actions[:, 0])
-            robot_heading = math_utils.euler_xyz_from_quat(self.robot.data.root_quat_w)[2]
-            heading_error = velocity_cmd_heading - robot_heading
-            angular_vel_cmd = self.cfg.velocity_heading_gain * heading_error
-            actions[:, 2] = angular_vel_cmd
-
         actions = actions * torch.tensor(self.cfg.action_scales, device=self.device)
         self._raw_actions[:] = actions
 
@@ -192,10 +185,6 @@ class PreTrainedPolicyActionCfg(ActionTermCfg):
     """Low level action configuration."""
     low_level_observations: ObservationGroupCfg = MISSING
     """Low level observation configuration."""
-    enable_velocity_heading: bool = False
-    """Whether to use the velocity vector as the heading direction for the robot."""
-    velocity_heading_gain: float = 0.1
-    """Proportional gain for the velocity heading control."""
     action_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
     """Scales for the actions."""
     debug_vis: bool = True

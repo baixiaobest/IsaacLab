@@ -22,13 +22,13 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
-from .rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
+from .rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v2
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
 from isaaclab.sim.simulation_cfg import SimulationCfg
 
-LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v3()
+LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v2()
 
 ##
 # Pre-defined configs
@@ -47,38 +47,44 @@ class CommandsCfg:
         asset_name="robot",
         resampling_time_range=(20, 30),
         debug_vis=True,
-        command_scales=(0.02, 0.02, 0.02), # Scale to stabilize the training
-        # command=mdp.NavigationPositionCommandCfg.VelocityCommand(
-        #     max_velocity=1.0,
-        #     P_heading=0.1
-        # )
+        command=mdp.NavigationPositionCommandCfg.PositionCommand(
+                heading_type="velocity_heading",
+                command_scales=(0.1, 0.1, 0.1, 1.0) # Scale to stabilize the training
+            )
     )
 
 @configclass
 class RewardsType1Cfg:
     progress_reward_long_distance = RewTerm(
-        func=nav_mdp.goal_position_error_tanh,
-        weight=1.0,
+        func=nav_mdp.position_command_error_tanh,
+        weight=0.5,
         params={
-            "command_term_name": "navigation_command",
+            "command_name": "navigation_command",
             "std": 50.0
             }
     )
     progress_reward_mid_distance = RewTerm(
-        func=nav_mdp.goal_position_error_tanh,
-        weight=1.0,
+        func=nav_mdp.position_command_error_tanh,
+        weight=0.5,
         params={
-            "command_term_name": "navigation_command",
+            "command_name": "navigation_command",
             "std": 10.0
             }
     )
     progress_reward_short_distance = RewTerm(
-        func=nav_mdp.goal_position_error_tanh,
-        weight=1.0,
+        func=nav_mdp.position_command_error_tanh,
+        weight=0.5,
         params={
-            "command_term_name": "navigation_command",
+            "command_name": "navigation_command",
             "std": 0.5
             }
+    )
+    heading_command_error = RewTerm(
+        func=nav_mdp.heading_command_error_abs,
+        weight=-0.2,
+        params={
+            "command_name": "navigation_command"
+        }
     )
     # action_penalty = RewTerm(func=mdp.action_l2, weight=-0.05)
 
@@ -125,9 +131,7 @@ class ActionsCfg:
         low_level_decimation=4,
         low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
-        enable_velocity_heading=True,
-        velocity_heading_gain=0.1,
-        action_scales=(0.8, 0.8, 0.3),
+        action_scales=(1.0, 1.0, 1.0),
         debug_vis=True
     )
 

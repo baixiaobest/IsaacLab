@@ -285,13 +285,23 @@ class NavigationPositionCommandCfg(CommandTermCfg):
 
     @configclass
     class VelocityCommand:
+        """ This type is only used for the purpose of debugging low level policies. 
+            It directly provides a xy velocity command and angular velocity pointing
+            the robot toward the goal.
+        """
         max_velocity: float = 1.0
         """Maximum velocity for the navigation command (in m/s)."""
         P_heading = 0.1
         """Proportional gain for the velocity command."""
+        command_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
+        """Scales for the navigation command. Sometimes scale the command to stabilize the training."""
 
-    command: VelocityCommand | None = None
+    @configclass
+    class PositionCommand:
+        heading_type: str = "velocity_heading"
+        """Type of the heading command. Can be 'velocity_heading' or 'random_heading'."""
+        command_scales: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
+        """Scales for the navigation command. Sometimes scale the command to stabilize the training."""
+
+    command: VelocityCommand | PositionCommand = PositionCommand()
     """Configuration for the velocity command used in the navigation command generator."""
-
-    command_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    """Scales for the navigation command. Sometimes scale the command to stabilize the training."""

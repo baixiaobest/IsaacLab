@@ -39,13 +39,8 @@ class NavigationPositionCommand(CommandTerm):
         # Position of the goal in world frame.
         self._goal_positions = self._get_goal_positions(torch.arange(env.num_envs, device=env.device))
 
-        # Relative position of the goal in the robot base frame.
-        self.navigation_commands = torch.zeros(
-            (env.num_envs, 3), dtype=torch.float32, device=env.device
-        )
-
         self.command_scales = torch.tensor(
-            cfg.command_scales, dtype=torch.float32, device=env.device
+            cfg.command.command_scales, dtype=torch.float32, device=env.device
         )
 
         if not env.scene.terrain.cfg.terrain_type == "single_terrain_generator":
@@ -55,10 +50,20 @@ class NavigationPositionCommand(CommandTerm):
         
         self.output_velocity = isinstance(self.cfg.command, NavigationPositionCommandCfg.VelocityCommand)
 
+        if self.output_velocity:
+            # [velocity x, velocity y, angular velocity z] in base frame
+            self.navigation_commands = torch.zeros(
+                (env.num_envs, 3), dtype=torch.float32, device=env.device
+            )
+        else:
+            # [position x, position y, position z, heading] in base frame
+            self.navigation_commands = torch.zeros(
+                (env.num_envs, 4), dtype=torch.float32, device=env.device
+            )
         
     @property
     def command(self) -> torch.Tensor:
-        """The desired position in robot base frame. Shape is (num_envs, 3)."""
+        """The desired position in robot base frame. Shape is (num_envs, 3) or (num_envs, 4)."""
         return self.navigation_commands
     
     @property
@@ -117,10 +122,19 @@ class NavigationPositionCommand(CommandTerm):
             self.navigation_commands = vel_cmd_b
         else:    
             # Get the goal positions in the robot base frame.
-            goal_position_local = math_utils.quat_rotate_inverse(
+            goal_position_b = math_utils.quat_rotate_inverse(
                 robot_rot_quat_w, relative_position
             )
-            self.navigation_commands = goal_position_local
+            self.navigation_commands[:, :3] = goal_position_b
+            # compute heading
+            if self.cfg.command.heading_type == "velocity_heading":
+                # -- heading in the base frame
+                self.navigation_commands[:, 3] = torch.atan2(goal_position_b[:, 1], goal_position_b[:, 0])
+            else:
+                # -- random heading
+                heading_b = torch.empty(goal_position_b.shape[0], device=self.device)
+                heading_b.uniform_(-torch.pi, torch.pi)
+                self.navigation_commands[:, 3] = heading_b
 
         self.navigation_commands *= self.command_scales
 
@@ -171,10 +185,8 @@ class NavigationPositionCommand(CommandTerm):
 
     def _resolve_velocity_to_arrow(self, velocity: torch.Tensor, body_frame: bool=True) -> tuple[torch.Tensor, torch.Tensor]:
         """Converts the XY base velocity command to arrow direction rotation."""
-        # obtain default scale of the marker
-        default_scale = torch.tensor([1.0, 1.0, 0.1], device=self.device)
         # arrow-scale
-        arrow_scale = torch.tensor(default_scale, device=self.device).repeat(velocity.shape[0], 1)
+        arrow_scale = torch.tensor([1.0, 1.0, 0.1], device=self.device).repeat(velocity.shape[0], 1)
         arrow_scale[:, 0] *= torch.linalg.norm(velocity, dim=1) * 3.0
         # arrow-direction
         heading_angle = torch.atan2(velocity[:, 1], velocity[:, 0])
