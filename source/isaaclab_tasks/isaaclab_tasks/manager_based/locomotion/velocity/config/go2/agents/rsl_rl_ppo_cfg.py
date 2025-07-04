@@ -120,11 +120,15 @@ class UnitreeGo2FlatPPORunnerCfg(UnitreeGo2RoughPPORunnerCfg):
         self.policy.actor_hidden_dims = [128, 128, 128]
         self.policy.critic_hidden_dims = [128, 128, 128]
 
+"""
+NAVIGATION
+"""
+
 NavPPOConfig = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.01,
+        entropy_coef=0.005,
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=1.0e-3,
@@ -134,10 +138,6 @@ NavPPOConfig = RslRlPpoAlgorithmCfg(
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
-
-"""
-NAVIGATION
-"""
 
 @configclass
 class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
@@ -167,7 +167,7 @@ class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_navigation_no_scandots_v0"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
+        init_noise_std=0.5,
         noise_clip=1.0,
         encoder_dims=None,
         actor_hidden_dims=[128, 128],
