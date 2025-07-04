@@ -39,13 +39,15 @@ def velocity_heading_error_abs(
     robot_vel = asset.data.root_lin_vel_w
     has_vel = torch.norm(robot_vel, dim=1) > 0.01
 
+    rewards = torch.zeros(env.num_envs, device=env.device)
+
     if has_vel.any():
         vel_heading = torch.atan2(robot_vel[has_vel, 1], robot_vel[has_vel, 0])
         # Calculate the absolute difference between the robot's heading and the velocity heading
         heading_diff = torch.abs(math_utils.wrap_to_pi(robot_heading[has_vel] - vel_heading))
-        return heading_diff / torch.pi  # Normalize to [0, 1]
-    else:
-        return torch.zeros(env.num_envs, device=env.device)
+        rewards[has_vel] = heading_diff / torch.pi  # Normalize to [0, 1]
+    
+    return rewards
 
 
 def goal_position_error_tanh(env: ManagerBasedRLEnv, std: float, command_term_name: str) -> torch.Tensor:
