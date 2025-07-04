@@ -65,7 +65,8 @@ def single_terrain_level(
     env: ManagerBasedRLEnv, 
     env_ids: Sequence[int],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    distance_threshold: float = 1.0
+    distance_threshold: float = 1.0,
+    velocity_threshold: float = 0.1
 ) -> torch.Tensor:
     """Curriculum based on the terrain level.
 
@@ -96,8 +97,9 @@ def single_terrain_level(
     
     robot_pos = asset.data.root_pos_w[env_ids]
     robot_to_goal_distances = torch.norm(robot_pos - goals, dim=1)
+    robot_vel = torch.norm(asset.data.root_lin_vel_w[env_ids], dim=1)
 
-    move_up = robot_to_goal_distances < distance_threshold
+    move_up = torch.logical_and(robot_to_goal_distances < distance_threshold, robot_vel < velocity_threshold)
 
     move_down = robot_to_goal_distances > origin_to_goal_distances * 0.5
 
