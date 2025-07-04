@@ -93,11 +93,11 @@ def single_terrain_level(
     goals = terrain.single_terrain_generator.goal_locations[goal_types]
     # compute the distance from the origin to the goal
     origin_to_goal_distances = torch.norm(origins - goals, dim=1)
-
-    move_up = origin_to_goal_distances < distance_threshold
     
     robot_pos = asset.data.root_pos_w[env_ids]
     robot_to_goal_distances = torch.norm(robot_pos - goals, dim=1)
+
+    move_up = robot_to_goal_distances < distance_threshold
 
     move_down = robot_to_goal_distances > origin_to_goal_distances * 0.5
 

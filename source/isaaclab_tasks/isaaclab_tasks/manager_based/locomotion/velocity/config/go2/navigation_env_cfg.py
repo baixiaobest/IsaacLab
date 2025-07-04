@@ -191,13 +191,13 @@ class TerminationsCfg:
         }
     )
 
-    # goal_reached = DoneTerm(
-    #     func=mdp.goal_reached,
-    #     params={
-    #         "command_name": "navigation_command",
-    #         "threshold": 0.5,
-    #     }
-    # )
+    goal_reached = DoneTerm(
+        func=nav_mdp.navigation_goal_reached,
+        params={
+            "distance_threshold": 0.5,
+            "velocity_threshold": 0.1,
+        }
+    )
 
 ##
 # Environment configuration
@@ -282,7 +282,9 @@ class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
 
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
         self.sim.physx.gpu_collision_stack_size = 600_000
-        self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
+        self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+        self.scene.terrain.single_terrain_generator.goal_num_cols = 1
+        self.scene.terrain.max_init_terrain_level = 1
 
 
 @configclass
