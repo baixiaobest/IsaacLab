@@ -39,7 +39,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    terrain_levels = CurrTerm(func=mdp.single_terrain_level)
+    terrain_levels = CurrTerm(func=mdp.single_terrain_level, params={'distance_threshold': 1.0})
 
 @configclass
 class CommandsCfg:
