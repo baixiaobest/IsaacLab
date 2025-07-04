@@ -79,9 +79,10 @@ class RewardsType1Cfg:
             "std": 0.5
             }
     )
-    heading_command_error = RewTerm(
+    velocity_heading_error = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.2
+        params={"velocity_threshold": 0.2},
+        weight=-0.1
     )
     # action_penalty = RewTerm(func=mdp.action_l2, weight=-0.05)
 

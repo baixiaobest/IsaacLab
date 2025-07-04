@@ -162,7 +162,7 @@ MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
     goal_num_cols=5,
     goal_grid_area_size= (60.0, 60.0),
     total_terrain_levels=10,
-    distance_increment_per_level=2.0,
+    distance_increment_per_level=5.0,
     origins_per_level=8,
     obstacles_generator_config=SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig(
         scale=20.0,
@@ -191,7 +191,7 @@ FLAT_TERRAINS_CFG = SingleTerrainGeneratorCfg(
     goal_num_cols=5,
     goal_grid_area_size= (60.0, 60.0),
     total_terrain_levels=10,
-    distance_increment_per_level=2.0,
+    distance_increment_per_level=5.0,
     origins_per_level=8,
 
     obstacles_generator_config=None,

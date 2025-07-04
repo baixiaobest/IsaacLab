@@ -32,12 +32,13 @@ def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torc
 
 def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 
-        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        velocity_threshold: float = 0.1) -> torch.Tensor:
     """Penalize the difference between the direction of velocity and the robot's heading."""
     asset = env.scene[asset_cfg.name]
     robot_heading = asset.data.heading_w
     robot_vel = asset.data.root_lin_vel_w
-    has_vel = torch.norm(robot_vel, dim=1) > 0.01
+    has_vel = torch.norm(robot_vel, dim=1) > velocity_threshold
 
     rewards = torch.zeros(env.num_envs, device=env.device)
 
