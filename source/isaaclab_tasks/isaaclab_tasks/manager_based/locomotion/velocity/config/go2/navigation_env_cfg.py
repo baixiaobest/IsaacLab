@@ -268,7 +268,7 @@ class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
 
         # Remove the height scan observation
         self.observations.policy.height_scan = None
-        self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
 
 @configclass
 class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
