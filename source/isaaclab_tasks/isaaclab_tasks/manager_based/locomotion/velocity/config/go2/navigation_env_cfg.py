@@ -48,7 +48,7 @@ class CommandsCfg:
         resampling_time_range=(20, 30),
         debug_vis=True,
         command=mdp.NavigationPositionCommandCfg.PositionCommand(
-                heading_type="velocity_heading",
+                heading_type="target_heading", # If you are changing this, make sure to change the reward function accordingly
                 command_scales=(0.1, 0.1, 0.1, 1.0) # Scale to stabilize the training
             )
     )
@@ -80,11 +80,8 @@ class RewardsType1Cfg:
             }
     )
     heading_command_error = RewTerm(
-        func=nav_mdp.heading_command_error_abs,
-        weight=-0.2,
-        params={
-            "command_name": "navigation_command"
-        }
+        func=nav_mdp.velocity_heading_error_abs,
+        weight=-0.2
     )
     # action_penalty = RewTerm(func=mdp.action_l2, weight=-0.05)
 
@@ -118,7 +115,7 @@ class RewardsType2Cfg:
         params={"action_idx": 2}  # Angular velocity is at index 2
     )
 
-    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
+    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
                              weight=-0.01)
 
 @configclass
@@ -282,9 +279,7 @@ class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
 
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
         self.sim.physx.gpu_collision_stack_size = 600_000
-        self.scene.terrain.single_terrain_generator.goal_num_rows = 1
-        self.scene.terrain.single_terrain_generator.goal_num_cols = 1
-        self.scene.terrain.max_init_terrain_level = 1
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
 
 
 @configclass

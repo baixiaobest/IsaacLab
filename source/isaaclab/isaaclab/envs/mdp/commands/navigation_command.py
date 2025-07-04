@@ -127,7 +127,7 @@ class NavigationPositionCommand(CommandTerm):
             )
             self.navigation_commands[:, :3] = goal_position_b
             # compute heading
-            if self.cfg.command.heading_type == "velocity_heading":
+            if self.cfg.command.heading_type == "target_heading":
                 # -- heading in the base frame
                 self.navigation_commands[:, 3] = torch.atan2(self.navigation_commands[:, 1], self.navigation_commands[:, 0])
             else:

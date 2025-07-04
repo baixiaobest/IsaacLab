@@ -30,6 +30,24 @@ def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torc
     heading_b = command[:, 3]
     return heading_b.abs()
 
+def velocity_heading_error_abs(
+        env: ManagerBasedRLEnv, 
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize the difference between the direction of velocity and the robot's heading."""
+    asset = env.scene[asset_cfg.name]
+    robot_heading = asset.data.heading_w
+    robot_vel = asset.data.root_lin_vel_w
+    has_vel = torch.norm(robot_vel, dim=1) > 0.01
+
+    if has_vel.any():
+        vel_heading = torch.atan2(robot_vel[has_vel, 1], robot_vel[has_vel, 0])
+        # Calculate the absolute difference between the robot's heading and the velocity heading
+        heading_diff = torch.abs(math_utils.wrap_to_pi(robot_heading[has_vel] - vel_heading))
+        return heading_diff / torch.pi  # Normalize to [0, 1]
+    else:
+        return torch.zeros(env.num_envs, device=env.device)
+
+
 def goal_position_error_tanh(env: ManagerBasedRLEnv, std: float, command_term_name: str) -> torch.Tensor:
     """Reward for moving towards the goal position with tanh kernel."""
     command_term = env.command_manager.get_term(command_term_name)
@@ -81,7 +99,7 @@ class navigation_progress(ManagerTermBase):
             self.prev_distance[env_ids] = -1.0
     
 
-class navigation_command_w_penalty_l2(ManagerTermBase):
+class navigation_command_w_rate_penalty_l2(ManagerTermBase):
 
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)

@@ -298,8 +298,8 @@ class NavigationPositionCommandCfg(CommandTermCfg):
 
     @configclass
     class PositionCommand:
-        heading_type: str = "velocity_heading"
-        """Type of the heading command. Can be 'velocity_heading' or 'random_heading'."""
+        heading_type: str = "target_heading"
+        """Type of the heading command. Can be 'target_heading' or 'random_heading'."""
         command_scales: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
         """Scales for the navigation command. Sometimes scale the command to stabilize the training."""
 
