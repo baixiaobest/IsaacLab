@@ -129,7 +129,7 @@ class NavigationPositionCommand(CommandTerm):
             # compute heading
             if self.cfg.command.heading_type == "velocity_heading":
                 # -- heading in the base frame
-                self.navigation_commands[:, 3] = torch.atan2(goal_position_b[:, 1], goal_position_b[:, 0])
+                self.navigation_commands[:, 3] = torch.atan2(self.navigation_commands[:, 1], self.navigation_commands[:, 0])
             else:
                 # -- random heading
                 heading_b = torch.empty(goal_position_b.shape[0], device=self.device)
