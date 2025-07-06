@@ -122,33 +122,50 @@ class UnitreeGo2RoughDepthCameraOnlyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_rough_depth_camera_only"
     empirical_normalization = False
     cnn_config = [
-                # First layer: reshape flat input to image dimensions
-                {
-                    'type': 'reshape',
-                    'input_size': 307200,       # Input size of encoder (768 = 3*16*16)
-                    'shape': [1, 640, 480]     # Reshape to 3-channel 16x16 image
-                },
-                # Convolutional layer
-                {
-                    'type': 'conv',
-                    'out_channels': 16,
-                    'kernel_size': 3,
-                    'stride': 1,
-                    'padding': 1
-                },
-                # Max pooling layer
-                {
-                    'type': 'pool',
-                    'kernel_size': 2
-                },
-                # Another convolutional layer
-                {
-                    'type': 'conv',
-                    'out_channels': 32,
-                    'kernel_size': 3,
-                    'padding': 1
-                }
-            ]
+    # Reshape flat input to image dimensions
+    {
+        'type': 'reshape',
+        'input_size': 640 * 480,  # 307200
+        'shape': [1, 640, 480]
+    },
+    # Conv + stride 2 (downsample to 320x240)
+    {
+        'type': 'conv',
+        'out_channels': 16,
+        'kernel_size': 5,
+        'stride': 2,
+        'padding': 2
+    },
+    # Conv + stride 2 (downsample to 160x120)
+    {
+        'type': 'conv',
+        'out_channels': 32,
+        'kernel_size': 5,
+        'stride': 2,
+        'padding': 2
+    },
+    # Conv + stride 2 (downsample to 80x60)
+    {
+        'type': 'conv',
+        'out_channels': 64,
+        'kernel_size': 3,
+        'stride': 2,
+        'padding': 1
+    },
+    # Max pooling (downsample to 40x30)
+    {
+        'type': 'pool',
+        'kernel_size': 2
+    },
+    # Conv (keep size, increase channels)
+    {
+        'type': 'conv',
+        'out_channels': 128,
+        'kernel_size': 3,
+        'stride': 1,
+        'padding': 1
+    }
+]
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=1.0,
         encoder_dims=cnn_config,
