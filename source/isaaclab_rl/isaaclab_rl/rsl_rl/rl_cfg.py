@@ -47,8 +47,11 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     class_name: str = "EncoderActorCritic"
     """The policy class name. Default is EncoderActorCritic."""
 
-    encoder_dims: list[int] = MISSING
-    """The dimensions of the encoder network."""
+    encoder_dims: list[int] | list[dict] = MISSING
+    """The dimensions of the encoder network. Can be a list of integers for MLP or a list of dictionaries for CNN."""
+
+    encoder_type: Literal["mlp", "cnn"] = "mlp"
+    """The type of encoder to use. Either "mlp" or "cnn"."""
 
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):

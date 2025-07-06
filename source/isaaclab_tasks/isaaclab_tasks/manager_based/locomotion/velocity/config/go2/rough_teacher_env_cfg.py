@@ -59,15 +59,15 @@ class RoughDepthCameraOnlySceneCfg(MySceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/base",  # Attach to the robot's base
         offset=RayCasterCameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 1.0),  # Position offset (x, y, z)
-            rot=(1.0, 0.0, 0.0, 0.0),  # Quaternion rotation (w, x, y, z)
+            rot=(0.0, 1.0, 0.0, 0.0), # Quaternion rotation (w, x, y, z)
             convention="ros",  # Use ROS convention for the camera frame
         ),
         attach_yaw_only=True,
         data_types=["distance_to_image_plane"],  # Depth data type
         depth_clipping_behavior="max",  # Clip values to the maximum range
         pattern_cfg=patterns.PinholeCameraPatternCfg(
-            width=64,  # Image width
-            height=48,  # Image height
+            width=640,  # Image width
+            height=480,  # Image height
         ),
         debug_vis=True,  # Enable visualization for debugging
         mesh_prim_paths=["/World/ground"],

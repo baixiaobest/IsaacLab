@@ -121,11 +121,40 @@ class UnitreeGo2RoughDepthCameraOnlyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     save_interval = 100
     experiment_name = "unitree_go2_rough_depth_camera_only"
     empirical_normalization = False
+    cnn_config = [
+                # First layer: reshape flat input to image dimensions
+                {
+                    'type': 'reshape',
+                    'input_size': 307200,       # Input size of encoder (768 = 3*16*16)
+                    'shape': [1, 640, 480]     # Reshape to 3-channel 16x16 image
+                },
+                # Convolutional layer
+                {
+                    'type': 'conv',
+                    'out_channels': 16,
+                    'kernel_size': 3,
+                    'stride': 1,
+                    'padding': 1
+                },
+                # Max pooling layer
+                {
+                    'type': 'pool',
+                    'kernel_size': 2
+                },
+                # Another convolutional layer
+                {
+                    'type': 'conv',
+                    'out_channels': 32,
+                    'kernel_size': 3,
+                    'padding': 1
+                }
+            ]
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=1.0,
-        encoder_dims=[3072, 256, 128, 64, 32],
-        actor_hidden_dims=[512, 256, 128, 128],
-        critic_hidden_dims=[512, 256, 128],
+        encoder_dims=cnn_config,
+        encoder_type="cnn",
+        actor_hidden_dims=[256, 128, 64],
+        critic_hidden_dims=[256, 128, 64],
         activation="elu",
     )
     algorithm = PPOConfig

@@ -400,11 +400,11 @@ def depth_camera_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg) -> torch
     sensor: RayCasterCamera = env.scene.sensors[sensor_cfg.name]
     # Access the depth data
     depth_data = sensor.data.output["distance_to_image_plane"]
-    print(f"-----------------Depth data shape: {depth_data.shape}")
-    print(f"-----------------Depth data: {depth_data}")
+    # print(f"-----------------Depth data shape: {depth_data.shape}")
+    # print(f"-----------------Depth data: {depth_data}")
     # Flatten the depth data
     flattened_depth_data = depth_data.view(depth_data.shape[0], -1)  # Flatten to [num_envs, height * width]
-    print(f"-----------------Flattened depth data shape: {flattened_depth_data.shape}")
+    # print(f"-----------------Flattened depth data shape: {flattened_depth_data.shape}")
     return flattened_depth_data
 
 def body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
