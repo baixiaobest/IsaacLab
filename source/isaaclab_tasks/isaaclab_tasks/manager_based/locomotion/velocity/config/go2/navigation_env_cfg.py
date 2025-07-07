@@ -83,15 +83,6 @@ class RewardsType1Cfg:
             }
     )
 
-    goal_reached_reward = RewTerm(
-        func=nav_mdp.goal_reached_reward,
-        weight=5.0,
-        params={
-            "distance_threshold": 0.8,
-            "velocity_threshold": 0.1
-        }
-    )
-
     # velocity_heading_error = RewTerm(
     #     func=nav_mdp.velocity_heading_error_abs,
     #     params={"velocity_threshold": 0.2},
@@ -115,7 +106,6 @@ class RewardsType1Cfg:
     action_rate_l2 = RewTerm(func=nav_mdp.action_rate_l2,  
                              weight=-0.05)
     
-    # dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-0.001)
 
 @configclass
 class RewardsType2Cfg:
@@ -127,17 +117,15 @@ class RewardsType2Cfg:
             "scale": 200.0 # Scale to compensate for small simulation time step
             }
     )
-    # action_penalty = RewTerm(func=mdp.action_l2, weight=-0.01)
 
-    # Extra penalty for angular velocity
-    # ang_vel_penalty = RewTerm(
-    #     func=nav_mdp.action_idx_l2,
-    #     weight=-0.05,
-    #     params={"action_idx": 2}  # Angular velocity is at index 2
-    # )
+    heading_command_error = RewTerm(
+        func=nav_mdp.heading_command_error_abs,
+        params={"command_name": "navigation_command"},
+        weight=-0.1
+    )
 
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
-                             weight=-0.01)
+                             weight=-0.05)
 
 @configclass
 class ActionsCfg:
@@ -214,6 +202,7 @@ class TerminationsCfg:
         params={
             "distance_threshold": 0.8,
             "velocity_threshold": 0.1,
+            "stay_for_seconds": 0.5,
         }
     )
 
@@ -239,7 +228,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
 
-        self.rewards = RewardsType1Cfg()
+        self.rewards = RewardsType2Cfg()
 
         self.actions = ActionsCfg()
 
