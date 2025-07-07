@@ -85,9 +85,9 @@ class RewardsType1Cfg:
 
     goal_reached_reward = RewTerm(
         func=nav_mdp.goal_reached_reward,
-        weight=3.0,
+        weight=5.0,
         params={
-            "distance_threshold": 0.3,
+            "distance_threshold": 0.8,
             "velocity_threshold": 0.1
         }
     )
@@ -101,7 +101,7 @@ class RewardsType1Cfg:
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
         params={"command_name": "navigation_command"},
-        weight=-0.2
+        weight=-0.1
     )
 
     # action_penalty = RewTerm(func=mdp.action_l2, weight=-0.05)
