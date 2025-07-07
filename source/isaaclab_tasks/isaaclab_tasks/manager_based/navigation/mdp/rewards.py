@@ -86,7 +86,8 @@ class goal_reached_reward(ManagerTermBase):
             env: ManagerBasedRLEnv,
             asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
             distance_threshold: float = 0.5,
-            velocity_threshold: float = 0.1) -> torch.Tensor:
+            velocity_threshold: float = 0.1,
+            action_threshold: float = 0.05) -> torch.Tensor:
         """Reward for reaching the goal position."""
         # extract the used quantities (to enable type-hinting)
         asset: Articulation = env.scene[asset_cfg.name]
@@ -107,13 +108,16 @@ class goal_reached_reward(ManagerTermBase):
         goal_reached = torch.logical_and(
             robot_to_goal_distances < distance_threshold, 
             robot_vel < velocity_threshold)
+        
+        action = env.action_manager.action
+        no_action = torch.norm(action, dim=1) < action_threshold
 
         # We only award the reward if the goal is reached and not already awarded
         # This prevents multiple rewards in the same episode
-        should_award = torch.logical_and(
+        should_award = torch.logical_and(torch.logical_and(
             goal_reached, 
-            self.reward_awarded == 0.0
-        )
+            self.reward_awarded == 0.0),
+            no_action)
 
         # set corresponding reward_awarded to 1.0 if reward should be awarded
         self.reward_awarded[should_award] = 1.0

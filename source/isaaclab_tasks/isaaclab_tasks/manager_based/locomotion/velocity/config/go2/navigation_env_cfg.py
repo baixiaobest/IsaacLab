@@ -132,6 +132,7 @@ class RewardsType2Cfg:
         params={
             'distance_threshold': 0.8,
             'velocity_threshold': 0.1,
+            'action_threshold': 0.1
         })
 
     heading_command_error = RewTerm(
@@ -218,7 +219,7 @@ class TerminationsCfg:
         params={
             "distance_threshold": 0.8,
             "velocity_threshold": 0.1,
-            "stay_for_seconds": 0.05,
+            "action_threshold": 0.1,
         }
     )
 
