@@ -218,7 +218,7 @@ class TerminationsCfg:
         params={
             "distance_threshold": 0.8,
             "velocity_threshold": 0.1,
-            "stay_for_seconds": 0.5,
+            "stay_for_seconds": 0.05,
         }
     )
 
