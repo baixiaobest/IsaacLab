@@ -12,6 +12,8 @@ import isaaclab.utils.math as math_utils
 from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.envs import ManagerBasedEnv
 from isaaclab.managers import RewardTermCfg
+from isaaclab.assets import Articulation
+from isaaclab.terrains import TerrainImporter
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -60,6 +62,66 @@ def goal_position_error_tanh(env: ManagerBasedRLEnv, std: float, command_term_na
     distance_to_goal = torch.norm(goal_positions - robot_pos, dim=1)
 
     return 1 - torch.tanh(distance_to_goal / std)
+
+class goal_reached_reward(ManagerTermBase):
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self.reward_awarded = torch.zeros(env.num_envs, device=env.device)
+
+    def reset(self, env_ids=None):
+        """Reset the reward state for specified environments.
+        
+        Args:
+            env_ids: Indices of environments to reset. If None, reset all environments.
+        """
+        if env_ids is None:
+            # Reset all environments
+            self.reward_awarded = torch.zeros(self._env.num_envs, device=self._env.device)
+        elif self.reward_awarded is not None:
+            # For partial resets, set rewards to zero
+            self.reward_awarded[env_ids] = 0.0
+
+    def __call__(
+            self,
+            env: ManagerBasedRLEnv,
+            asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+            distance_threshold: float = 0.5,
+            velocity_threshold: float = 0.1) -> torch.Tensor:
+        """Reward for reaching the goal position."""
+        # extract the used quantities (to enable type-hinting)
+        asset: Articulation = env.scene[asset_cfg.name]
+        terrain: TerrainImporter = env.scene.terrain
+        
+        # Each goal has origins_per_level number of origins/terrain types.
+        # We need to devide terrain_types by origins_per_level to get the goal type.
+        terrain_types = terrain.terrain_types
+        goal_types = terrain_types // terrain.cfg.single_terrain_generator.origins_per_level
+
+        goals = terrain.single_terrain_generator.goal_locations[goal_types]
+        
+        robot_pos = asset.data.root_pos_w
+        robot_to_goal_distances = torch.norm(robot_pos - goals, dim=1)
+
+        robot_vel = torch.norm(asset.data.root_lin_vel_w, dim=1)
+
+        goal_reached = torch.logical_and(
+            robot_to_goal_distances < distance_threshold, 
+            robot_vel < velocity_threshold)
+
+        # We only award the reward if the goal is reached and not already awarded
+        # This prevents multiple rewards in the same episode
+        should_award = torch.logical_and(
+            goal_reached, 
+            self.reward_awarded == 0.0
+        )
+
+        # set corresponding reward_awarded to 1.0 if reward should be awarded
+        self.reward_awarded[should_award] = 1.0
+
+        # The reward is scaled by 1/sted_dt, so the average reward per second is 1.0 if the robot reaches the goal
+        return should_award.float() \
+                * (1.0 / env.step_dt)
+
 
 class navigation_progress(ManagerTermBase):
     
