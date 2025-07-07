@@ -111,8 +111,8 @@ class RewardsType1Cfg:
     #     weight=-0.2
     # )
 
-    # action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_penalty_l2,  
-    #                          weight=-0.01)
+    action_rate_l2 = RewTerm(func=nav_mdp.action_rate_l2,  
+                             weight=-0.05)
     
     # dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-0.001)
 
@@ -300,6 +300,8 @@ class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
         self.sim.physx.gpu_collision_stack_size = 600_000
         self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
+        self.scene.terrain.single_terrain_generator.goal_num_cols = 1
+        self.scene.terrain.single_terrain_generator.goal_num_rows = 1
 
 
 @configclass
