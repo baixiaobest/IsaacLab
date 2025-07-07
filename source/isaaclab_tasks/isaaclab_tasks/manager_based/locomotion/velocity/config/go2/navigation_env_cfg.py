@@ -83,6 +83,14 @@ class RewardsType1Cfg:
             }
     )
 
+    goal_reached_reward = RewTerm(
+        func=nav_mdp.goal_reached_reward,
+        weight=5.0,
+        params={
+            'distance_threshold': 0.8,
+            'velocity_threshold': 0.1,
+        })
+
     # velocity_heading_error = RewTerm(
     #     func=nav_mdp.velocity_heading_error_abs,
     #     params={"velocity_threshold": 0.2},
@@ -117,6 +125,14 @@ class RewardsType2Cfg:
             "scale": 200.0 # Scale to compensate for small simulation time step
             }
     )
+
+    goal_reached_reward = RewTerm(
+        func=nav_mdp.goal_reached_reward,
+        weight=3.0,
+        params={
+            'distance_threshold': 0.8,
+            'velocity_threshold': 0.1,
+        })
 
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
