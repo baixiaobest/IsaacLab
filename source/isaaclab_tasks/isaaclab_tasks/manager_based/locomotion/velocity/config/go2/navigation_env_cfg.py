@@ -76,12 +76,21 @@ class RewardsType1Cfg:
     )
     progress_reward_short_distance = RewTerm(
         func=nav_mdp.position_command_error_tanh,
-        weight=1.0,
+        weight=0.5,
         params={
             "command_name": "navigation_command",
             "std": 2.0
             }
     )
+    progress_reward_fine_grained = RewTerm(
+        func=nav_mdp.position_command_error_tanh,
+        weight=0.5,
+        params={
+            "command_name": "navigation_command",
+            "std": 0.2
+            }
+    )
+
     # velocity_heading_error = RewTerm(
     #     func=nav_mdp.velocity_heading_error_abs,
     #     params={"velocity_threshold": 0.2},
