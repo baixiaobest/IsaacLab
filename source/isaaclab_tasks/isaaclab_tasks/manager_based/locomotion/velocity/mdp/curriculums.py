@@ -101,7 +101,7 @@ def single_terrain_level(
 
     move_up = torch.logical_and(robot_to_goal_distances < distance_threshold, robot_vel < velocity_threshold)
 
-    move_down = robot_to_goal_distances > origin_to_goal_distances * 0.5
+    move_down = torch.logical_not(move_up)
 
     # update terrain levels
     terrain.update_env_origins(env_ids, move_up, move_down)
