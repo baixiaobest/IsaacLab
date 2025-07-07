@@ -244,7 +244,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
 
-        self.rewards = RewardsType2Cfg()
+        self.rewards = RewardsType1Cfg()
 
         self.actions = ActionsCfg()
 
