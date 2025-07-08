@@ -53,6 +53,12 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     encoder_type: Literal["mlp", "cnn"] = "mlp"
     """The type of encoder network. Default is "mlp"."""
 
+    encoder_obs_normalize: bool = False
+    """Whether to normalize the encoder observations before passing them to the encoder. Default is False."""
+
+    share_encoder_with_critic: bool = False
+    """Whether to share the encoder between the actor and critic networks. Default is False."""
+
     tanh_output: bool = False
     """Whether to apply a tanh activation to the output of the actor network."""
 

@@ -58,38 +58,38 @@ class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     wandb_project="navigation"
 
 cnn_config = [
-    # First layer: reshape flat input to image dimensions
-    {
-        'type': 'reshape',
-        'input_size': 1066,       # Input size of encoder
-        'shape': [1, 26, 41]     # Reshape to 1-channel image of size 16x21, need to modify this if height scans changes
+    # 1) Unglue the flat vector into a 1×26×41 “image”
+    { 'type':   'reshape',
+      'input_size': 1066,
+      'shape': [1, 26, 41]
     },
-    # Convolutional layer 1
-    {
-        'type': 'conv',
-        'out_channels': 8,
-        'kernel_size': 3,
-        'dilation': 1,
-        'stride': 1,
-        'padding': 1
+
+    # 2) One dilated conv to capture ~1 m radius features
+    { 'type':        'conv',
+      'out_channels': 16,
+      'kernel_size':   5,
+      'dilation':      2,
+      'stride':        1,
+      'padding':       4
     },
-    # Convolutional layer 2
-    {
-        'type': 'conv',
-        'out_channels': 16,
-        'kernel_size': 3,
-        'dilation': 2,
-        'stride': 1,
-        'padding': 1
+
+    # 3) 2×2 max‑pool to half H×W → 13×20
+    { 'type':       'pool',
+      'kernel_size': 2,
+      'stride':      2
     },
-    # Convolutional layer 3
-    {
-        'type': 'conv',
-        'out_channels': 16,
-        'kernel_size': 3,
-        'dilation': 3,
-        'stride': 1,
-        'padding': 1
+
+    # 4) One plain conv to mix channels
+    { 'type':        'conv',
+      'out_channels': 32,
+      'kernel_size':   3,
+      'dilation':      1,
+      'stride':        1,
+      'padding':       1
+    },
+    # 5) 2×2 adaptive average‑pool
+    { 'type':       'adaptive_pool',
+      'output_size': (2, 2)  # Directly specify the output dimensions
     }
 ]
 
@@ -105,7 +105,9 @@ class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         noise_clip=1.0,
         encoder_dims=cnn_config,
         encoder_type="cnn",
-        actor_hidden_dims=[64, 64, 64, 32],
+        encoder_obs_normalize=False,
+        share_encoder_with_critic=True,
+        actor_hidden_dims=[128, 128, 64],
         critic_hidden_dims=[256, 256, 128],
         activation="elu",
         tanh_output=True,

@@ -282,6 +282,45 @@ class RewardsType2Cfg:
 
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
                              weight=-0.05)
+    
+@configclass
+class RewardsCNNCfg:
+    progress_reward_long_distance = RewTerm(
+        func=nav_mdp.navigation_progress,
+        weight=1.0,
+        params={
+            "command_term_name": "navigation_command",
+            "scale": 200.0 # Scale to compensate for small simulation time step
+            }
+    )
+
+    goal_reached_reward = RewTerm(
+        func=nav_mdp.goal_reached_reward,
+        weight=5.0,
+        params={
+            'distance_threshold': DISTANCE_THRESHOLD,
+            'velocity_threshold': VELOCITY_THRESHOLD,
+            'action_threshold': ACTION_THRESHOLD,
+            'reward_multiplier': REWARD_MULTIPLIER
+        })
+
+    heading_command_error = RewTerm(
+        func=nav_mdp.heading_command_error_abs,
+        params={"command_name": "navigation_command"},
+        weight=-0.2
+    )
+
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]),
+            "threshold": 0.1
+        },
+        weight=-1.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
+    )
+
+    action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
+                             weight=-0.05)
 
 @configclass
 class ActionsCfg:
@@ -414,7 +453,7 @@ class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):
 
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
         self.sim.physx.gpu_collision_stack_size = 600_000
-        self.scene.terrain.single_terrain_generator = MOUNTAIN_TERRAINS_CFG
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
 
 @configclass
 class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
@@ -427,6 +466,17 @@ class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
         # Remove the height scan observation
         self.observations.policy.height_scan = None
         self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
+
+@configclass
+class NavigationCNNCfg(NavigationMountainEnvCfg):
+    """Configuration for the locomotion velocity-tracking environment with CNN observations."""
+
+    def __post_init__(self):
+        """Post initialization."""
+        super().__post_init__()
+
+        self.rewards = RewardsCNNCfg()
+
 
 @configclass
 class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
@@ -451,11 +501,24 @@ class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
             }
         )
 
-
 @configclass
-class NavigationFlatTerrain(NavigationMountainEnvCfg):
+class NavigationCNNCfg_PLAY(NavigationMountainEnvCfg):
+    """Configuration for the locomotion velocity-tracking environment with CNN observations in play mode."""
+
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
 
-        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
+        self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        self.sim.physx.gpu_collision_stack_size = 600_000
+        self.scene.terrain.single_terrain_generator.goal_num_cols = 1
+        self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+
+        self.terminations.goal_reached = DoneTerm(
+            func=nav_mdp.navigation_goal_reached_timer,
+            params={
+                "distance_threshold": 0.8,
+                "velocity_threshold": 0.1,
+                "stay_for_seconds": 0.5
+            }
+        )
