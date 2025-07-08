@@ -73,8 +73,17 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.5, 0.0, 20.0)),
         attach_yaw_only=True,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[2, 1.5]),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"],
+    )
+    navigation_height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(2.5, 0.0, 20.0)),
+        drift_range=(0.05, 0.15),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=[8, 5]),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"]
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     foot_contact_forces = ContactSensorCfg(
@@ -314,7 +323,9 @@ class NavigationObservationsCfg:
 
         height_scan = ObsTerm(
             func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+            params={
+                "sensor_cfg": SceneEntityCfg("navigation_height_scanner"),
+                "offset": 0.4},
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),
         )
@@ -394,16 +405,7 @@ class NavigationMountainEnvCfg(ManagerBasedRLEnvCfg):
             self.sim.physx.gpu_collision_stack_size = 600_000
             self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
 
-        self.curriculum = CurriculumCfg()
-        self.commands = CommandsCfg()
-
-        self.rewards = RewardsType2Cfg()
-
-        self.actions = ActionsCfg()
-
-        self.observations = NavigationObservationsCfg()
-
-        self.terminations = TerminationsCfg()
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
 
 @configclass
 class NavigationMountainEnvCfg_PLAY(NavigationMountainEnvCfg):

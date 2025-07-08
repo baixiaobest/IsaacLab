@@ -27,7 +27,7 @@ class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=0.8,
         noise_clip=1.0,
-        encoder_dims=[336, 128, 64, 32],
+        encoder_dims=[1066, 128, 64, 32],
         actor_hidden_dims=[64, 64, 64, 32],
         critic_hidden_dims=[256, 256, 128],
         activation="elu",
@@ -61,19 +61,28 @@ cnn_config = [
     # First layer: reshape flat input to image dimensions
     {
         'type': 'reshape',
-        'input_size': 336,       # Input size of encoder
-        'shape': [1, 16, 21]     # Reshape to 1-channel image of size 16x21, need to modify this if height scans changes
+        'input_size': 1066,       # Input size of encoder
+        'shape': [1, 26, 41]     # Reshape to 1-channel image of size 16x21, need to modify this if height scans changes
     },
-    # Convolutional layer
+    # Convolutional layer 1
     {
         'type': 'conv',
-        'out_channels': 4,
+        'out_channels': 8,
+        'kernel_size': 3,
+        'dilation': 1,
+        'stride': 1,
+        'padding': 1
+    },
+    # Convolutional layer 2
+    {
+        'type': 'conv',
+        'out_channels': 16,
         'kernel_size': 3,
         'dilation': 2,
         'stride': 1,
         'padding': 1
     },
-    # Another convolutional layer
+    # Convolutional layer 3
     {
         'type': 'conv',
         'out_channels': 16,
@@ -92,8 +101,8 @@ class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_navigation_v0"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.6,
-        noise_clip=0.8,
+        init_noise_std=0.5,
+        noise_clip=1.0,
         encoder_dims=cnn_config,
         encoder_type="cnn",
         actor_hidden_dims=[64, 64, 64, 32],
