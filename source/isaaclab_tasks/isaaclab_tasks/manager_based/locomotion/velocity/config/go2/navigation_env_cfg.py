@@ -121,7 +121,7 @@ class RewardsType2Cfg:
 
     goal_reached_reward = RewTerm(
         func=nav_mdp.goal_reached_reward,
-        weight=3.0,
+        weight=5.0,
         params={
             'distance_threshold': 0.8,
             'velocity_threshold': 0.1,
@@ -132,6 +132,15 @@ class RewardsType2Cfg:
         func=nav_mdp.heading_command_error_abs,
         params={"command_name": "navigation_command"},
         weight=-0.1
+    )
+
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]),
+            "threshold": 0.1
+        },
+        weight=-1.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
     )
 
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
@@ -302,6 +311,15 @@ class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
         self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
         self.scene.terrain.single_terrain_generator.goal_num_cols = 1
         self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+
+        self.terminations.goal_reached = DoneTerm(
+            func=nav_mdp.navigation_goal_reached_timer,
+            params={
+                "distance_threshold": 0.8,
+                "velocity_threshold": 0.1,
+                "stay_for_seconds": 0.5
+            }
+        )
 
 
 @configclass
