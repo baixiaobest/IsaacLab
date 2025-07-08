@@ -39,7 +39,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 DISTANCE_THRESHOLD = 0.8
 VELOCITY_THRESHOLD = 0.1
 ACTION_THRESHOLD = 0.1
-REWARD_MULTIPLIER = 1.1
+REWARD_MULTIPLIER = 1.4
 
 @configclass
 class CurriculumCfg:
@@ -138,7 +138,7 @@ class RewardsType2Cfg:
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
         params={"command_name": "navigation_command"},
-        weight=-0.1
+        weight=-0.2
     )
 
     undesired_contacts = RewTerm(
