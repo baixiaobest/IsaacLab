@@ -39,6 +39,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 DISTANCE_THRESHOLD = 0.8
 VELOCITY_THRESHOLD = 0.1
 ACTION_THRESHOLD = 0.1
+REWARD_MULTIPLIER = 1.1
 
 @configclass
 class CurriculumCfg:
@@ -86,7 +87,7 @@ class RewardsType1Cfg:
             'distance_threshold': DISTANCE_THRESHOLD,
             'velocity_threshold': VELOCITY_THRESHOLD,
             'action_threshold': ACTION_THRESHOLD,
-            'reward_multiplier': 2.0
+            'reward_multiplier': REWARD_MULTIPLIER
         })
 
     # velocity_heading_error = RewTerm(
@@ -131,7 +132,7 @@ class RewardsType2Cfg:
             'distance_threshold': DISTANCE_THRESHOLD,
             'velocity_threshold': VELOCITY_THRESHOLD,
             'action_threshold': ACTION_THRESHOLD,
-            'reward_multiplier': 2.0
+            'reward_multiplier': REWARD_MULTIPLIER
         })
 
     heading_command_error = RewTerm(
