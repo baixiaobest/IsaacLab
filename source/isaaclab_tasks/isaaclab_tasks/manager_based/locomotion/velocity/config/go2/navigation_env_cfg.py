@@ -36,13 +36,17 @@ LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v2()
 from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG, FLAT_TERRAINS_CFG  # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
+DISTANCE_THRESHOLD = 0.2
+VELOCITY_THRESHOLD = 0.1
+ACTION_THRESHOLD = 0.1
+
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
     terrain_levels = CurrTerm(func=mdp.single_terrain_level, 
                               params={
-                                  'distance_threshold': 0.3,
-                                  'velocity_threshold': 0.1})
+                                  'distance_threshold': DISTANCE_THRESHOLD,
+                                  'velocity_threshold': VELOCITY_THRESHOLD})
 
 @configclass
 class CommandsCfg:
@@ -79,9 +83,9 @@ class RewardsType1Cfg:
         func=nav_mdp.goal_reached_reward,
         weight=5.0,
         params={
-            'distance_threshold': 0.8,
-            'velocity_threshold': 0.1,
-            'action_threshold': 0.1
+            'distance_threshold': DISTANCE_THRESHOLD,
+            'velocity_threshold': VELOCITY_THRESHOLD,
+            'action_threshold': ACTION_THRESHOLD
         })
 
     # velocity_heading_error = RewTerm(
@@ -123,9 +127,9 @@ class RewardsType2Cfg:
         func=nav_mdp.goal_reached_reward,
         weight=5.0,
         params={
-            'distance_threshold': 0.8,
-            'velocity_threshold': 0.1,
-            'action_threshold': 0.1
+            'distance_threshold': DISTANCE_THRESHOLD,
+            'velocity_threshold': VELOCITY_THRESHOLD,
+            'action_threshold': ACTION_THRESHOLD
         })
 
     heading_command_error = RewTerm(
@@ -219,9 +223,9 @@ class TerminationsCfg:
     goal_reached = DoneTerm(
         func=nav_mdp.navigation_goal_reached,
         params={
-            "distance_threshold": 0.8,
-            "velocity_threshold": 0.1,
-            "action_threshold": 0.1,
+            "distance_threshold": DISTANCE_THRESHOLD,
+            "velocity_threshold": VELOCITY_THRESHOLD,
+            "action_threshold": ACTION_THRESHOLD,
         }
     )
 
@@ -247,7 +251,7 @@ class NavigationMountainEnvCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
         self.curriculum = CurriculumCfg()
         self.commands = CommandsCfg()
 
-        self.rewards = RewardsType1Cfg()
+        self.rewards = RewardsType2Cfg()
 
         self.actions = ActionsCfg()
 
