@@ -234,11 +234,15 @@ class UnitreeGo2RoughTeacherEnvCfg_v3(UnitreeGo2RoughTeacherEnvCfg):
         self.rewards.joint_deviation.params = {
             'asset_cfg': SceneEntityCfg("robot", 
             joint_names=["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint"])}
-        self.rewards.joint_deviation.weight = -0.2
+        self.rewards.joint_deviation.weight = -0.1
 
         # Encourage larger step
         self.rewards.feet_air_time.weight = 0.0
         self.rewards.feet_air_time_range.weight = 0.4
+
+        # Terminate when fall
+        self.terminations.base_contact.params["sensor_cfg"].body_names = ["base", ".*hip"]
+        self.terminations.base_contact.params["threshold"] = 0.1
 
         # Flater body during walking
         self.rewards.flat_orientation_range.weight = -0.1
