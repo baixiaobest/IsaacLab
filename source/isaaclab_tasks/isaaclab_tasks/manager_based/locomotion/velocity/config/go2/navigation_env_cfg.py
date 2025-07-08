@@ -36,7 +36,7 @@ LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v2()
 from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG, FLAT_TERRAINS_CFG  # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-DISTANCE_THRESHOLD = 0.2
+DISTANCE_THRESHOLD = 0.8
 VELOCITY_THRESHOLD = 0.1
 ACTION_THRESHOLD = 0.1
 
@@ -85,7 +85,8 @@ class RewardsType1Cfg:
         params={
             'distance_threshold': DISTANCE_THRESHOLD,
             'velocity_threshold': VELOCITY_THRESHOLD,
-            'action_threshold': ACTION_THRESHOLD
+            'action_threshold': ACTION_THRESHOLD,
+            'reward_multiplier': 2.0
         })
 
     # velocity_heading_error = RewTerm(
@@ -129,7 +130,8 @@ class RewardsType2Cfg:
         params={
             'distance_threshold': DISTANCE_THRESHOLD,
             'velocity_threshold': VELOCITY_THRESHOLD,
-            'action_threshold': ACTION_THRESHOLD
+            'action_threshold': ACTION_THRESHOLD,
+            'reward_multiplier': 2.0
         })
 
     heading_command_error = RewTerm(

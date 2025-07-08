@@ -87,7 +87,8 @@ class goal_reached_reward(ManagerTermBase):
             asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
             distance_threshold: float = 0.5,
             velocity_threshold: float = 0.1,
-            action_threshold: float = 0.05) -> torch.Tensor:
+            action_threshold: float = 0.05,
+            reward_multiplier: float = 2.0) -> torch.Tensor:
         """Reward for reaching the goal position."""
         # extract the used quantities (to enable type-hinting)
         asset: Articulation = env.scene[asset_cfg.name]
@@ -122,9 +123,17 @@ class goal_reached_reward(ManagerTermBase):
         # set corresponding reward_awarded to 1.0 if reward should be awarded
         self.reward_awarded[should_award] = 1.0
 
+        # Calculate distance-based reward multiplier
+        # Linear interpolation from reward_multiplier at distance 0 to 1.0 at distance_threshold
+        distance_multiplier = torch.ones_like(robot_to_goal_distances)
+        distance_multiplier[should_award] = reward_multiplier - (reward_multiplier - 1.0) * (
+            robot_to_goal_distances[should_award] / distance_threshold
+        )
+
         # The reward is scaled by 1/sted_dt, so the average reward per second is 1.0 if the robot reaches the goal
         return should_award.float() \
-                * (1.0 / env.step_dt)
+                * distance_multiplier \
+                * (1.0 / env.step_dt) 
 
 
 class navigation_progress(ManagerTermBase):
