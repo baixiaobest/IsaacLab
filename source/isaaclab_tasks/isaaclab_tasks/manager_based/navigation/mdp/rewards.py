@@ -53,15 +53,49 @@ def velocity_heading_error_abs(
     return rewards
 
 
-def goal_position_error_tanh(env: ManagerBasedRLEnv, std: float, command_term_name: str) -> torch.Tensor:
+def goal_position_error_tanh(
+        env: ManagerBasedRLEnv, 
+        std: float, command_term_name: str, 
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),) -> torch.Tensor:
     """Reward for moving towards the goal position with tanh kernel."""
     command_term = env.command_manager.get_term(command_term_name)
     goal_positions = command_term.goal_positions
-    robot_pos = env.scene["robot"].data.root_pos_w
+    robot_pos = env.scene[asset_cfg.name].data.root_pos_w
     # Calculate the distance to the goal position
     distance_to_goal = torch.norm(goal_positions - robot_pos, dim=1)
 
     return 1 - torch.tanh(distance_to_goal / std)
+
+def lateral_movement_penalty(
+        env: ManagerBasedRLEnv,
+        std: float,
+        command_term_name: str,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """
+    Computes a penalty based on the robot's lateral (perpendicular) velocity 
+    relative to the direction towards the goal.
+
+    The penalty is higher when the robot moves more sideways with respect to the 
+    goal direction, encouraging the robot to move directly towards the goal.
+
+    Returns:
+        torch.Tensor: A tensor of shape (num_envs,) with the lateral movement penalty for each environment.
+    """
+    command_term = env.command_manager.get_term(command_term_name)
+    goal_positions = command_term.goal_positions
+    
+    robot = env.scene[asset_cfg.name]
+    robot_pos = robot.data.root_pos_w
+    robot_vel = robot.data.root_lin_vel_w
+
+    robot_to_goal_vec = goal_positions - robot_pos
+    robot_to_goal_norm = torch.norm(robot_to_goal_vec, dim=1, keepdim=True)
+    robot_to_goal_dir = robot_to_goal_vec / robot_to_goal_norm
+
+    lateral_vel = robot_vel - torch.sum(robot_vel * robot_to_goal_dir, dim=1, keepdim=True) * robot_to_goal_dir
+    lateral_vel_norm = torch.norm(lateral_vel, dim=1)
+
+    return torch.tanh(lateral_vel_norm / std)
 
 class goal_reached_reward(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):

@@ -264,6 +264,15 @@ class RewardsType2Cfg:
             'action_threshold': ACTION_THRESHOLD,
             'reward_multiplier': REWARD_MULTIPLIER
         })
+    
+    lateral_movement_penalty = RewTerm(
+        func=nav_mdp.lateral_movement_penalty,
+        params={
+            "command_term_name": "navigation_command",
+            "std": 1.0
+        },
+        weight=-0.2
+    )
 
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
@@ -465,6 +474,7 @@ class NavigationMountainNoScandotsCfg(NavigationMountainEnvCfg):
 
         # Remove the height scan observation
         self.observations.policy.height_scan = None
+        self.scene.navigation_height_scanner = None
         self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
 
 @configclass
@@ -512,8 +522,8 @@ class NavigationCNNCfg_PLAY(NavigationCNNCfg):
 
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
         self.sim.physx.gpu_collision_stack_size = 600_000
-        # self.scene.terrain.single_terrain_generator.goal_num_cols = 1
-        # self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+        self.scene.terrain.single_terrain_generator.goal_num_cols = 1
+        self.scene.terrain.single_terrain_generator.goal_num_rows = 1
 
         self.scene.terrain.max_init_terrain_level = self.scene.terrain.single_terrain_generator.total_terrain_levels
 
