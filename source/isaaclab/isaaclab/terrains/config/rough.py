@@ -202,11 +202,11 @@ FLAT_TERRAINS_OBSTACLES_CFG = SingleTerrainGeneratorCfg(
         width_pixels=1000,
         amplitudes=[0.5, 0.3, 0.5, 1.0, 1.0],
         lacunarity=2.0,
-        threshold=0.85,
-        seed=1,
+        threshold=0.83,
+        seed=53,
         size_range=(0.1, 1.0),
         obstacles_types=["cube", "cylinder", "sphere"],
-        goal_region_clearance=2.0
+        goal_region_clearance=4.0
     ),
 
     terrain_config=terrain_gen.MeshPlaneTerrainCfg(

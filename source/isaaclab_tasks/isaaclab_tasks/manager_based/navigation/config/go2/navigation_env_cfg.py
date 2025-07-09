@@ -383,7 +383,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]), "threshold": 0.1},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head.*"]), "threshold": 0.1},
     )
 
     base_vel_out_of_limit = DoneTerm(
@@ -503,7 +503,7 @@ class NavigationMountainNoScandotsCfg_PLAY(NavigationMountainNoScandotsCfg):
         )
 
 @configclass
-class NavigationCNNCfg_PLAY(NavigationMountainEnvCfg):
+class NavigationCNNCfg_PLAY(NavigationCNNCfg):
     """Configuration for the locomotion velocity-tracking environment with CNN observations in play mode."""
 
     def __post_init__(self):
@@ -512,8 +512,12 @@ class NavigationCNNCfg_PLAY(NavigationMountainEnvCfg):
 
         self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
         self.sim.physx.gpu_collision_stack_size = 600_000
-        self.scene.terrain.single_terrain_generator.goal_num_cols = 1
-        self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+        # self.scene.terrain.single_terrain_generator.goal_num_cols = 1
+        # self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+
+        self.scene.terrain.max_init_terrain_level = self.scene.terrain.single_terrain_generator.total_terrain_levels
+
+        self.scene.navigation_height_scanner.debug_vis = False
 
         self.terminations.goal_reached = DoneTerm(
             func=nav_mdp.navigation_goal_reached_timer,
