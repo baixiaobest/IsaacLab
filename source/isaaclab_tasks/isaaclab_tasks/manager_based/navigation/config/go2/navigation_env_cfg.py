@@ -312,6 +312,15 @@ class RewardsCNNCfg:
             'action_threshold': ACTION_THRESHOLD,
             'reward_multiplier': REWARD_MULTIPLIER
         })
+    
+    lateral_movement_penalty = RewTerm(
+        func=nav_mdp.lateral_movement_penalty,
+        params={
+            "command_term_name": "navigation_command",
+            "std": 1.0
+        },
+        weight=-0.1
+    )
 
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
