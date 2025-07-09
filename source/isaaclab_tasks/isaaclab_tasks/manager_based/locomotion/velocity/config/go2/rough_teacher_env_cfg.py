@@ -66,8 +66,8 @@ class RoughDepthCameraOnlySceneCfg(MySceneCfg):
         data_types=["distance_to_image_plane"],  # Depth data type
         depth_clipping_behavior="max",  # Clip values to the maximum range
         pattern_cfg=patterns.PinholeCameraPatternCfg(
-            width=640,  # Image width
-            height=480,  # Image height
+            width=320,  # Image width
+            height=240,  # Image height
         ),
         debug_vis=True,  # Enable visualization for debugging
         mesh_prim_paths=["/World/ground"],

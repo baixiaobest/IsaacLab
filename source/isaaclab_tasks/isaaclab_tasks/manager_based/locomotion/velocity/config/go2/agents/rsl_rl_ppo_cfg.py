@@ -122,56 +122,57 @@ class UnitreeGo2RoughDepthCameraOnlyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_rough_depth_camera_only"
     empirical_normalization = False
     cnn_config = [
-    # Reshape flat input to image dimensions
-    {
-        'type': 'reshape',
-        'input_size': 640 * 480,  # 307200
-        'shape': [1, 640, 480]
-    },
-    # Conv + stride 2 (downsample to 320x240)
-    {
-        'type': 'conv',
-        'out_channels': 16,
-        'kernel_size': 5,
-        'stride': 2,
-        'padding': 2
-    },
-    # Conv + stride 2 (downsample to 160x120)
-    {
-        'type': 'conv',
-        'out_channels': 32,
-        'kernel_size': 5,
-        'stride': 2,
-        'padding': 2
-    },
-    # Conv + stride 2 (downsample to 80x60)
-    {
-        'type': 'conv',
-        'out_channels': 64,
-        'kernel_size': 3,
-        'stride': 2,
-        'padding': 1
-    },
-    # Max pooling (downsample to 40x30)
-    {
-        'type': 'pool',
-        'kernel_size': 2
-    },
-    # Conv (keep size, increase channels)
-    {
-        'type': 'conv',
-        'out_channels': 128,
-        'kernel_size': 3,
-        'stride': 1,
-        'padding': 1
-    }
-]
+        # Reshape flat input to image dimensions
+        {
+            'type': 'reshape',
+            'input_size': 320 * 240,  # 76800
+            'shape': [1, 320, 240]
+        },
+        # Initial pooling: reduce to 160x120
+        {
+            'type': 'pool',
+            'kernel_size': 2
+        },
+        # Conv: output size 80x60
+        {
+            'type': 'conv',
+            'out_channels': 8,
+            'kernel_size': 5,
+            'stride': 2,
+            'padding': 2
+        },
+        # Conv: output size 40x30
+        {
+            'type': 'conv',
+            'out_channels': 16,
+            'kernel_size': 3,
+            'stride': 2,
+            'padding': 1
+        },
+        # Max pool: down to 20x15
+        {
+            'type': 'pool',
+            'kernel_size': 2
+        },
+        # Conv: output size 20x15
+        {
+            'type': 'conv',
+            'out_channels': 16,
+            'kernel_size': 3,
+            'stride': 1,
+            'padding': 1
+        }
+    ]
+     
+    
     policy = RslRlPpoEncoderActorCriticCfg(
+        encoder_obs_normalize = True,
+        share_encoder_with_critic=True,
         init_noise_std=1.0,
         encoder_dims=cnn_config,
         encoder_type="cnn",
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
+        actor_hidden_dims=[128, 128, 64],
+        critic_hidden_dims=[512, 256, 128],
         activation="elu",
     )
     algorithm = PPOConfig

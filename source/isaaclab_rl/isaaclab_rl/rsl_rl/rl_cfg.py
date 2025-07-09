@@ -53,6 +53,13 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     encoder_type: Literal["mlp", "cnn"] = "mlp"
     """The type of encoder to use. Either "mlp" or "cnn"."""
 
+    encoder_obs_normalize: bool = False
+    """Whether to normalize the encoder observations before passing them to the encoder. Default is False."""
+
+    share_encoder_with_critic: bool = False
+    """Whether to share the encoder between the actor and critic networks. Default is False."""
+
+
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
     """Configuration for the PPO actor-critic networks with recurrent layers."""
