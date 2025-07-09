@@ -37,18 +37,18 @@ class SingleTerrainGenerator:
         
         self.terrain_meshes += terrain_meshes
 
-        if cfg.obstacles_generator_config is not None:
-            obstacle_meshes = self._generate_obstacles(heights, cfg.obstacles_generator_config)
-            self.terrain_meshes += obstacle_meshes
-
-        self.terrain_mesh = trimesh.util.concatenate(self.terrain_meshes)
-
         goal_locations_np = \
                 self._compute_goal_locations(heights)
         
         goal_locations_np = goal_locations_np.reshape(-1, 3)
 
         terrain_origins_np = self._compute_terrain_origins(heights, goal_locations_np)
+
+        if cfg.obstacles_generator_config is not None:
+            obstacle_meshes = self._generate_obstacles(heights, cfg.obstacles_generator_config, goal_locations_np)
+            self.terrain_meshes += obstacle_meshes
+
+        self.terrain_mesh = trimesh.util.concatenate(self.terrain_meshes)
 
         # Centering the terrain
         shift = np.array([self.cfg.terrain_config.size[0] * 0.5, 
@@ -199,18 +199,36 @@ class SingleTerrainGenerator:
         
         return terrain_origins
     
-    def _generate_obstacles(self, heights: np.ndarray, obstacle_cfg: SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig) -> list[trimesh.Trimesh]:
+    def _generate_obstacles(
+            self, 
+            heights: np.ndarray, 
+            obstacle_cfg: SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig,
+            goal_locations: np.ndarray) -> list[trimesh.Trimesh]:
         """Generate obstacle meshes based on perlin noise map and obstacle configuration."""
-        num_rows, num_cols = heights.shape
+        # Use obstacle_cfg dimensions for noise map size instead of heights.shape
+        num_rows = obstacle_cfg.length_pixels
+        num_cols = obstacle_cfg.width_pixels
+        
+        # Generate noise with the specified dimensions
         noise = custom_perlin_noise(
             num_cols, num_rows, obstacle_cfg.scale, obstacle_cfg.amplitudes, obstacle_cfg.lacunarity, 
             obstacle_cfg.seed)
         noise = np.where(noise < obstacle_cfg.threshold, 0, noise)
         indices = np.argwhere(noise > 0)
         
-        # Convert pixel resolution for height mapping
-        pixels_per_meter_col = num_cols / self.cfg.terrain_config.size[0]
-        pixels_per_meter_row = num_rows / self.cfg.terrain_config.size[1]
+        # Calculate conversion factors for metric space
+        terrain_length = self.cfg.terrain_config.size[0]  # x dimension in meters
+        terrain_width = self.cfg.terrain_config.size[1]   # y dimension in meters
+        
+        # Calculate pixels per meter for noise map
+        pixels_per_meter_col_noise = num_cols / terrain_length
+        pixels_per_meter_row_noise = num_rows / terrain_width
+        
+        # Calculate pixels per meter for height map (if available)
+        if heights is not None:
+            height_rows, height_cols = heights.shape
+            pixels_per_meter_col_height = height_cols / terrain_length
+            pixels_per_meter_row_height = height_rows / terrain_width
         
         obstacle_meshes = []
         
@@ -241,13 +259,40 @@ class SingleTerrainGenerator:
                 'yaw': np.random.uniform(-np.pi, np.pi, num_obstacles)    # rotation around z-axis
             }
             
+            # Get goal clearance distance
+            goal_clearance = getattr(obstacle_cfg, 'goal_region_clearance', 0.0)
+            
             for i, (row, col) in enumerate(indices):
-                # Get height at this position
-                height = heights[row, col] * self.cfg.terrain_config.vertical_scale
+                # Convert noise map indices to world coordinates (meters)
+                world_x = col / pixels_per_meter_col_noise
+                world_y = row / pixels_per_meter_row_noise
                 
-                # Convert to world coordinates
-                col = col / pixels_per_meter_col
-                row = row / pixels_per_meter_row
+                # Check if this position is too close to any goal
+                if goal_clearance > 0 and len(goal_locations) > 0:
+                    # Calculate distances to all goals (ignoring z-coordinate)
+                    obstacle_xy = np.array([world_y, world_x])
+                    goal_xy = goal_locations[:, :2]
+                    distances = np.sqrt(np.sum((goal_xy - obstacle_xy)**2, axis=1))
+                    
+                    # If any goal is too close, skip this obstacle
+                    if np.min(distances) < goal_clearance:
+                        continue
+                
+                # Get height at this position
+                if heights is not None:
+                    # Convert world coordinates to height map indices
+                    height_col = int(world_x * pixels_per_meter_col_height)
+                    height_row = int(world_y * pixels_per_meter_row_height)
+                    
+                    # Ensure indices are within bounds
+                    height_row = np.clip(height_row, 0, heights.shape[0] - 1)
+                    height_col = np.clip(height_col, 0, heights.shape[1] - 1)
+                    
+                    # Get height value from height map
+                    height = heights[height_row, height_col] * self.cfg.terrain_config.vertical_scale
+                else:
+                    # If no height map, use zero as default height
+                    height = 0.0
                 
                 # Get selected obstacle type
                 obstacle_type = obstacle_types[i]
@@ -271,12 +316,12 @@ class SingleTerrainGenerator:
                 
                 # Create trimesh for this obstacle
                 obstacle_mesh = self._create_obstacle_mesh(
-                    obstacle_type, row, col, height, obstacle_cfg, 
+                    obstacle_type, world_y, world_x, height, obstacle_cfg, 
                     obstacle_sizes, obstacle_rotations
                 )
                 if obstacle_mesh is not None:
                     obstacle_meshes.append(obstacle_mesh)
-    
+
         return obstacle_meshes
 
     def _create_obstacle_mesh(self, obstacle_type: str, row: int, col: int, height: int, 

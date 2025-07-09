@@ -33,7 +33,7 @@ LOW_LEVEL_ENV_CFG = UnitreeGo2RoughTeacherEnvCfg_v2()
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG, FLAT_TERRAINS_CFG  # isort: skip
+from isaaclab.terrains.config.rough import MOUNTAIN_TERRAINS_CFG, FLAT_TERRAINS_CFG, FLAT_TERRAINS_OBSTACLES_CFG  # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 DISTANCE_THRESHOLD = 0.8
@@ -476,6 +476,7 @@ class NavigationCNNCfg(NavigationMountainEnvCfg):
         super().__post_init__()
 
         self.rewards = RewardsCNNCfg()
+        self.scene.terrain.single_terrain_generator = FLAT_TERRAINS_OBSTACLES_CFG
 
 
 @configclass

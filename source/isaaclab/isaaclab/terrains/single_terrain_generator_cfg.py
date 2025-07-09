@@ -32,6 +32,12 @@ class SingleTerrainGeneratorCfg:
 
     @configclass
     class ObstaclesGeneratorConfig:
+        length_pixels: int = 1000
+        """The length of the perlin noise generator in pixels."""
+
+        width_pixels: int = 1000
+        """The width of the perlin noise generator in pixels."""
+
         scale: float = 20.0
         """The scale of the perlin noise generator."""
 
@@ -52,5 +58,8 @@ class SingleTerrainGeneratorCfg:
 
         obstacles_types: list[str] = ["cube", "cylinder", "sphere"]
         """The types of obstacles to generate."""
+
+        goal_region_clearance: float = 3.0
+        """Clearance around the goal region to not place obstacle."""
 
     obstacles_generator_config: ObstaclesGeneratorConfig | None = ObstaclesGeneratorConfig()

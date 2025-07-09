@@ -166,9 +166,11 @@ MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
     origins_per_level=8,
     obstacles_generator_config=SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig(
         scale=20.0,
+        length_pixels=1000,
+        width_pixels=1000,
         amplitudes=[0.5, 0.3, 0.5, 1.0, 1.0],
         lacunarity=2.0,
-        threshold=0.9,
+        threshold=0.85,
         seed=1,
         size_range=(0.1, 1.0),
         obstacles_types=["cube", "cylinder", "sphere"]
@@ -183,6 +185,32 @@ MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
         seed=7,
         horizontal_scale=0.1,
         vertical_scale=0.005,
+    )
+)
+
+FLAT_TERRAINS_OBSTACLES_CFG = SingleTerrainGeneratorCfg(
+    goal_num_rows=5,
+    goal_num_cols=5,
+    goal_grid_area_size= (110.0, 110.0),
+    total_terrain_levels=12,
+    distance_increment_per_level=2.0,
+    origins_per_level=8,
+
+    obstacles_generator_config=SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig(
+        scale=20.0,
+        length_pixels=1000,
+        width_pixels=1000,
+        amplitudes=[0.5, 0.3, 0.5, 1.0, 1.0],
+        lacunarity=2.0,
+        threshold=0.85,
+        seed=1,
+        size_range=(0.1, 1.0),
+        obstacles_types=["cube", "cylinder", "sphere"],
+        goal_region_clearance=2.0
+    ),
+
+    terrain_config=terrain_gen.MeshPlaneTerrainCfg(
+        size=(170.0, 170.0)
     )
 )
 
