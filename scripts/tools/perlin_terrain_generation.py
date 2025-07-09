@@ -126,9 +126,9 @@ if __name__ == "__main__":
     selected_parameter_set = parameter_sets_3
     selected_generator = custom_perlin_noise
 
-    noise_maps = generate_all_noise_maps(selected_generator, selected_parameter_set, seed=20)
+    noise_maps = generate_all_noise_maps(selected_generator, selected_parameter_set, seed=57)
 
     # Plot 2D and 3D
-    plot_2d_heatmaps(noise_maps, selected_parameter_set, threshold=0.85)
+    plot_2d_heatmaps(noise_maps, selected_parameter_set, threshold=0.83)
     plot_3d_surfaces(noise_maps, selected_parameter_set)
     plt.show()
