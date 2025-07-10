@@ -58,22 +58,22 @@ class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     wandb_project="navigation"
 
 cnn_config = [
-    # 1) Unglue the flat vector into a 1×26×41 “image”
+    # 1) Unglue the flat vector into a 1×16x16 “image”
     { 'type':   'reshape',
-      'input_size': 1066,
-      'shape': [1, 26, 41]
+      'input_size': 256,
+      'shape': [1, 16, 16]
     },
 
     # 2) One dilated conv to capture ~1 m radius features
     { 'type':        'conv',
       'out_channels': 16,
-      'kernel_size':   5,
-      'dilation':      2,
+      'kernel_size':   3,
+      'dilation':      1,
       'stride':        1,
-      'padding':       4
+      'padding':       1
     },
 
-    # 3) 2×2 max‑pool to half H×W → 13×20
+    # 3) 2×2 max‑pool to half H×W → 8x8
     { 'type':       'pool',
       'kernel_size': 2,
       'stride':      2
@@ -81,7 +81,7 @@ cnn_config = [
 
     # 4) One plain conv to mix channels
     { 'type':        'conv',
-      'out_channels': 32,
+      'out_channels': 16,
       'kernel_size':   3,
       'dilation':      1,
       'stride':        1,

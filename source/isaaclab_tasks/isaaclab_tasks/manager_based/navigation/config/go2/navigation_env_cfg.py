@@ -40,6 +40,7 @@ DISTANCE_THRESHOLD = 0.8
 VELOCITY_THRESHOLD = 0.1
 ACTION_THRESHOLD = 0.1
 REWARD_MULTIPLIER = 1.4
+UNDESIRED_CONTACTS_NAMES = ["base", ".*hip", "Head.*",".*thigh"]
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -78,10 +79,10 @@ class MySceneCfg(InteractiveSceneCfg):
     )
     navigation_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(2.5, 0.0, 20.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(2.0, 0.0, 20.0)),
         drift_range=(0.05, 0.15),
         attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=[8, 5]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=[3, 3]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -283,7 +284,7 @@ class RewardsType2Cfg:
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=UNDESIRED_CONTACTS_NAMES),
             "threshold": 0.1
         },
         weight=-1.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
@@ -325,13 +326,13 @@ class RewardsCNNCfg:
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
         params={"command_name": "navigation_command"},
-        weight=-0.1
+        weight=-0.2
     )
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=UNDESIRED_CONTACTS_NAMES),
             "threshold": 0.1
         },
         weight=-1.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
@@ -401,7 +402,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head.*"]), "threshold": 0.1},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=UNDESIRED_CONTACTS_NAMES), "threshold": 0.05},
     )
 
     base_vel_out_of_limit = DoneTerm(
