@@ -184,7 +184,7 @@ class CommandsCfg:
     navigation_command = mdp.NavigationPositionCommandCfg(
         asset_name="robot",
         resampling_time_range=(20, 30),
-        debug_vis=True,
+        debug_vis=False,
         command=mdp.NavigationPositionCommandCfg.PositionCommand(
                 heading_type="target_heading", # If you are changing this, make sure to change the reward function accordingly
                 command_scales=(0.1, 0.1, 0.1, 1.0) # Scale to stabilize the training
@@ -325,7 +325,7 @@ class RewardsCNNCfg:
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
         params={"command_name": "navigation_command"},
-        weight=-0.2
+        weight=-0.1
     )
 
     undesired_contacts = RewTerm(
@@ -334,7 +334,7 @@ class RewardsCNNCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]),
             "threshold": 0.1
         },
-        weight=-1.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
+        weight=-2.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
     )
 
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
@@ -533,6 +533,7 @@ class NavigationCNNCfg_PLAY(NavigationCNNCfg):
         self.sim.physx.gpu_collision_stack_size = 600_000
         self.scene.terrain.single_terrain_generator.goal_num_cols = 1
         self.scene.terrain.single_terrain_generator.goal_num_rows = 1
+        self.scene.terrain.single_terrain_generator.origins_per_level = 16
 
         self.scene.terrain.max_init_terrain_level = self.scene.terrain.single_terrain_generator.total_terrain_levels
 
