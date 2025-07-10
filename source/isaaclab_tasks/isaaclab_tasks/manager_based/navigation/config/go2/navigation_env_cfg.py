@@ -334,7 +334,7 @@ class RewardsCNNCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip"]),
             "threshold": 0.1
         },
-        weight=-2.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
+        weight=-1.0/0.005 # It should be scaled by 1.0/step_dt, because the episode terminates after this reward is given.
     )
 
     action_rate_l2 = RewTerm(func=nav_mdp.navigation_command_w_rate_penalty_l2,  
