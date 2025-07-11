@@ -327,10 +327,12 @@ class RewardsCNNCfg:
         })
     
     lateral_movement_penalty = RewTerm(
-        func=nav_mdp.lateral_movement_penalty,
+        func=nav_mdp.lateral_movement_penalty_obstacle_dependent,
         params={
             "command_term_name": "navigation_command",
-            "std": 1.0
+            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+            "std_lateral": 1.0,
+            "std_obstacle": 1.0,
         },
         weight=-0.1
     )

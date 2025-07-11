@@ -98,6 +98,40 @@ def lateral_movement_penalty(
 
     return torch.tanh(lateral_vel_norm / std)
 
+def lateral_movement_penalty_obstacle_dependent(
+        env: ManagerBasedRLEnv,
+        command_term_name: str,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        sensor_cfg: SceneEntityCfg = SceneEntityCfg("obstacle_scanner"),
+        std_lateral: float = 1.0,
+        std_obstacle: float = 1.0) -> torch.Tensor:
+    """Computes a penalty based on the robot's lateral (perpendicular) velocity 
+    relative to the direction towards the goal, adjusted by the distance to obstacles.
+    """
+    command_term = env.command_manager.get_term(command_term_name)
+    goal_positions = command_term.goal_positions
+    
+    robot = env.scene[asset_cfg.name]
+    robot_pos = robot.data.root_pos_w
+    robot_vel = robot.data.root_lin_vel_w
+
+    robot_to_goal_vec = goal_positions - robot_pos
+    robot_to_goal_norm = torch.norm(robot_to_goal_vec, dim=1, keepdim=True)
+    robot_to_goal_dir = robot_to_goal_vec / robot_to_goal_norm
+
+    lateral_vel = robot_vel - torch.sum(robot_vel * robot_to_goal_dir, dim=1, keepdim=True) * robot_to_goal_dir
+    lateral_vel_norm = torch.norm(lateral_vel, dim=1)
+
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
+    # Get the distances to the closest obstacles
+    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
+    min_distances, _ = torch.min(distances, dim=1)
+
+    obstacle_weight = torch.tanh(min_distances / std_obstacle)
+
+    return torch.tanh(lateral_vel_norm / std_lateral) * obstacle_weight
+
+
 def obstacle_clearance_penalty(
         env: ManagerBasedRLEnv,
         sensor_cfg: SceneEntityCfg,
