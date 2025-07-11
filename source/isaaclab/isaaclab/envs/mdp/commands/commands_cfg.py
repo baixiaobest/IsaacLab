@@ -8,13 +8,14 @@ from dataclasses import MISSING
 
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
-from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
+from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG, RED_ARROW_X_MARKER_CFG
 from isaaclab.utils import configclass
 
 from .null_command import NullCommand
 from .pose_2d_command import TerrainBasedPose2dCommand, UniformPose2dCommand
 from .pose_command import UniformPoseCommand
 from .velocity_command import NormalVelocityCommand, UniformVelocityCommand
+from .navigation_command import NavigationPositionCommand
 
 
 @configclass
@@ -106,7 +107,7 @@ class UniformVelocityCommandCfg(CommandTermCfg):
     ranges: Ranges | RangesAngleMag = MISSING
     """Distribution ranges for the velocity commands."""
 
-    goal_vel_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(
+    goal_vel_visualizer_cfg: VisualizationMarkersCfg = RED_ARROW_X_MARKER_CFG.replace(
         prim_path="/Visuals/Command/velocity_goal"
     )
     """The configuration for the goal velocity visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG."""
@@ -244,7 +245,7 @@ class UniformPose2dCommandCfg(CommandTermCfg):
     ranges: Ranges = MISSING
     """Distribution ranges for the position commands."""
 
-    goal_pose_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(
+    goal_pose_visualizer_cfg: VisualizationMarkersCfg = RED_ARROW_X_MARKER_CFG.replace(
         prim_path="/Visuals/Command/pose_goal"
     )
     """The configuration for the goal pose visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG."""
@@ -271,3 +272,36 @@ class TerrainBasedPose2dCommandCfg(UniformPose2dCommandCfg):
 
     ranges: Ranges = MISSING
     """Distribution ranges for the sampled commands."""
+
+
+@configclass
+class NavigationPositionCommandCfg(CommandTermCfg):
+    """Configuration for the single terrain navigation command generator."""
+
+    class_type: type = NavigationPositionCommand
+
+    asset_name: str = MISSING
+    """Name of the asset in the environment for which the commands are generated."""
+
+    @configclass
+    class VelocityCommand:
+        """ This type is only used for the purpose of debugging low level policies. 
+            It directly provides a xy velocity command and angular velocity pointing
+            the robot toward the goal.
+        """
+        max_velocity: float = 1.0
+        """Maximum velocity for the navigation command (in m/s)."""
+        P_heading = 0.1
+        """Proportional gain for the velocity command."""
+        command_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
+        """Scales for the navigation command. Sometimes scale the command to stabilize the training."""
+
+    @configclass
+    class PositionCommand:
+        heading_type: str = "target_heading"
+        """Type of the heading command. Can be 'target_heading' or 'random_heading'."""
+        command_scales: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
+        """Scales for the navigation command. Sometimes scale the command to stabilize the training."""
+
+    command: VelocityCommand | PositionCommand = PositionCommand()
+    """Configuration for the velocity command used in the navigation command generator."""

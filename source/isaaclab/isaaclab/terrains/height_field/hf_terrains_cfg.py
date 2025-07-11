@@ -165,3 +165,23 @@ class HfSteppingStonesTerrainCfg(HfTerrainBaseCfg):
     """The depth of the holes (negative obstacles). Defaults to -10.0."""
     platform_width: float = 1.0
     """The width of the square platform at the center of the terrain. Defaults to 1.0."""
+
+@configclass
+class HfMountainTerrainCfg(HfTerrainBaseCfg):
+    """Configuration for a mountain height field terrain."""
+
+    function = hf_terrains.mountain_terrain
+
+    mountain_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the mountain (in m)."""
+
+    scale: float = 100.0
+    """The scale of the perlin noise generator."""
+
+    amplitudes: list[float] = [1.0, 0.5, 0.25]
+    """The amplitudes of the perlin noise generator."""
+
+    lacunarity: float = 2.0
+    """The lacunarity of the perlin noise generator."""
+
+    seed: int = 1

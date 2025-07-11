@@ -8,6 +8,8 @@
 import isaaclab.terrains as terrain_gen
 
 from ..terrain_generator_cfg import TerrainGeneratorCfg
+from ..single_terrain_generator_cfg import SingleTerrainGeneratorCfg
+from ..trimesh.mesh_terrains_cfg import MeshPlaneTerrainCfg
 
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
@@ -111,4 +113,92 @@ DIVERSE_TERRAINS_CFG = TerrainGeneratorCfg(
         ),
     },
 )
+
+COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_height=20.0,
+    num_rows=10,
+    num_cols=1,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    sub_terrains={
+        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=4.5),
+        "linear_stairs_top": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=0.0),
+        "twosided_rails": terrain_gen.MeshTwosidedRailsTerrainCfg(
+            proportion=1.0,
+            rail_thickness=0.5,
+            rail_height_range=(0.05, 0.6),
+            rail_width=4.0,
+            platform_width=2.0
+        ),
+        "room": terrain_gen.MeshRoomTerrainCfg(
+            proportion=1.0,
+            room_size=6.0,
+            wall_thickness=0.2,
+            wall_height=3.0,
+            door_width_range=(0.5, 1.5),
+            door_height=2.0)
+    }
+)
+
+MOUNTAIN_TERRAINS_CFG = SingleTerrainGeneratorCfg(
+    goal_num_rows=5,
+    goal_num_cols=5,
+    goal_grid_area_size= (60.0, 60.0),
+    total_terrain_levels=12,
+    distance_increment_per_level=2.0,
+    origins_per_level=8,
+    obstacles_generator_config=SingleTerrainGeneratorCfg.ObstaclesGeneratorConfig(
+        scale=20.0,
+        amplitudes=[0.5, 0.3, 0.5, 1.0, 1.0],
+        lacunarity=2.0,
+        threshold=0.9,
+        seed=1,
+        size_range=(0.1, 1.0),
+        obstacles_types=["cube", "cylinder", "sphere"]
+    ),
+
+    terrain_config=terrain_gen.HfMountainTerrainCfg(
+        size=(160.0, 160.0),
+        mountain_height_range=(-5.0, 5.0),
+        scale=1000.0,
+        amplitudes=[0.4, 1.0, 0.2, 0.1, 0.0, 0.0, 0.01, 0.0, 0.002, 0.0, 0.0005],
+        lacunarity=2.0,
+        seed=7,
+        horizontal_scale=0.1,
+        vertical_scale=0.005,
+    )
+)
+
+FLAT_TERRAINS_CFG = SingleTerrainGeneratorCfg(
+    goal_num_rows=5,
+    goal_num_cols=5,
+    goal_grid_area_size= (60.0, 60.0),
+    total_terrain_levels=12,
+    distance_increment_per_level=2.0,
+    origins_per_level=8,
+
+    obstacles_generator_config=None,
+
+    terrain_config=terrain_gen.MeshPlaneTerrainCfg(
+        size=(170.0, 170.0)
+    )
+)
+
 """Rough terrains configuration."""

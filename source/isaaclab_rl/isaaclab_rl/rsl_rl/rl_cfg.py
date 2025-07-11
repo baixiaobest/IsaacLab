@@ -47,11 +47,11 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     class_name: str = "EncoderActorCritic"
     """The policy class name. Default is EncoderActorCritic."""
 
-    encoder_dims: list[int] | list[dict] = MISSING
-    """The dimensions of the encoder network. Can be a list of integers for MLP or a list of dictionaries for CNN."""
+    encoder_dims: list[int] | list[dict] | None = MISSING
+    """The dimensions of the encoder network."""
 
     encoder_type: Literal["mlp", "cnn"] = "mlp"
-    """The type of encoder to use. Either "mlp" or "cnn"."""
+    """The type of encoder network. Default is "mlp"."""
 
     encoder_obs_normalize: bool = False
     """Whether to normalize the encoder observations before passing them to the encoder. Default is False."""
@@ -59,6 +59,11 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     share_encoder_with_critic: bool = False
     """Whether to share the encoder between the actor and critic networks. Default is False."""
 
+    tanh_output: bool = False
+    """Whether to apply a tanh activation to the output of the actor network."""
+
+    noise_clip: float = 1.0
+    """The clipping value for the noise standard deviation."""
 
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):

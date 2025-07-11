@@ -61,6 +61,54 @@ def terrain_levels_vel(
     # return the mean terrain level
     return torch.mean(terrain.terrain_levels.float())
 
+def single_terrain_level(
+    env: ManagerBasedRLEnv, 
+    env_ids: Sequence[int],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    distance_threshold: float = 1.0,
+    velocity_threshold: float = 0.1
+) -> torch.Tensor:
+    """Curriculum based on the terrain level.
+
+    This term is used to increase the difficulty of the terrain when the robot reaches the target location
+    and decrease the difficulty when the robot does not reach the target location.
+
+    .. note::
+        It is only possible to use this term with the terrain type ``single_terrain_generator``. For further information
+        on different terrain types, check the :class:`isaaclab.terrains.TerrainImporter` class.
+
+    Returns:
+        The mean terrain level for the given environment ids.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    terrain: TerrainImporter = env.scene.terrain
+    
+    # Each goal has origins_per_level number of origins/terrain types.
+    # We need to devide terrain_types by origins_per_level to get the goal type.
+    terrain_types = terrain.terrain_types[env_ids]
+    goal_types = terrain_types // terrain.cfg.single_terrain_generator.origins_per_level
+    levels = terrain.terrain_levels[env_ids]
+
+    origins = terrain.single_terrain_generator.terrain_origins[levels, terrain_types]
+    goals = terrain.single_terrain_generator.goal_locations[goal_types]
+    # compute the distance from the origin to the goal
+    origin_to_goal_distances = torch.norm(origins - goals, dim=1)
+    
+    robot_pos = asset.data.root_pos_w[env_ids]
+    robot_to_goal_distances = torch.norm(robot_pos - goals, dim=1)
+    robot_vel = torch.norm(asset.data.root_lin_vel_w[env_ids], dim=1)
+
+    move_up = torch.logical_and(robot_to_goal_distances < distance_threshold, robot_vel < velocity_threshold)
+
+    move_down = robot_to_goal_distances > origin_to_goal_distances * 0.5
+
+    # update terrain levels
+    terrain.update_env_origins(env_ids, move_up, move_down)
+
+    # return the mean terrain level
+    return torch.mean(terrain.terrain_levels.float())
+
 
 def command_velocity_level(
     env: ManagerBasedRLEnv, 

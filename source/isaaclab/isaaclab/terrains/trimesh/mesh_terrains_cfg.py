@@ -60,6 +60,36 @@ class MeshInvertedPyramidStairsTerrainCfg(MeshPyramidStairsTerrainCfg):
 
     function = mesh_terrains.inverted_pyramid_stairs_terrain
 
+@configclass
+class MeshLinearStairsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a linear stairs mesh terrain."""
+
+    function = mesh_terrains.linear_stairs_terrain
+
+    border_width: float = 0.0
+    """The width of the border around the terrain (in m). Defaults to 0.0.
+
+    The border is a flat terrain with the same height as the terrain.
+    """
+    step_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the steps (in m)."""
+    num_steps: int = MISSING
+    """The number of steps in the terrain."""
+    step_width: float = MISSING
+    """
+        The width of the steps (in m). 
+        From edge to edge of the stairs, not the width of the step itself.
+    """
+    stairs_width: float = MISSING
+    """ Width of the stairs (in m)."""
+    stairs_center_y_offset: float = 0.0
+    """The offset of the center of the stairs along the y-axis (in m)."""
+    stairs_length: float = 6.0
+    """The width of the stairs (in m)."""
+    origin_offset_y: float = 0.0
+    """The offset of the origin of the terrain (in m). """
+    origin_offset_z: float = 0.0
+
 
 @configclass
 class MeshRandomGridTerrainCfg(SubTerrainBaseCfg):
@@ -91,6 +121,21 @@ class MeshRailsTerrainCfg(SubTerrainBaseCfg):
     """The thickness of the inner and outer rails (in m)."""
     rail_height_range: tuple[float, float] = MISSING
     """The minimum and maximum height of the rails (in m)."""
+    platform_width: float = 1.0
+    """The width of the square platform at the center of the terrain. Defaults to 1.0."""
+
+@configclass
+class MeshTwosidedRailsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with one-sided box rails as extrusions."""
+
+    function = mesh_terrains.two_sided_rails_terrain
+
+    rail_thickness: float = MISSING
+    """The thickness of the inner and outer rails (in m)."""
+    rail_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the rails (in m)."""
+    rail_width: float = MISSING
+    """The width of the rails (in m)."""
     platform_width: float = 1.0
     """The width of the square platform at the center of the terrain. Defaults to 1.0."""
 
@@ -267,3 +312,21 @@ class MeshRepeatedCylindersTerrainCfg(MeshRepeatedObjectsTerrainCfg):
     """The box curriculum parameters at the start of the curriculum."""
     object_params_end: ObjectCfg = MISSING
     """The box curriculum parameters at the end of the curriculum."""
+
+
+@configclass
+class MeshRoomTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with a room-like structure."""
+
+    function = mesh_terrains.room_terrain
+
+    wall_thickness: float = MISSING
+    """The thickness of the walls (in m)."""
+    wall_height: float = MISSING
+    """The height of the walls (in m)."""
+    door_width_range: tuple[float, float] = MISSING
+    """The width of the door (in m)."""
+    door_height: float = MISSING
+    """The height of the door (in m)."""
+    room_size: float = 1.0
+    """The width of the square platform at the center of the terrain. Defaults to 1.0."""

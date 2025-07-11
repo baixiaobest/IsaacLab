@@ -17,6 +17,7 @@ from isaaclab.markers import VisualizationMarkers
 from isaaclab.markers.config import FRAME_MARKER_CFG
 
 from .terrain_generator import TerrainGenerator
+from .single_terrain_generator import SingleTerrainGenerator
 from .utils import create_prim_from_mesh
 
 if TYPE_CHECKING:
@@ -104,6 +105,14 @@ class TerrainImporter:
             self.import_ground_plane("terrain")
             # configure the origins in a grid
             self.configure_env_origins()
+        elif self.cfg.terrain_type == "single_terrain_generator":
+            if self.cfg.single_terrain_generator is None:
+                raise ValueError("Input terrain type is 'single_terrain_generator' but no value provided for 'terrain_generator'.")
+            self._single_terrain_generator = SingleTerrainGenerator(
+                cfg=self.cfg.single_terrain_generator, device=self.device
+            )
+            self.import_mesh("terrain", self._single_terrain_generator.terrain_mesh)
+            self.configure_env_origins(self._single_terrain_generator.terrain_origins)
         else:
             raise ValueError(f"Terrain type '{self.cfg.terrain_type}' not available.")
 
@@ -145,6 +154,11 @@ class TerrainImporter:
         This is only available if the terrain type is 'generator'.
         """
         return self._terrain_generator
+    
+    @property
+    def single_terrain_generator(self) -> SingleTerrainGenerator:
+        """ Get the single terrain generator."""
+        return self._single_terrain_generator
     
     def get_column_terrain_names(self) -> list[str]:
         """Get the names of the terrains in the column format.

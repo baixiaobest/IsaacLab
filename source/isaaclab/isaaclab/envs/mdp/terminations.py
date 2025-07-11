@@ -41,7 +41,6 @@ def command_resample(env: ManagerBasedRLEnv, command_name: str, num_resamples: i
     command: CommandTerm = env.command_manager.get_term(command_name)
     return torch.logical_and((command.time_left <= env.step_dt), (command.command_counter == num_resamples))
 
-
 """
 Root terminations.
 """

@@ -247,6 +247,35 @@ def inverted_pyramid_stairs_terrain(
     return meshes_list, origin
 
 
+def linear_stairs_terrain(
+    difficulty: float,
+    cfg: mesh_terrains_cfg.MeshLinearStairsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    
+    terrain_center = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    # compute the vertices of the terrain
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    mesh_list = [ground_mesh]
+    step_height = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+    box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
+    box_length = cfg.stairs_length
+
+    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
+        distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
+        origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
+        origin[2] = origin_height
+
+    for i in range(cfg.num_steps):
+        box_dim = (cfg.stairs_width, box_length, step_height)
+        box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(box_center))
+        mesh_list.append(box)
+        box_length -= 2*cfg.step_width
+        box_center[2] += step_height
+
+    return mesh_list, origin
+
+
 def random_grid_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshRandomGridTerrainCfg
 ) -> tuple[list[trimesh.Trimesh], np.ndarray]:
@@ -426,6 +455,38 @@ def rails_terrain(
 
     # specify the origin of the terrain
     origin = np.array([pos[0], pos[1], 0.0])
+
+    return meshes_list, origin
+
+
+def two_sided_rails_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshTwosidedRailsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """
+    Generate a terrain with a single rail on one side, and flat on the other side.
+    """
+    # resolve the terrain configuration (similar to rails_terrain)
+    rail_height = cfg.rail_height_range[0] + difficulty * (cfg.rail_height_range[1] - cfg.rail_height_range[0])
+    rail_thickness = cfg.rail_thickness
+
+    meshes_list = []
+
+    # create ground
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    meshes_list.append(ground_mesh)
+
+    # create a single rail along the "top" side
+    # (width covers entire x dimension; thickness is minimal in y; rail_height in z)
+    rail_dim = (cfg.rail_width, rail_thickness, rail_height)
+    rail_pos = (0.5 * cfg.size[0], 0.5 * cfg.size[1] + rail_thickness * 0.5 + cfg.platform_width * 0.5, rail_height * 0.5)
+    rail_pos2 = (0.5 * cfg.size[0], 0.5 * cfg.size[1] - rail_thickness * 0.5 - cfg.platform_width * 0.5, rail_height * 0.5)
+    rail_mesh = trimesh.creation.box(rail_dim, trimesh.transformations.translation_matrix(rail_pos))
+    rail_mesh2 = trimesh.creation.box(rail_dim, trimesh.transformations.translation_matrix(rail_pos2))
+    meshes_list.append(rail_mesh)
+    meshes_list.append(rail_mesh2)
+
+    # specify the origin of the terrain
+    origin = np.array([cfg.size[0] * 0.5, cfg.size[1] * 0.5, 0.0])
 
     return meshes_list, origin
 
@@ -855,3 +916,117 @@ def repeated_objects_terrain(
     meshes_list.append(platform)
 
     return meshes_list, origin
+
+
+def room_terrain(
+        difficulty: float, cfg: mesh_terrains_cfg.MeshRoomTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    ground_plane = make_plane(cfg.size, height=0.0, center_zero=False)
+
+    origin = np.asarray([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    
+    door_width = cfg.door_width_range[1] - difficulty * (cfg.door_width_range[1] - cfg.door_width_range[0])
+    wall_length = cfg.room_size * 0.5 + cfg.wall_thickness - 0.5 * door_width
+
+    vertical_wall_dim = (cfg.wall_thickness, wall_length, cfg.wall_height)
+    horizontal_wall_dim = (wall_length, cfg.wall_thickness, cfg.wall_height)
+
+    left_bottom_wall_pos = np.array([
+        origin[0] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        origin[1] - door_width * 0.5 - wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    left_top_wall_pos = np.array([
+        origin[0] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        origin[1] + door_width * 0.5 + wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    right_bottom_wall_pos = np.array([
+        origin[0] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        origin[1] - door_width * 0.5 - wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    right_top_wall_pos = np.array([
+        origin[0] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        origin[1] + door_width * 0.5 + wall_length * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    top_left_wall_pos = np.array([
+        origin[0] - door_width * 0.5 - wall_length * 0.5,
+        origin[1] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    top_right_wall_pos = np.array([
+        origin[0] + door_width * 0.5 + wall_length * 0.5,
+        origin[1] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    bottom_left_wall_pos = np.array([
+        origin[0] - door_width * 0.5 - wall_length * 0.5,
+        origin[1] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    bottom_right_wall_pos = np.array([
+        origin[0] + door_width * 0.5 + wall_length * 0.5,
+        origin[1] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        cfg.wall_height * 0.5
+    ])
+
+    # Create the walls
+    left_bottom_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(left_bottom_wall_pos))
+    left_top_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(left_top_wall_pos))
+    right_bottom_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(right_bottom_wall_pos))
+    right_top_wall = trimesh.creation.box(vertical_wall_dim, trimesh.transformations.translation_matrix(right_top_wall_pos))
+    top_left_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(top_left_wall_pos))
+    top_right_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(top_right_wall_pos))
+    bottom_left_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(bottom_left_wall_pos))
+    bottom_right_wall = trimesh.creation.box(horizontal_wall_dim, trimesh.transformations.translation_matrix(bottom_right_wall_pos))
+
+    # Create the door
+    door_top_rail_height = cfg.wall_height - cfg.door_height
+    door_top_rail_dim_vertical = (cfg.wall_thickness, door_width, door_top_rail_height)
+    door_top_rail_dim_horizontal = (door_width, cfg.wall_thickness, door_top_rail_height)
+
+    door_top_rail_left_pos = np.array([
+        origin[0] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        origin[1],
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+
+    door_top_rail_right_pos = np.array([
+        origin[0] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        origin[1],
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+
+    door_top_rail_top_pos = np.array([
+        origin[0],
+        origin[1] + cfg.room_size * 0.5 + cfg.wall_thickness * 0.5,
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+
+    door_top_rail_bottom_pos = np.array([
+        origin[0],
+        origin[1] - cfg.room_size * 0.5 - cfg.wall_thickness * 0.5,
+        cfg.door_height + door_top_rail_height * 0.5
+    ])
+    door_top_rail_left = trimesh.creation.box(door_top_rail_dim_vertical, trimesh.transformations.translation_matrix(door_top_rail_left_pos))
+    door_top_rail_right = trimesh.creation.box(door_top_rail_dim_vertical, trimesh.transformations.translation_matrix(door_top_rail_right_pos))
+    door_top_rail_top = trimesh.creation.box(door_top_rail_dim_horizontal, trimesh.transformations.translation_matrix(door_top_rail_top_pos))
+    door_top_rail_bottom = trimesh.creation.box(door_top_rail_dim_horizontal, trimesh.transformations.translation_matrix(door_top_rail_bottom_pos))
+
+    mesh_list = [
+        ground_plane,
+        left_bottom_wall, left_top_wall, right_bottom_wall, right_top_wall,
+        top_left_wall, top_right_wall, bottom_left_wall, bottom_right_wall,
+        door_top_rail_left, door_top_rail_right, door_top_rail_top, door_top_rail_bottom
+    ]
+
+    return mesh_list, origin
