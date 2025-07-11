@@ -14,6 +14,7 @@ from isaaclab.envs import ManagerBasedEnv
 from isaaclab.managers import RewardTermCfg
 from isaaclab.assets import Articulation
 from isaaclab.terrains import TerrainImporter
+from isaaclab.sensors.ray_caster import RayCaster
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -96,6 +97,20 @@ def lateral_movement_penalty(
     lateral_vel_norm = torch.norm(lateral_vel, dim=1)
 
     return torch.tanh(lateral_vel_norm / std)
+
+def obstacle_clearance_penalty(
+        env: ManagerBasedRLEnv,
+        sensor_cfg: SceneEntityCfg,
+        std: float = 1.0,
+        sensor_radius = 0.2) -> torch.Tensor:
+    """Penalty for being too close to obstacles."""
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
+    # Get the distances to the closest obstacles
+    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
+    min_distances, _ = torch.min(distances, dim=1)
+    # Calculate the penalty based on the distances
+    return 1.0 - torch.tanh((min_distances - sensor_radius) / std)
+    
 
 class goal_reached_reward(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):

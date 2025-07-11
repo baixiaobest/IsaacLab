@@ -86,6 +86,18 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
+    obstacle_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, -0.1)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1, 
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(0.0, 360),
+            horizontal_res=360/16),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"]
+    )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     foot_contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*foot", history_length=5, track_air_time=True, debug_vis=True)
@@ -323,10 +335,20 @@ class RewardsCNNCfg:
         weight=-0.1
     )
 
+    obstacle_clearance_penalty = RewTerm(
+        func=nav_mdp.obstacle_clearance_penalty,
+        params={
+            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+            "std": 0.6,
+            "sensor_radius": 0.2,
+        },
+        weight=-0.1
+    )
+
     heading_command_error = RewTerm(
         func=nav_mdp.heading_command_error_abs,
         params={"command_name": "navigation_command"},
-        weight=-0.2
+        weight=-0.1
     )
 
     undesired_contacts = RewTerm(
@@ -535,7 +557,7 @@ class NavigationCNNCfg_PLAY(NavigationCNNCfg):
         self.scene.terrain.single_terrain_generator.goal_num_cols = 1
         self.scene.terrain.single_terrain_generator.goal_num_rows = 1
         self.scene.terrain.single_terrain_generator.origins_per_level = 16
-        self.scene.terrain.single_terrain_generator.obstacles_generator_config.threshold = 0.83
+        self.scene.terrain.single_terrain_generator.obstacles_generator_config.threshold = 0.82
 
         self.scene.terrain.max_init_terrain_level = self.scene.terrain.single_terrain_generator.total_terrain_levels
 
