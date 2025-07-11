@@ -60,8 +60,8 @@ class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 cnn_config = [
     # 1) Unglue the flat vector into a 1×16x16 “image”
     { 'type':   'reshape',
-      'input_size': 256,
-      'shape': [1, 16, 16]
+      'input_size': 416,
+      'shape': [1, 16, 26]
     },
 
     # 2) One dilated conv to capture ~1 m radius features

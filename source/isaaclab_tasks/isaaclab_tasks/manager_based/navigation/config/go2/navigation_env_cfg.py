@@ -79,10 +79,10 @@ class MySceneCfg(InteractiveSceneCfg):
     )
     navigation_height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(2.0, 0.0, 20.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(1.0, 0.0, 20.0)),
         drift_range=(0.05, 0.15),
         attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=[3, 3]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=[5.0, 3.0]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -535,6 +535,7 @@ class NavigationCNNCfg_PLAY(NavigationCNNCfg):
         self.scene.terrain.single_terrain_generator.goal_num_cols = 1
         self.scene.terrain.single_terrain_generator.goal_num_rows = 1
         self.scene.terrain.single_terrain_generator.origins_per_level = 16
+        self.scene.terrain.single_terrain_generator.obstacles_generator_config.threshold = 0.83
 
         self.scene.terrain.max_init_terrain_level = self.scene.terrain.single_terrain_generator.total_terrain_levels
 
