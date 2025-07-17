@@ -149,13 +149,28 @@ def pose_2d_command_goal_reached_reward(
         env: ManagerBasedRLEnv, 
         command_name: str, 
         distance_threshold: float = 0.5, 
-        angular_threshold: float = 0.1) -> torch.Tensor:
+        angular_threshold: float = 0.1,
+        distance_reward_multiplier: float = 1.5,
+        angular_reward_multiplier: float = 1.2) -> torch.Tensor:
     """ When pose 2d command is within threshold, goal is considered reached. """
     command = env.command_manager.get_command(command_name)
+    robot_to_goal_distance = torch.norm(command[:, :3], dim=1)
     within_distance = torch.norm(command[:, :3], dim=1) <= distance_threshold
     within_angular_distance = torch.abs(command[:, 3]) <= angular_threshold
 
-    return torch.logical_and(within_distance, within_angular_distance)
+    goal_reached = torch.logical_and(within_distance, within_angular_distance)
+
+    distance_multiplier = torch.ones_like(robot_to_goal_distance)
+    distance_multiplier[goal_reached] = distance_reward_multiplier - (distance_reward_multiplier - 1.0) * (
+        robot_to_goal_distance[goal_reached] / distance_threshold
+    )
+
+    angular_multiplier = torch.ones_like(distance_multiplier)
+    angular_multiplier[goal_reached] = angular_reward_multiplier - (angular_reward_multiplier - 1.0) * (
+        torch.abs(command[goal_reached, 3]) / angular_threshold
+    )
+
+    return goal_reached * distance_multiplier * angular_multiplier
 
 def pose_2d_command_progress_reward(
         env: ManagerBasedRLEnv,

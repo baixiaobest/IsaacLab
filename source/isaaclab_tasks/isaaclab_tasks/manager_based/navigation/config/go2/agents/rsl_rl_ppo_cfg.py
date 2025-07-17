@@ -189,4 +189,4 @@ class UnitreeGo2NavigationEnd2EndEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     )
     algorithm = NavE2EPPOConfig
     logger="wandb"
-    wandb_project="navigation"
+    wandb_project="e2e_navigation"

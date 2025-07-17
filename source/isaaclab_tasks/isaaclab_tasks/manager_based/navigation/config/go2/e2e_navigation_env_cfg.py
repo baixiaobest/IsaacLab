@@ -184,7 +184,9 @@ class RewardsCfg:
         params={
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'distance_reward_multiplier': 1.2,
+            'angular_reward_multiplier': 1.2,
         }
     )
 
@@ -196,6 +198,10 @@ class RewardsCfg:
             'std': 1.0 * SIM_DT
         }
     )
+    # Energy minimization
+    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
+    # Avoid jerky motion
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
 @configclass
 class ObservationsCfg:
