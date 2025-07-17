@@ -176,8 +176,8 @@ class UnitreeGo2NavigationEnd2EndEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitree_go2_navigation_end2end_v0"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
-        noise_clip=1.2,
+        init_noise_std=0.8,
+        noise_clip=1.0,
         encoder_dims=e2e_cnn_config,
         encoder_type="cnn",
         encoder_obs_normalize=False,

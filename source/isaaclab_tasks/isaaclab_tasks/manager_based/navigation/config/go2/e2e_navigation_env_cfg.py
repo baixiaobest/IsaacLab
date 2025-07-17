@@ -203,6 +203,13 @@ class RewardsCfg:
     # Avoid jerky motion
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-1.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
+                "threshold": 0.1},
+    )
+
 @configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""
