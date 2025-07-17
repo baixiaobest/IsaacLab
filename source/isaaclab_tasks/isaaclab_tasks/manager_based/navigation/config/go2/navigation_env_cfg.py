@@ -460,7 +460,7 @@ class NavigationMountainEnvCfg(ManagerBasedRLEnvCfg):
     observations: NavigationObservationsCfg = NavigationObservationsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
-
+    events: EventCfg = EventCfg()
 
     def __post_init__(self):
         """Post initialization."""

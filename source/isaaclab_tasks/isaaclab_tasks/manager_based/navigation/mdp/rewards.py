@@ -144,6 +144,34 @@ def obstacle_clearance_penalty(
     min_distances, _ = torch.min(distances, dim=1)
     # Calculate the penalty based on the distances
     return 1.0 - torch.tanh((min_distances - sensor_radius) / std)
+
+def pose_2d_command_goal_reached_reward(
+        env: ManagerBasedRLEnv, 
+        command_name: str, 
+        distance_threshold: float = 0.5, 
+        angular_threshold: float = 0.1) -> torch.Tensor:
+    """ When pose 2d command is within threshold, goal is considered reached. """
+    command = env.command_manager.get_command(command_name)
+    within_distance = torch.norm(command[:, :3], dim=1) <= distance_threshold
+    within_angular_distance = torch.abs(command[:, 3]) <= angular_threshold
+
+    return torch.logical_and(within_distance, within_angular_distance)
+
+def pose_2d_command_progress_reward(
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        std: float = 1.0
+) -> torch.Tensor:
+    """Reward for velocity toward the goal position"""
+
+    command = env.command_manager.get_command(command_name)
+    goal_pos_b = command[:, :3]
+    goal_dir_b = goal_pos_b / (torch.norm(goal_pos_b, dim=1, keepdim=True) + 1e-6)
+    robot: Articulation = env.scene[asset_cfg.name]
+    robot_vel_b = robot.data.root_lin_vel_b
+
+    return torch.tanh(torch.sum(robot_vel_b * goal_dir_b, dim=1) / std)
     
 
 class goal_reached_reward(ManagerTermBase):
