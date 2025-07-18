@@ -138,21 +138,21 @@ class RoughTeacherScandotsOnlyObservationsCfg:
 class UnitreeGo2RoughTeacherCurriculum:
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
 
-    pyramid_stairs_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "pyramid_stairs"})
-    pyramid_stairs_inv_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "pyramid_stairs_inv"})
+    pyramid_stairs_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs"})
+    pyramid_stairs_inv_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs_inv"})
     
-    cross_gap_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={"terrain_name": "mesh_gap"})
-    climb_down_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "mesh_box"})
-    climb_out_pit_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "mesh_pit"})
-    climb_rail_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "mesh_rail"})
+    cross_gap_level = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "mesh_gap"})
+    climb_down_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_box"})
+    climb_out_pit_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_pit"})
+    climb_rail_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_rail"})
 
-    pyramid_slope_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "hf_pyramid_slope"})
-    pyramid_slope_inv_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "hf_pyramid_slope_inv"})
+    pyramid_slope_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "hf_pyramid_slope"})
+    pyramid_slope_inv_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "hf_pyramid_slope_inv"})
 
-    repeat_objects = CurrTerm(func=mdp.GetMeanTerrainLevel, params={"terrain_name": "mesh_repeat_object"})
+    repeat_objects = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "mesh_repeat_object"})
     
-    random_rough_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "random_rough"})
-    box_terrain_level = CurrTerm(func=mdp.GetMeanTerrainLevel, params={'terrain_name': "boxes"})
+    random_rough_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "random_rough"})
+    box_terrain_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "boxes"})
     
 
 

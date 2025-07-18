@@ -161,6 +161,21 @@ class CurriculumCfg:
                                   "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
                                   "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
                               })
+    pyramid_stairs_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs"})
+    pyramid_stairs_inv_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs_inv"})
+    
+    cross_gap_level = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "mesh_gap"})
+    climb_down_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_box"})
+    climb_out_pit_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_pit"})
+    climb_rail_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_rail"})
+
+    pyramid_slope_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "hf_pyramid_slope"})
+    pyramid_slope_inv_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "hf_pyramid_slope_inv"})
+
+    repeat_objects = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "mesh_repeat_object"})
+    
+    random_rough_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "random_rough"})
+    box_terrain_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "boxes"})
 
 @configclass
 class CommandsCfg:
@@ -201,7 +216,7 @@ class RewardsCfg:
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-10.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
                 "threshold": 0.2},
     )
     # Energy minimization
@@ -266,7 +281,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
                 "threshold": 1.0},
     )
 
@@ -323,3 +338,17 @@ class NavigationEnd2EndNoEncoderEnvCfg(NavigationEnd2EndEnvCfg):
         self.observations.policy.height_scan = None
 
         self.scene.terrain.terrain_generator = ROUGH_TERRAINS_CFG
+
+
+@configclass
+class NavigationEnd2EndEnvCfg_PLAY(NavigationEnd2EndEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.max_init_terrain_level = 10
+
+@configclass
+class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.max_init_terrain_level = 10
+

@@ -144,7 +144,7 @@ def command_velocity_level(
     
     return terrain_level
 
-class GetMeanTerrainLevel(ManagerTermBase):
+class GetTerrainLevel(ManagerTermBase):
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self.matched_env_ids = None
@@ -153,7 +153,8 @@ class GetMeanTerrainLevel(ManagerTermBase):
         self,
         env: ManagerBasedRLEnv, 
         env_ids: Sequence[int],
-        terrain_name: str) -> torch.Tensor:
+        terrain_name: str,
+        get_max: bool = False) -> torch.Tensor | dict[str, float]:
         """Get the mean terrain level for the given environment ids.
         Args:
             env: The environment to get the terrain level from.
@@ -172,4 +173,9 @@ class GetMeanTerrainLevel(ManagerTermBase):
             return torch.zeros(1)
         
         matched_env_terrain_levels = terrain.terrain_levels[self.matched_env_ids]
-        return torch.mean(matched_env_terrain_levels, dtype=torch.float32)
+
+        if get_max:
+            return {"mean": torch.mean(matched_env_terrain_levels.float()).item(), 
+                    "max": torch.max(matched_env_terrain_levels.float()).item()}
+        else:
+            return torch.mean(matched_env_terrain_levels.float())
