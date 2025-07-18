@@ -207,7 +207,7 @@ class RewardsCfg:
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     # Avoid jerky motion
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.005)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     # Reduce motion at goal
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
