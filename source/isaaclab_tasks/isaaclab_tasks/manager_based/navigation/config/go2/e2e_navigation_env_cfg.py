@@ -308,6 +308,13 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
         if self.scene.contact_forces is not None:
             self.scene.contact_forces.update_period = self.sim.dt
 
+        if self.scene.num_envs > 500:
+            self.sim.physx.gpu_collision_stack_size = 300_000_000
+            self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+        else:
+            self.sim.physx.gpu_collision_stack_size = 600_000
+            self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+
 @configclass
 class NavigationEnd2EndNoEncoderEnvCfg(NavigationEnd2EndEnvCfg):
     def __post_init__(self):
