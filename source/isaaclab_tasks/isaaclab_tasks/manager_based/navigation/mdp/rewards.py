@@ -155,7 +155,7 @@ def pose_2d_command_goal_reached_reward(
     """ When pose 2d command is within threshold, goal is considered reached. """
     command = env.command_manager.get_command(command_name)
     robot_to_goal_distance = torch.norm(command[:, :3], dim=1)
-    within_distance = torch.norm(command[:, :3], dim=1) <= distance_threshold
+    within_distance = robot_to_goal_distance <= distance_threshold
     within_angular_distance = torch.abs(command[:, 3]) <= angular_threshold
 
     goal_reached = torch.logical_and(within_distance, within_angular_distance)
@@ -187,6 +187,23 @@ def pose_2d_command_progress_reward(
     robot_vel_b = robot.data.root_lin_vel_b
 
     return torch.tanh(torch.sum(robot_vel_b * goal_dir_b, dim=1) / std)
+
+def pose_2d_goal_callback_reward(
+        env: ManagerBasedRLEnv,
+        func: callable,
+        command_name: str,
+        distance_threshold: float = 0.5,
+        angular_threshold: float = 0.1,
+        callback_params: dict = {} ) -> torch.Tensor:
+    """Callback reward for reaching the goal position."""
+    command = env.command_manager.get_command(command_name)
+    robot_to_goal_distance = torch.norm(command[:, :3], dim=1)
+    within_distance = robot_to_goal_distance <= distance_threshold
+    within_angular_distance = torch.abs(command[:, 3]) <= angular_threshold
+
+    goal_reached = torch.logical_and(within_distance, within_angular_distance)
+    
+    return goal_reached * func(env, **callback_params)
     
 
 class goal_reached_reward(ManagerTermBase):

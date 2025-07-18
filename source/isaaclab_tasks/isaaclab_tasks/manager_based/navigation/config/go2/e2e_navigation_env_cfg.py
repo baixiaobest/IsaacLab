@@ -198,16 +198,26 @@ class RewardsCfg:
             'std': 1.0 * SIM_DT
         }
     )
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-1.0/SIM_DT,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
+                "threshold": 0.1},
+    )
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     # Avoid jerky motion
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-
-    undesired_contacts = RewTerm(
-        func=mdp.undesired_contacts,
-        weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
-                "threshold": 0.1},
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.005)
+    # Reduce motion at goal
+    goal_reached_action_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.1,
+        params={
+            'func': mdp.action_rate_l2,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+        }
     )
 
 @configclass
