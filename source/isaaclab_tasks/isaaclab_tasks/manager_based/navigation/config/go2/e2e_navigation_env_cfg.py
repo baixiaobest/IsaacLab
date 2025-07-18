@@ -233,7 +233,7 @@ class RewardsCfg:
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
             'callback_params': {
                 'command_name': 'scalar_velocity_command',
-                'std': 1.0,
+                'std': 0.2,
                 'asset_cfg': SceneEntityCfg("robot", body_names="base")
             }
         }
