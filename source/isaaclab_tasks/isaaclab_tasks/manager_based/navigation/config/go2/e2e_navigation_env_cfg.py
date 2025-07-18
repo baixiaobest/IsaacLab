@@ -29,7 +29,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-EPISDOE_LENGTH = 10.0
+EPISDOE_LENGTH = 8.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
@@ -43,7 +43,7 @@ class MySceneCfg(InteractiveSceneCfg):
             prim_path="/World/ground",
             terrain_type="generator",
             terrain_generator=DIVERSE_TERRAINS_CFG,
-            max_init_terrain_level=5,
+            max_init_terrain_level=0,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
                 friction_combine_mode="multiply",
@@ -172,7 +172,7 @@ class CommandsCfg:
             pos_y=(-10.0, 10.0),
             heading=(-math.pi, math.pi)
         ),
-        resampling_time_range=(10.0, 10.0),
+        resampling_time_range=(15.0, 15.0),
         debug_vis=True
     )
 

@@ -27,4 +27,4 @@ def pose_2d_command_terrain_curriculum(
     terrain.update_env_origins(env_ids, move_up, move_down)
 
     # return the mean terrain level
-    return torch.mean(terrain.terrain_levels.float())
+    return {"mean": torch.mean(terrain.terrain_levels.float()), "max": torch.max(terrain.terrain_levels.float())}
