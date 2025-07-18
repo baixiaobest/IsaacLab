@@ -224,18 +224,15 @@ class RewardsCfg:
     # Average velocity reward
     # This is onetime reward per episode.
     average_velocity = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
+        func=nav_mdp.average_velocity_reward,
         weight=10.0,
         params={
-            'func': nav_mdp.average_velocity_reward,
-            'command_name': 'pose_2d_command',
+            'pose_command_name': 'pose_2d_command',
+            'scalar_vel_command_name': 'scalar_velocity_command',
+            'std': 0.2,
+            'asset_cfg': SceneEntityCfg("robot", body_names="base"),
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'callback_params': {
-                'command_name': 'scalar_velocity_command',
-                'std': 0.2,
-                'asset_cfg': SceneEntityCfg("robot", body_names="base")
-            }
         }
     )
 
@@ -380,4 +377,5 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
+        self.commands.scalar_velocity_command.velocity_range = (0.1, 0.2)
 

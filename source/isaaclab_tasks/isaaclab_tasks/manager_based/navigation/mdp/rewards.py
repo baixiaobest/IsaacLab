@@ -205,25 +205,13 @@ def pose_2d_goal_callback_reward(
     
     params = callback_params.copy()
 
-    # Check if func is a class and instantiate it if needed
-    if inspect.isclass(func) and issubclass(func, ManagerTermBase):
-        # Create a basic config for the reward term
-        cfg = RewardTermCfg(func=func.__call__, params=params)
-        # Instantiate the class with config and environment
-        reward_func = func(cfg, env)
-
-        sig = inspect.signature(func.__call__)
-
-    else:
-        reward_func = func
-        # Check if the callback function accepts a goal_reached parameter
-        sig = inspect.signature(func)
+    sig = inspect.signature(func)
         
     if 'goal_reached' in sig.parameters:
         params['goal_reached'] = goal_reached
 
     # Call the instance with the parameters
-    return goal_reached * reward_func(env, **params)
+    return goal_reached * func(env, **params)
 
 
 class average_velocity_reward(ManagerTermBase):
@@ -242,18 +230,27 @@ class average_velocity_reward(ManagerTermBase):
     def __call__(
             self,
             env: ManagerBasedRLEnv,
-            command_name: str,
-            goal_reached: torch.Tensor,
+            pose_command_name: str,
+            scalar_vel_command_name: str,
             asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-            std: float = 1.0
+            std: float = 1.0,
+            distance_threshold: float = 0.5,
+            angular_threshold: float = 0.1,
     ) -> torch.Tensor:
         """Reward based on the average velocity of the robot."""
+        pose_command = env.command_manager.get_command(pose_command_name)
+        robot_to_goal_distance = torch.norm(pose_command[:, :3], dim=1)
+        within_distance = robot_to_goal_distance <= distance_threshold
+        within_angular_distance = torch.abs(pose_command[:, 3]) <= angular_threshold
+
+        goal_reached = torch.logical_and(within_distance, within_angular_distance)
+
         new_goal_reached = torch.logical_and(goal_reached, self.reward_awarded == 0.0)
         self.reward_awarded = torch.logical_or(self.reward_awarded, new_goal_reached)
 
         origins = env.scene.terrain.env_origins
         robot: Articulation = env.scene[asset_cfg.name]
-        scalar_velocity_command = env.command_manager.get_command(command_name)[:, 0]
+        scalar_velocity_command = env.command_manager.get_command(scalar_vel_command_name)[:, 0]
 
         distance_travelled = torch.norm(robot.data.root_pos_w - origins, dim=1)
         average_velocity = distance_travelled / (env.step_dt * env.episode_length_buf + 1e-6)
