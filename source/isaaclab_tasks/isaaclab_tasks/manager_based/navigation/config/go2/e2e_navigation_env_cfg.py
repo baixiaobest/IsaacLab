@@ -308,3 +308,9 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
         if self.scene.contact_forces is not None:
             self.scene.contact_forces.update_period = self.sim.dt
 
+@configclass
+class NavigationEnd2EndNoEncoderEnvCfg(NavigationEnd2EndEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.height_scanner = None
+        self.observations.policy.height_scan = None

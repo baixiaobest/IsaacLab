@@ -190,3 +190,24 @@ class UnitreeGo2NavigationEnd2EndEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     algorithm = NavE2EPPOConfig
     logger="wandb"
     wandb_project="e2e_navigation"
+
+@configclass
+class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    experiment_name = "unitree_go2_navigation_end2end_v0"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=0.8,
+        noise_clip=1.0,
+        encoder_dims=None,
+        encoder_obs_normalize=False,
+        actor_hidden_dims=[128, 128, 64],
+        critic_hidden_dims=[128, 128, 64],
+        activation="elu",
+        tanh_output=True,
+    )
+    algorithm = NavE2EPPOConfig
+    logger="wandb"
+    wandb_project="e2e_navigation"
