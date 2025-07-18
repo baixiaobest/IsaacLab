@@ -33,6 +33,7 @@ EPISDOE_LENGTH = 8.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
+GOAL_REACHED_VELOCITY_THRESHOLD = 0.1
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -201,12 +202,13 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     goal_reached = RewTerm(
-        func=nav_mdp.pose_2d_command_goal_reached_reward,
-        weight=1.0,
+        func=nav_mdp.pose_2d_command_goal_reached_once_reward,
+        weight=1.0 / SIM_DT,
         params={
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'velocity_threshold': GOAL_REACHED_VELOCITY_THRESHOLD,
             'distance_reward_multiplier': 1.3,
             'angular_reward_multiplier': 1.3,
         }
@@ -214,7 +216,7 @@ class RewardsCfg:
 
     progress_reward = RewTerm(
         func=nav_mdp.pose_2d_command_progress_reward,
-        weight=0.1,
+        weight=0.05,
         params={
             'command_name': 'pose_2d_command',
             'std': 1.0 * SIM_DT
@@ -225,7 +227,7 @@ class RewardsCfg:
     # This is onetime reward per episode.
     average_velocity = RewTerm(
         func=nav_mdp.average_velocity_reward,
-        weight=10.0,
+        weight=0.05 / SIM_DT,
         params={
             'pose_command_name': 'pose_2d_command',
             'scalar_vel_command_name': 'scalar_velocity_command',

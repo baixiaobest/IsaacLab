@@ -172,6 +172,57 @@ def pose_2d_command_goal_reached_reward(
 
     return goal_reached * distance_multiplier * angular_multiplier
 
+class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self.reward_awarded = torch.zeros(env.num_envs, device=env.device)
+
+    def reset(self, env_ids = None):
+        if env_ids is None:
+            # Reset all environments
+            self.reward_awarded = torch.zeros(self._env.num_envs, device=self._env.device)
+        elif self.reward_awarded is not None:
+            # For partial resets, set rewards to zero
+            self.reward_awarded[env_ids] = 0.0
+
+    def __call__(
+            self,
+            env: ManagerBasedRLEnv,
+            command_name: str,
+            asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+            distance_threshold: float = 0.5,
+            angular_threshold: float = 0.1,
+            velocity_threshold: float = 0.1,
+            distance_reward_multiplier: float = 1.5,
+            angular_reward_multiplier: float = 1.2
+    ) -> torch.Tensor:
+        """Reward based on the average velocity of the robot."""
+        robot: Articulation = env.scene[asset_cfg.name]
+
+        pose_command = env.command_manager.get_command(command_name)
+        robot_to_goal_distance = torch.norm(pose_command[:, :3], dim=1)
+
+        within_distance = robot_to_goal_distance <= distance_threshold
+        within_angular_distance = torch.abs(pose_command[:, 3]) <= angular_threshold
+        within_velocity = torch.norm(robot.data.root_lin_vel_w, dim=1) < velocity_threshold
+
+        goal_reached = torch.logical_and(torch.logical_and(within_distance, within_angular_distance), within_velocity)
+
+        new_goal_reached = torch.logical_and(goal_reached, self.reward_awarded == 0.0)
+        self.reward_awarded = torch.logical_or(self.reward_awarded, new_goal_reached)
+
+        distance_multiplier = torch.ones_like(robot_to_goal_distance)
+        distance_multiplier[new_goal_reached] = distance_reward_multiplier - (distance_reward_multiplier - 1.0) * (
+            robot_to_goal_distance[new_goal_reached] / distance_threshold
+        )
+
+        angular_multiplier = torch.ones_like(distance_multiplier)
+        angular_multiplier[new_goal_reached] = angular_reward_multiplier - (angular_reward_multiplier - 1.0) * (
+            torch.abs(pose_command[new_goal_reached, 3]) / angular_threshold
+        )
+
+        return new_goal_reached * distance_multiplier * angular_multiplier
+
 def pose_2d_command_progress_reward(
         env: ManagerBasedRLEnv,
         command_name: str,
