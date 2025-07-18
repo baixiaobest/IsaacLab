@@ -26,7 +26,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import ROUGH_NAVIGATION_TERRAINS_CFG # isort: skip
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 EPISDOE_LENGTH = 10.0
@@ -42,7 +42,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=ROUGH_NAVIGATION_TERRAINS_CFG,
+            terrain_generator=ROUGH_TERRAINS_CFG,
             max_init_terrain_level=5,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -185,8 +185,8 @@ class RewardsCfg:
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'distance_reward_multiplier': 1.2,
-            'angular_reward_multiplier': 1.2,
+            'distance_reward_multiplier': 1.3,
+            'angular_reward_multiplier': 1.3,
         }
     )
 
@@ -202,16 +202,16 @@ class RewardsCfg:
         func=mdp.undesired_contacts,
         weight=-10.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
-                "threshold": 0.1},
+                "threshold": 0.2},
     )
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
-    # Avoid jerky motion
+    # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     # Reduce motion at goal
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
+        weight=-0.05,
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',

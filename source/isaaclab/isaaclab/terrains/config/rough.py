@@ -11,109 +11,6 @@ from ..terrain_generator_cfg import TerrainGeneratorCfg, FlatPatchSamplingCfg
 from ..single_terrain_generator_cfg import SingleTerrainGeneratorCfg
 from ..trimesh.mesh_terrains_cfg import MeshPlaneTerrainCfg
 
-ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
-    size=(8.0, 8.0),
-    border_width=20.0,
-    num_rows=10,
-    num_cols=20,
-    horizontal_scale=0.1,
-    vertical_scale=0.005,
-    slope_threshold=0.75,
-    use_cache=False,
-    sub_terrains={
-        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
-            proportion=0.2,
-            step_height_range=(0.05, 0.23),
-            step_width=0.3,
-            platform_width=3.0,
-            border_width=1.0,
-            holes=False,
-        ),
-        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
-            proportion=0.2,
-            step_height_range=(0.05, 0.23),
-            step_width=0.3,
-            platform_width=3.0,
-            border_width=1.0,
-            holes=False,
-        ),
-        "boxes": terrain_gen.MeshRandomGridTerrainCfg(
-            proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
-        ),
-        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.2, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25
-        ),
-        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        ),
-        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        ),
-    },
-)
-
-DIVERSE_TERRAINS_CFG = TerrainGeneratorCfg(
-    size=(8.0, 8.0),
-    border_width=20.0,
-    num_rows=10,
-    num_cols=19,
-    horizontal_scale=0.1,
-    vertical_scale=0.005,
-    slope_threshold=0.75,
-    use_cache=False,
-    sub_terrains={
-        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
-            proportion=0.2,
-            step_height_range=(0.05, 0.23),
-            step_width=0.3,
-            platform_width=3.0,
-            border_width=1.0,
-            holes=False,
-        ),
-        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
-            proportion=0.2,
-            step_height_range=(0.05, 0.23),
-            step_width=0.3,
-            platform_width=3.0,
-            border_width=1.0,
-            holes=False,
-        ),
-        "boxes": terrain_gen.MeshRandomGridTerrainCfg(
-            proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
-        ),
-        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.2, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25
-        ),
-        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        ),
-        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        ),
-        "mesh_rail": terrain_gen.MeshRailsTerrainCfg(
-            proportion=0.2, rail_thickness_range=(1.0, 2.0), rail_height_range=(0.05, 0.4), platform_width=3.0
-        ),
-        "mesh_pit": terrain_gen.MeshPitTerrainCfg(
-            proportion=0.2, pit_depth_range=(0.05, 0.4), platform_width=3.0
-        ),
-        "mesh_box": terrain_gen.MeshBoxTerrainCfg(
-            proportion=0.2, box_height_range=(0.1, 0.5), platform_width=2.0
-        ),
-        "mesh_gap": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.2, gap_width_range=(0.05, 0.3), platform_width=2.0,
-        ),
-        "mesh_repeat_object": terrain_gen.MeshRepeatedBoxesTerrainCfg(
-            proportion=0.1,
-            object_params_start=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
-                size=(0.2, 0.2), num_objects=8, height=0.1
-            ),
-            object_params_end=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
-                size=(0.5, 0.5), num_objects=20, height=0.5
-            )
-        ),
-    },
-)
-
 FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     num_patches=30,
     patch_radius=0.1,
@@ -122,15 +19,16 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     max_height_diff=0.1
 )
 
-ROUGH_NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
+ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
     num_rows=10,
-    num_cols=20,
+    num_cols=10,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
     use_cache=False,
+    curriculum=True,
     sub_terrains={
         "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
             proportion=0.2,
@@ -164,6 +62,80 @@ ROUGH_NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
         ),
         "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
             proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+    },
+)
+
+DIVERSE_TERRAINS_CFG = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=19,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
+            proportion=0.2,
+            step_height_range=(0.05, 0.23),
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+            proportion=0.2,
+            step_height_range=(0.05, 0.23),
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "boxes": terrain_gen.MeshRandomGridTerrainCfg(
+            proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.2, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "mesh_rail": terrain_gen.MeshRailsTerrainCfg(
+            proportion=0.2, rail_thickness_range=(1.0, 2.0), rail_height_range=(0.05, 0.4), platform_width=3.0,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "mesh_pit": terrain_gen.MeshPitTerrainCfg(
+            proportion=0.2, pit_depth_range=(0.05, 0.4), platform_width=3.0,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "mesh_box": terrain_gen.MeshBoxTerrainCfg(
+            proportion=0.2, box_height_range=(0.1, 0.5), platform_width=2.0,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "mesh_gap": terrain_gen.MeshGapTerrainCfg(
+            proportion=0.2, gap_width_range=(0.05, 0.3), platform_width=2.0,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "mesh_repeat_object": terrain_gen.MeshRepeatedBoxesTerrainCfg(
+            proportion=0.1,
+            object_params_start=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
+                size=(0.2, 0.2), num_objects=8, height=0.1
+            ),
+            object_params_end=terrain_gen.MeshRepeatedBoxesTerrainCfg.ObjectCfg(
+                size=(0.5, 0.5), num_objects=20, height=0.5
+            ),
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
     },
