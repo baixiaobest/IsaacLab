@@ -387,6 +387,19 @@ class ScalarVelocityCommand(CommandTerm):
         self.vel_command_b = torch.zeros(self.num_envs, 1, device=self.device)
         self.robot: Articulation = env.scene[cfg.asset_name]
 
+        # Add default visualizer configurations if not present
+        if not hasattr(cfg, "goal_vel_visualizer_cfg"):
+            from isaaclab.markers.vis_markers_cfg import VisualizationMarkersCfg
+            from omni.isaac.core.utils.types import Color
+            cfg.goal_vel_visualizer_cfg = VisualizationMarkersCfg(
+                markers={"arrow": VisualizationMarkersCfg.ArrowMarker(color=Color(0, 0, 1, 1))},
+                name="goal_vel",
+            )
+            cfg.current_vel_visualizer_cfg = VisualizationMarkersCfg(
+                markers={"arrow": VisualizationMarkersCfg.ArrowMarker(color=Color(0, 1, 0, 1))},
+                name="current_vel",
+            )
+
     @property
     def command(self) -> torch.Tensor:
         """The desired base velocity command in the base frame. Shape is (num_envs, 1)."""
@@ -411,3 +424,79 @@ class ScalarVelocityCommand(CommandTerm):
 
     def _update_command(self):
         pass
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        """Set up visualization markers for debugging."""
+        if debug_vis:
+            # create markers if necessary for the first time
+            if not hasattr(self, "goal_vel_visualizer"):
+                # -- goal (blue arrow)
+                self.goal_vel_visualizer = VisualizationMarkers(self.cfg.goal_vel_visualizer_cfg)
+                # -- current (green arrow)
+                self.current_vel_visualizer = VisualizationMarkers(self.cfg.current_vel_visualizer_cfg)
+            # set their visibility to true
+            self.goal_vel_visualizer.set_visibility(True)
+            self.current_vel_visualizer.set_visibility(True)
+        else:
+            if hasattr(self, "goal_vel_visualizer"):
+                self.goal_vel_visualizer.set_visibility(False)
+                self.current_vel_visualizer.set_visibility(False)
+                
+    def _debug_vis_callback(self, event):
+        """Update visualization markers during simulation."""
+        # check if robot is initialized
+        if not self.robot.is_initialized:
+            return
+            
+        # get marker location (slightly above the robot)
+        base_pos_w = self.robot.data.root_pos_w.clone()
+        base_pos_w[:, 2] += 0.5
+        
+        # For current velocity, always use actual velocity (exactly as it is)
+        actual_vel_b = self.robot.data.root_lin_vel_b[:, :2]  # XY velocity in body frame
+        vel_norm = torch.norm(actual_vel_b, dim=1, keepdim=True)
+        moving_mask = vel_norm > 0.1  # Threshold to determine if robot is moving
+        
+        # Create command velocity vectors - direction depends on whether robot is moving
+        vel_des_vectors = torch.zeros((self.num_envs, 2), device=self.device)
+        
+        # When not moving: command points forward
+        vel_des_vectors[:, 0] = 1.0  # Default forward direction
+        
+        # When moving: command follows actual velocity direction 
+        moving_indices = moving_mask.squeeze(-1).nonzero(as_tuple=True)[0]
+        if len(moving_indices) > 0:
+            # Use normalized velocity direction for moving robots
+            vel_dir_moving = actual_vel_b[moving_indices] / (vel_norm[moving_indices] + 1e-6)
+            vel_des_vectors[moving_indices] = vel_dir_moving
+            
+        # Scale command vectors by commanded magnitude
+        vel_des_vectors = vel_des_vectors * self.vel_command_b[:, 0].unsqueeze(1)
+        
+        # Convert to arrows for visualization
+        vel_des_arrow_scale, vel_des_arrow_quat = self._create_arrow_from_velocity(vel_des_vectors)
+        vel_arrow_scale, vel_arrow_quat = self._create_arrow_from_velocity(actual_vel_b)
+        
+        # Display markers
+        self.goal_vel_visualizer.visualize(base_pos_w, vel_des_arrow_quat, vel_des_arrow_scale)
+        self.current_vel_visualizer.visualize(base_pos_w, vel_arrow_quat, vel_arrow_scale)
+        
+    def _create_arrow_from_velocity(self, xy_velocity: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Convert 2D velocity vectors to arrow direction and scale."""
+        # obtain default scale of the marker
+        default_scale = self.goal_vel_visualizer.cfg.markers["arrow"].scale
+        
+        # arrow-scale (length based on velocity magnitude)
+        arrow_scale = torch.tensor(default_scale, device=self.device).repeat(xy_velocity.shape[0], 1)
+        arrow_scale[:, 0] *= torch.linalg.norm(xy_velocity, dim=1) * 3.0
+        
+        # arrow-direction (based on velocity direction)
+        heading_angle = torch.atan2(xy_velocity[:, 1], xy_velocity[:, 0])
+        zeros = torch.zeros_like(heading_angle)
+        arrow_quat = math_utils.quat_from_euler_xyz(zeros, zeros, heading_angle)
+        
+        # convert from body to world frame
+        base_quat_w = self.robot.data.root_quat_w
+        arrow_quat = math_utils.quat_mul(base_quat_w, arrow_quat)
+        
+        return arrow_scale, arrow_quat

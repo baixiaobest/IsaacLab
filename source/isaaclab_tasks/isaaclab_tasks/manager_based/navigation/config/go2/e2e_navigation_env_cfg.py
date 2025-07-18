@@ -193,8 +193,9 @@ class CommandsCfg:
     # This controls the average velocity from origin to target.
     scalar_velocity_command = mdp.ScalarVelocityCommandCfg(
         asset_name="robot",
-        velocity_range=(0.5, 2.0),
+        velocity_range=(0.3, 2.0),
         resampling_time_range=(15.0, 15.0),
+        debug_vis=True
     )
 
 @configclass
@@ -276,6 +277,9 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        scalar_velocity_command = ObsTerm(
+            func=mdp.generated_commands, params={"command_name": "scalar_velocity_command"}
+        )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
