@@ -267,7 +267,7 @@ class TerminationsCfg:
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", ".*hip", "Head_upper"]), 
-                "threshold": 0.1},
+                "threshold": 1.0},
     )
 
     base_vel_out_of_limit = DoneTerm(
