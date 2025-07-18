@@ -131,7 +131,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.2, 0.2), "y": (-0.2, 0.2), "yaw": (-3.14, 3.14)},
             "velocity_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
@@ -190,6 +190,12 @@ class CommandsCfg:
         resampling_time_range=(15.0, 15.0),
         debug_vis=True
     )
+    # This controls the average velocity from origin to target.
+    scalar_velocity_command = mdp.ScalarVelocityCommandCfg(
+        asset_name="robot",
+        velocity_range=(0.5, 2.0),
+        resampling_time_range=(15.0, 15.0),
+    )
 
 @configclass
 class RewardsCfg:
@@ -213,6 +219,25 @@ class RewardsCfg:
             'std': 1.0 * SIM_DT
         }
     )
+
+    # Average velocity reward
+    # This is onetime reward per episode.
+    average_velocity = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=10.0,
+        params={
+            'func': nav_mdp.average_velocity_reward,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'callback_params': {
+                'command_name': 'scalar_velocity_command',
+                'std': 1.0,
+                'asset_cfg': SceneEntityCfg("robot", body_names="base")
+            }
+        }
+    )
+
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-10.0,

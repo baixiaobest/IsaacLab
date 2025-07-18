@@ -14,7 +14,7 @@ from isaaclab.utils import configclass
 from .null_command import NullCommand
 from .pose_2d_command import TerrainBasedPose2dCommand, UniformPose2dCommand
 from .pose_command import UniformPoseCommand
-from .velocity_command import NormalVelocityCommand, UniformVelocityCommand
+from .velocity_command import NormalVelocityCommand, UniformVelocityCommand, ScalarVelocityCommand
 from .navigation_command import NavigationPositionCommand
 
 
@@ -305,3 +305,16 @@ class NavigationPositionCommandCfg(CommandTermCfg):
 
     command: VelocityCommand | PositionCommand = PositionCommand()
     """Configuration for the velocity command used in the navigation command generator."""
+
+
+@configclass
+class ScalarVelocityCommandCfg(CommandTermCfg):
+    """Configuration for the scalar velocity command generator."""
+
+    class_type: type = ScalarVelocityCommand
+
+    asset_name: str = MISSING
+    """Name of the asset in the environment for which the commands are generated."""
+
+    velocity_range: tuple[float, float] = MISSING
+    """Range for the scalar velocity command (in m/s)."""

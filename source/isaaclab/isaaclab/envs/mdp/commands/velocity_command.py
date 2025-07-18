@@ -21,7 +21,7 @@ from isaaclab.markers import VisualizationMarkers
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
-    from .commands_cfg import NormalVelocityCommandCfg, UniformVelocityCommandCfg
+    from .commands_cfg import NormalVelocityCommandCfg, UniformVelocityCommandCfg, ScalarVelocityCommandCfg
 
 
 class UniformVelocityCommand(CommandTerm):
@@ -368,3 +368,46 @@ class NormalVelocityCommand(UniformVelocityCommand):
         self.vel_command_b[zero_vel_x_env_ids, 0] = 0.0
         self.vel_command_b[zero_vel_y_env_ids, 1] = 0.0
         self.vel_command_b[zero_vel_yaw_env_ids, 2] = 0.0
+
+class ScalarVelocityCommand(CommandTerm):
+    """Command generator that generates a scalar velocity command in the one direction."""
+
+    cfg: ScalarVelocityCommandCfg
+    """The command generator configuration."""
+
+    def __init__(self, cfg: ScalarVelocityCommandCfg, env: ManagerBasedEnv):
+        """Initializes the command generator.
+
+        Args:
+            cfg: The command generator configuration.
+            env: The environment.
+        """
+        super().__init__(cfg, env)
+        # create buffers to store the command
+        self.vel_command_b = torch.zeros(self.num_envs, 1, device=self.device)
+        self.robot: Articulation = env.scene[cfg.asset_name]
+
+    @property
+    def command(self) -> torch.Tensor:
+        """The desired base velocity command in the base frame. Shape is (num_envs, 1)."""
+        return self.vel_command_b
+    
+    def __str__(self):
+        """Return a string representation of the command generator."""
+        msg = "ScalarVelocityCommand:\n"
+        msg += f"\tCommand dimension: 1\n"
+        msg += f"\tResampling time range: {self.cfg.resampling_time_range}\n"
+        return msg
+    
+    def _update_metrics(self):
+        # logs data
+        self.metrics["error_vel"] = torch.abs(self.vel_command_b[:, 0] - torch.norm(self.robot.data.root_lin_vel_b, dim=1))
+    
+    def _resample_command(self, env_ids: Sequence[int]):
+        """Resamples the scalar velocity command for the specified environments."""
+        r = torch.empty(len(env_ids), device=self.device)
+        # sample scalar velocity command
+        self.vel_command_b[env_ids, 0] = r.uniform_(*self.cfg.velocity_range).clone()
+
+    def _update_command(self):
+        pass

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from __future__ import annotations
-
+import inspect
 import torch
 from typing import TYPE_CHECKING
 from isaaclab.managers import SceneEntityCfg
@@ -203,8 +203,68 @@ def pose_2d_goal_callback_reward(
 
     goal_reached = torch.logical_and(within_distance, within_angular_distance)
     
-    return goal_reached * func(env, **callback_params)
-    
+    params = callback_params.copy()
+
+    # Check if func is a class and instantiate it if needed
+    if inspect.isclass(func) and issubclass(func, ManagerTermBase):
+        # Create a basic config for the reward term
+        cfg = RewardTermCfg(func=func.__call__, params=params)
+        # Instantiate the class with config and environment
+        reward_func = func(cfg, env)
+
+        sig = inspect.signature(func.__call__)
+
+    else:
+        reward_func = func
+        # Check if the callback function accepts a goal_reached parameter
+        sig = inspect.signature(func)
+        
+    if 'goal_reached' in sig.parameters:
+        params['goal_reached'] = goal_reached
+
+    # Call the instance with the parameters
+    return goal_reached * reward_func(env, **params)
+
+
+class average_velocity_reward(ManagerTermBase):
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self.reward_awarded = torch.zeros(env.num_envs, device=env.device)
+
+    def reset(self, env_ids = None):
+        if env_ids is None:
+            # Reset all environments
+            self.reward_awarded = torch.zeros(self._env.num_envs, device=self._env.device)
+        elif self.reward_awarded is not None:
+            # For partial resets, set rewards to zero
+            self.reward_awarded[env_ids] = 0.0
+
+    def __call__(
+            self,
+            env: ManagerBasedRLEnv,
+            command_name: str,
+            goal_reached: torch.Tensor,
+            asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+            std: float = 1.0
+    ) -> torch.Tensor:
+        """Reward based on the average velocity of the robot."""
+        new_goal_reached = torch.logical_and(goal_reached, self.reward_awarded == 0.0)
+        self.reward_awarded = torch.logical_or(self.reward_awarded, new_goal_reached)
+
+        origins = env.scene.terrain.env_origins
+        robot: Articulation = env.scene[asset_cfg.name]
+        scalar_velocity_command = env.command_manager.get_command(command_name)[:, 0]
+
+        distance_travelled = torch.norm(robot.data.root_pos_w - origins, dim=1)
+        average_velocity = distance_travelled / (env.step_dt * env.episode_length_buf + 1e-6)
+        velocity_diff = torch.abs(average_velocity - scalar_velocity_command)
+
+        reward = 1.0 - torch.tanh(velocity_diff / std)
+
+        reward[~new_goal_reached] = 0.0  # Set reward to 0 for environments that have not reached the goal
+
+        return reward
+
 
 class goal_reached_reward(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
