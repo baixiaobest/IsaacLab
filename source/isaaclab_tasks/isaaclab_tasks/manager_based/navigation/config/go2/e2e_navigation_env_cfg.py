@@ -224,18 +224,12 @@ class RewardsCfg:
         }
     )
 
-    # Average velocity reward, for setting overall speed.
-    # This is onetime reward per episode.
-    average_velocity = RewTerm(
-        func=nav_mdp.average_velocity_reward,
-        weight=0.1 / SIM_DT,
+    backward_movement_penalty = RewTerm(
+        func=nav_mdp.velocity_heading_error_abs,
+        weight=-0.05,
         params={
-            'pose_command_name': 'pose_2d_command',
-            'scalar_vel_command_name': 'scalar_velocity_command',
-            'std': 0.2,
-            'asset_cfg': SceneEntityCfg("robot", body_names="base"),
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            "velocity_threshold": 0.1,
+            "heading_deadband": math.pi / 2.0
         }
     )
 
@@ -260,20 +254,6 @@ class RewardsCfg:
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
         }
     )
-    # Reduce error at goal
-    # goal_reached_error_penalty = RewTerm(
-    #     func=nav_mdp.pose_2d_goal_callback_reward,
-    #     weight=-0.05,
-    #     params={
-    #         'func': nav_mdp.pose_2d_command_norm_penalty,
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #         'callback_params': {
-    #             'command_name': 'pose_2d_command'
-    #         }
-    #     }
-    # )
 
 @configclass
 class ObservationsCfg:

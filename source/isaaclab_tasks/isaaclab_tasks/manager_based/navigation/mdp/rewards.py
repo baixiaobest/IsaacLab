@@ -36,7 +36,9 @@ def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torc
 def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-        velocity_threshold: float = 0.1) -> torch.Tensor:
+        velocity_threshold: float = 0.1,
+        heading_deadband: float = 0.0 # in rad
+        ) -> torch.Tensor:
     """Penalize the difference between the direction of velocity and the robot's heading."""
     asset = env.scene[asset_cfg.name]
     robot_heading = asset.data.heading_w
@@ -49,101 +51,14 @@ def velocity_heading_error_abs(
         vel_heading = torch.atan2(robot_vel[has_vel, 1], robot_vel[has_vel, 0])
         # Calculate the absolute difference between the robot's heading and the velocity heading
         heading_diff = torch.abs(math_utils.wrap_to_pi(robot_heading[has_vel] - vel_heading))
+        heading_diff = torch.clamp(heading_diff - heading_deadband, min=0.0)  # Apply deadband
         rewards[has_vel] = heading_diff / torch.pi  # Normalize to [0, 1]
     
     return rewards
 
-
-def goal_position_error_tanh(
-        env: ManagerBasedRLEnv, 
-        std: float, command_term_name: str, 
-        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),) -> torch.Tensor:
-    """Reward for moving towards the goal position with tanh kernel."""
-    command_term = env.command_manager.get_term(command_term_name)
-    goal_positions = command_term.goal_positions
-    robot_pos = env.scene[asset_cfg.name].data.root_pos_w
-    # Calculate the distance to the goal position
-    distance_to_goal = torch.norm(goal_positions - robot_pos, dim=1)
-
-    return 1 - torch.tanh(distance_to_goal / std)
-
-def lateral_movement_penalty(
-        env: ManagerBasedRLEnv,
-        std: float,
-        command_term_name: str,
-        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
-    """
-    Computes a penalty based on the robot's lateral (perpendicular) velocity 
-    relative to the direction towards the goal.
-
-    The penalty is higher when the robot moves more sideways with respect to the 
-    goal direction, encouraging the robot to move directly towards the goal.
-
-    Returns:
-        torch.Tensor: A tensor of shape (num_envs,) with the lateral movement penalty for each environment.
-    """
-    command_term = env.command_manager.get_term(command_term_name)
-    goal_positions = command_term.goal_positions
-    
-    robot = env.scene[asset_cfg.name]
-    robot_pos = robot.data.root_pos_w
-    robot_vel = robot.data.root_lin_vel_w
-
-    robot_to_goal_vec = goal_positions - robot_pos
-    robot_to_goal_norm = torch.norm(robot_to_goal_vec, dim=1, keepdim=True)
-    robot_to_goal_dir = robot_to_goal_vec / robot_to_goal_norm
-
-    lateral_vel = robot_vel - torch.sum(robot_vel * robot_to_goal_dir, dim=1, keepdim=True) * robot_to_goal_dir
-    lateral_vel_norm = torch.norm(lateral_vel, dim=1)
-
-    return torch.tanh(lateral_vel_norm / std)
-
-def lateral_movement_penalty_obstacle_dependent(
-        env: ManagerBasedRLEnv,
-        command_term_name: str,
-        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-        sensor_cfg: SceneEntityCfg = SceneEntityCfg("obstacle_scanner"),
-        std_lateral: float = 1.0,
-        std_obstacle: float = 1.0) -> torch.Tensor:
-    """Computes a penalty based on the robot's lateral (perpendicular) velocity 
-    relative to the direction towards the goal, adjusted by the distance to obstacles.
-    """
-    command_term = env.command_manager.get_term(command_term_name)
-    goal_positions = command_term.goal_positions
-    
-    robot = env.scene[asset_cfg.name]
-    robot_pos = robot.data.root_pos_w
-    robot_vel = robot.data.root_lin_vel_w
-
-    robot_to_goal_vec = goal_positions - robot_pos
-    robot_to_goal_norm = torch.norm(robot_to_goal_vec, dim=1, keepdim=True)
-    robot_to_goal_dir = robot_to_goal_vec / robot_to_goal_norm
-
-    lateral_vel = robot_vel - torch.sum(robot_vel * robot_to_goal_dir, dim=1, keepdim=True) * robot_to_goal_dir
-    lateral_vel_norm = torch.norm(lateral_vel, dim=1)
-
-    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
-    # Get the distances to the closest obstacles
-    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
-    min_distances, _ = torch.min(distances, dim=1)
-
-    obstacle_weight = torch.tanh(min_distances / std_obstacle)
-
-    return torch.tanh(lateral_vel_norm / std_lateral) * obstacle_weight
-
-
-def obstacle_clearance_penalty(
-        env: ManagerBasedRLEnv,
-        sensor_cfg: SceneEntityCfg,
-        std: float = 1.0,
-        sensor_radius = 0.2) -> torch.Tensor:
-    """Penalty for being too close to obstacles."""
-    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
-    # Get the distances to the closest obstacles
-    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
-    min_distances, _ = torch.min(distances, dim=1)
-    # Calculate the penalty based on the distances
-    return 1.0 - torch.tanh((min_distances - sensor_radius) / std)
+"""
+Pose 2d command related rewards
+"""
 
 def pose_2d_command_goal_reached_reward(
         env: ManagerBasedRLEnv, 
@@ -262,6 +177,10 @@ def pose_2d_command_norm_penalty(
     
     return command_sq
 
+"""
+Scalar velocity command related rewards
+"""
+
 class average_velocity_reward(ManagerTermBase):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
@@ -309,7 +228,9 @@ class average_velocity_reward(ManagerTermBase):
         reward[~new_goal_reached] = 0.0  # Set reward to 0 for environments that have not reached the goal
 
         return reward
-
+"""
+Navigation command related rewards
+"""
 
 class goal_reached_reward(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
@@ -382,7 +303,6 @@ class goal_reached_reward(ManagerTermBase):
         return should_award.float() \
                 * distance_multiplier \
                 * (1.0 / env.step_dt) 
-
 
 class navigation_progress(ManagerTermBase):
     
@@ -506,3 +426,93 @@ class navigation_command_w_rate_penalty_l2(ManagerTermBase):
             # We use zeros which will be detected as invalid in the next call
             self.prev_quat[env_ids] = 0.0
 
+def goal_position_error_tanh(
+        env: ManagerBasedRLEnv, 
+        std: float, command_term_name: str, 
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),) -> torch.Tensor:
+    """Reward for moving towards the goal position with tanh kernel."""
+    command_term = env.command_manager.get_term(command_term_name)
+    goal_positions = command_term.goal_positions
+    robot_pos = env.scene[asset_cfg.name].data.root_pos_w
+    # Calculate the distance to the goal position
+    distance_to_goal = torch.norm(goal_positions - robot_pos, dim=1)
+
+    return 1 - torch.tanh(distance_to_goal / std)
+
+def lateral_movement_penalty(
+        env: ManagerBasedRLEnv,
+        std: float,
+        command_term_name: str,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """
+    Computes a penalty based on the robot's lateral (perpendicular) velocity 
+    relative to the direction towards the goal.
+
+    The penalty is higher when the robot moves more sideways with respect to the 
+    goal direction, encouraging the robot to move directly towards the goal.
+
+    Returns:
+        torch.Tensor: A tensor of shape (num_envs,) with the lateral movement penalty for each environment.
+    """
+    command_term = env.command_manager.get_term(command_term_name)
+    goal_positions = command_term.goal_positions
+    
+    robot = env.scene[asset_cfg.name]
+    robot_pos = robot.data.root_pos_w
+    robot_vel = robot.data.root_lin_vel_w
+
+    robot_to_goal_vec = goal_positions - robot_pos
+    robot_to_goal_norm = torch.norm(robot_to_goal_vec, dim=1, keepdim=True)
+    robot_to_goal_dir = robot_to_goal_vec / robot_to_goal_norm
+
+    lateral_vel = robot_vel - torch.sum(robot_vel * robot_to_goal_dir, dim=1, keepdim=True) * robot_to_goal_dir
+    lateral_vel_norm = torch.norm(lateral_vel, dim=1)
+
+    return torch.tanh(lateral_vel_norm / std)
+
+def lateral_movement_penalty_obstacle_dependent(
+        env: ManagerBasedRLEnv,
+        command_term_name: str,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        sensor_cfg: SceneEntityCfg = SceneEntityCfg("obstacle_scanner"),
+        std_lateral: float = 1.0,
+        std_obstacle: float = 1.0) -> torch.Tensor:
+    """Computes a penalty based on the robot's lateral (perpendicular) velocity 
+    relative to the direction towards the goal, adjusted by the distance to obstacles.
+    """
+    command_term = env.command_manager.get_term(command_term_name)
+    goal_positions = command_term.goal_positions
+    
+    robot = env.scene[asset_cfg.name]
+    robot_pos = robot.data.root_pos_w
+    robot_vel = robot.data.root_lin_vel_w
+
+    robot_to_goal_vec = goal_positions - robot_pos
+    robot_to_goal_norm = torch.norm(robot_to_goal_vec, dim=1, keepdim=True)
+    robot_to_goal_dir = robot_to_goal_vec / robot_to_goal_norm
+
+    lateral_vel = robot_vel - torch.sum(robot_vel * robot_to_goal_dir, dim=1, keepdim=True) * robot_to_goal_dir
+    lateral_vel_norm = torch.norm(lateral_vel, dim=1)
+
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
+    # Get the distances to the closest obstacles
+    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
+    min_distances, _ = torch.min(distances, dim=1)
+
+    obstacle_weight = torch.tanh(min_distances / std_obstacle)
+
+    return torch.tanh(lateral_vel_norm / std_lateral) * obstacle_weight
+
+
+def obstacle_clearance_penalty(
+        env: ManagerBasedRLEnv,
+        sensor_cfg: SceneEntityCfg,
+        std: float = 1.0,
+        sensor_radius = 0.2) -> torch.Tensor:
+    """Penalty for being too close to obstacles."""
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
+    # Get the distances to the closest obstacles
+    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
+    min_distances, _ = torch.min(distances, dim=1)
+    # Calculate the penalty based on the distances
+    return 1.0 - torch.tanh((min_distances - sensor_radius) / std)
