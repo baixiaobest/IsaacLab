@@ -116,9 +116,9 @@ class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     logger="wandb"
     wandb_project="navigation"
 
-  """
-  END2END CONFIGURATION
-  """
+"""
+END2END CONFIGURATION
+"""
 
 e2e_cnn_config = [
     # 1) Unglue the flat vector into a 1×16x26 “image”
