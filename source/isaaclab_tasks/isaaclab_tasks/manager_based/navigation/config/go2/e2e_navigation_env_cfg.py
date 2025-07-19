@@ -202,12 +202,15 @@ class CommandsCfg:
 class RewardsCfg:
     # Task reward
     goal_reached = RewTerm(
-        func=nav_mdp.pose_2d_command_goal_reached_once_reward,
-        weight=1.0 / SIM_DT,
+        func=nav_mdp.pose_2d_command_goal_reached_reward,
+        weight=1.0,
         params={
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'distance_multiplier': 1.3,
+            'angular_multiplier': 1.3,
+            'active_after_time': EPISDOE_LENGTH - 2.0, # Reward is only active at the last 2 seconds of the episode 
         }
     )
 
@@ -223,18 +226,18 @@ class RewardsCfg:
 
     # Average velocity reward, for setting overall speed.
     # This is onetime reward per episode.
-    average_velocity = RewTerm(
-        func=nav_mdp.average_velocity_reward,
-        weight=0.1 / SIM_DT,
-        params={
-            'pose_command_name': 'pose_2d_command',
-            'scalar_vel_command_name': 'scalar_velocity_command',
-            'std': 0.2,
-            'asset_cfg': SceneEntityCfg("robot", body_names="base"),
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-        }
-    )
+    # average_velocity = RewTerm(
+    #     func=nav_mdp.average_velocity_reward,
+    #     weight=0.1 / SIM_DT,
+    #     params={
+    #         'pose_command_name': 'pose_2d_command',
+    #         'scalar_vel_command_name': 'scalar_velocity_command',
+    #         'std': 0.2,
+    #         'asset_cfg': SceneEntityCfg("robot", body_names="base"),
+    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     }
+    # )
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
@@ -258,19 +261,19 @@ class RewardsCfg:
         }
     )
     # Reduce error at goal
-    goal_reached_error_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.05,
-        params={
-            'func': nav_mdp.pose_2d_command_norm_penalty,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'callback_params': {
-                'command_name': 'pose_2d_command'
-            }
-        }
-    )
+    # goal_reached_error_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.05,
+    #     params={
+    #         'func': nav_mdp.pose_2d_command_norm_penalty,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         'callback_params': {
+    #             'command_name': 'pose_2d_command'
+    #         }
+    #     }
+    # )
 
 @configclass
 class ObservationsCfg:
@@ -391,5 +394,5 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        self.commands.scalar_velocity_command.velocity_range = (0.1, 0.2)
+        self.commands.scalar_velocity_command.velocity_range = (0.3, 1.0)
 
