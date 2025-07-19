@@ -33,7 +33,6 @@ EPISDOE_LENGTH = 8.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
-GOAL_REACHED_VELOCITY_THRESHOLD = 0.1
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -201,6 +200,7 @@ class CommandsCfg:
 
 @configclass
 class RewardsCfg:
+    # Task reward
     goal_reached = RewTerm(
         func=nav_mdp.pose_2d_command_goal_reached_once_reward,
         weight=1.0 / SIM_DT,
@@ -208,26 +208,24 @@ class RewardsCfg:
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'velocity_threshold': GOAL_REACHED_VELOCITY_THRESHOLD,
-            'distance_reward_multiplier': 1.3,
-            'angular_reward_multiplier': 1.3,
         }
     )
 
+    # Guide the task reward due to sparsity of task reward
     progress_reward = RewTerm(
         func=nav_mdp.pose_2d_command_progress_reward,
-        weight=0.05,
+        weight=0.1,
         params={
             'command_name': 'pose_2d_command',
             'std': 1.0 * SIM_DT
         }
     )
 
-    # Average velocity reward
+    # Average velocity reward, for setting overall speed.
     # This is onetime reward per episode.
     average_velocity = RewTerm(
         func=nav_mdp.average_velocity_reward,
-        weight=0.05 / SIM_DT,
+        weight=0.1 / SIM_DT,
         params={
             'pose_command_name': 'pose_2d_command',
             'scalar_vel_command_name': 'scalar_velocity_command',
@@ -257,6 +255,20 @@ class RewardsCfg:
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+        }
+    )
+    # Reduce error at goal
+    goal_reached_error_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.05,
+        params={
+            'func': nav_mdp.pose_2d_command_norm_penalty,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'callback_params': {
+                'command_name': 'pose_2d_command'
+            }
         }
     )
 

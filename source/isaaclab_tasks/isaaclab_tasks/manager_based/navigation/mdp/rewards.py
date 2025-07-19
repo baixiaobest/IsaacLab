@@ -191,10 +191,7 @@ class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
             command_name: str,
             asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
             distance_threshold: float = 0.5,
-            angular_threshold: float = 0.1,
-            velocity_threshold: float = 0.1,
-            distance_reward_multiplier: float = 1.5,
-            angular_reward_multiplier: float = 1.2
+            angular_threshold: float = 0.1
     ) -> torch.Tensor:
         """Reward based on the average velocity of the robot."""
         robot: Articulation = env.scene[asset_cfg.name]
@@ -204,24 +201,13 @@ class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
 
         within_distance = robot_to_goal_distance <= distance_threshold
         within_angular_distance = torch.abs(pose_command[:, 3]) <= angular_threshold
-        within_velocity = torch.norm(robot.data.root_lin_vel_w, dim=1) < velocity_threshold
 
-        goal_reached = torch.logical_and(torch.logical_and(within_distance, within_angular_distance), within_velocity)
+        goal_reached = torch.logical_and(within_distance, within_angular_distance)
 
         new_goal_reached = torch.logical_and(goal_reached, self.reward_awarded == 0.0)
         self.reward_awarded = torch.logical_or(self.reward_awarded, new_goal_reached)
 
-        distance_multiplier = torch.ones_like(robot_to_goal_distance)
-        distance_multiplier[new_goal_reached] = distance_reward_multiplier - (distance_reward_multiplier - 1.0) * (
-            robot_to_goal_distance[new_goal_reached] / distance_threshold
-        )
-
-        angular_multiplier = torch.ones_like(distance_multiplier)
-        angular_multiplier[new_goal_reached] = angular_reward_multiplier - (angular_reward_multiplier - 1.0) * (
-            torch.abs(pose_command[new_goal_reached, 3]) / angular_threshold
-        )
-
-        return new_goal_reached * distance_multiplier * angular_multiplier
+        return new_goal_reached
 
 def pose_2d_command_progress_reward(
         env: ManagerBasedRLEnv,
@@ -264,6 +250,14 @@ def pose_2d_goal_callback_reward(
     # Call the instance with the parameters
     return goal_reached * func(env, **params)
 
+def pose_2d_command_norm_penalty(
+        env: ManagerBasedRLEnv,
+        command_name: str) -> torch.Tensor:
+    command = env.command_manager.get_command(command_name)
+    # Calculate the norm of the command vector
+    command_sq = torch.square(command).sum(dim=1)
+    
+    return command_sq
 
 class average_velocity_reward(ManagerTermBase):
     def __init__(self, cfg, env):
