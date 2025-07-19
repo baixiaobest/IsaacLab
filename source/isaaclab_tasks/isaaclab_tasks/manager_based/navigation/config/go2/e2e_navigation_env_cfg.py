@@ -29,7 +29,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-EPISDOE_LENGTH = 10.0
+EPISDOE_LENGTH = 20.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
@@ -187,14 +187,14 @@ class CommandsCfg:
             pos_y=(-10.0, 10.0),
             heading=(-math.pi, math.pi)
         ),
-        resampling_time_range=(15.0, 15.0),
+        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
         debug_vis=True
     )
     # This controls the average velocity from origin to target.
     scalar_velocity_command = mdp.ScalarVelocityCommandCfg(
         asset_name="robot",
-        velocity_range=(0.3, 2.0),
-        resampling_time_range=(15.0, 15.0),
+        velocity_range=(0.5, 2.0),
+        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
         debug_vis=True
     )
 
