@@ -208,8 +208,8 @@ class RewardsCfg:
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'distance_multiplier': 1.3,
-            'angular_multiplier': 1.3,
+            'distance_reward_multiplier': 1.3,
+            'angular_reward_multiplier': 1.3,
             'active_after_time': EPISDOE_LENGTH - 2.0, # Reward is only active at the last 2 seconds of the episode 
         }
     )
