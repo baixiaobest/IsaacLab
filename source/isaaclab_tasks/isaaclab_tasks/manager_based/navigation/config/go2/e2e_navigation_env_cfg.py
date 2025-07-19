@@ -229,7 +229,7 @@ class RewardsCfg:
         weight=-0.05,
         params={
             "velocity_threshold": 0.1,
-            "heading_deadband": math.pi / 2.0
+            "heading_deadband": 0.1
         }
     )
 
