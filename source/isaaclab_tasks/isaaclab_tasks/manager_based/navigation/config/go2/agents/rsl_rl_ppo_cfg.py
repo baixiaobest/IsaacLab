@@ -123,8 +123,8 @@ END2END CONFIGURATION
 e2e_cnn_config = [
     # 1) Unglue the flat vector into a 1×16x26 “image”
     { 'type':   'reshape',
-      'input_size': 256,
-      'shape': [1, 16, 16]
+      'input_size': 441,
+      'shape': [1, 21, 21]
     },
 
     # 2) convolution, -> 16x16x16
