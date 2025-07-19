@@ -171,7 +171,7 @@ def pose_2d_command_goal_reached_reward(
         torch.abs(command[goal_reached, 3]) / angular_threshold
     )
 
-    reward_active = env.episode_length_buf * env.step_dt >= active_after_time
+    reward_active = (env.episode_length_buf * env.step_dt) >= active_after_time
 
     return goal_reached * reward_active * distance_multiplier * angular_multiplier
 

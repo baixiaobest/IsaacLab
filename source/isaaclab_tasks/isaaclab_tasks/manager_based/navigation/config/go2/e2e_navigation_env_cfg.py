@@ -29,7 +29,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-EPISDOE_LENGTH = 8.0
+EPISDOE_LENGTH = 10.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
@@ -226,18 +226,18 @@ class RewardsCfg:
 
     # Average velocity reward, for setting overall speed.
     # This is onetime reward per episode.
-    # average_velocity = RewTerm(
-    #     func=nav_mdp.average_velocity_reward,
-    #     weight=0.1 / SIM_DT,
-    #     params={
-    #         'pose_command_name': 'pose_2d_command',
-    #         'scalar_vel_command_name': 'scalar_velocity_command',
-    #         'std': 0.2,
-    #         'asset_cfg': SceneEntityCfg("robot", body_names="base"),
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #     }
-    # )
+    average_velocity = RewTerm(
+        func=nav_mdp.average_velocity_reward,
+        weight=0.1 / SIM_DT,
+        params={
+            'pose_command_name': 'pose_2d_command',
+            'scalar_vel_command_name': 'scalar_velocity_command',
+            'std': 0.2,
+            'asset_cfg': SceneEntityCfg("robot", body_names="base"),
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+        }
+    )
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
@@ -388,11 +388,10 @@ class NavigationEnd2EndEnvCfg_PLAY(NavigationEnd2EndEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-
 @configclass
 class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        self.commands.scalar_velocity_command.velocity_range = (0.3, 1.0)
+        # self.commands.scalar_velocity_command.velocity_range = (0.3, 1.0)
 
