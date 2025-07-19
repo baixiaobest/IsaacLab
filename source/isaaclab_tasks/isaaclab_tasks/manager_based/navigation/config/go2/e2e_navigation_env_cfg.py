@@ -29,7 +29,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-EPISDOE_LENGTH = 20.0
+EPISDOE_LENGTH = 10.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
@@ -271,9 +271,9 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
-        scalar_velocity_command = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "scalar_velocity_command"}
-        )
+        # scalar_velocity_command = ObsTerm(
+        #     func=mdp.generated_commands, params={"command_name": "scalar_velocity_command"}
+        # )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
