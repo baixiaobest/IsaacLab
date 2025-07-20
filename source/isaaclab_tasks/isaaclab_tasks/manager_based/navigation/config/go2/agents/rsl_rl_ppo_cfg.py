@@ -121,28 +121,28 @@ END2END CONFIGURATION
 """
 
 e2e_cnn_config = [
-    # 1) Unglue the flat vector into a 1×16x26 “image”
+    # 1) Unglue the flat vector into a 1×21x21 “image”
     { 'type':   'reshape',
       'input_size': 441,
       'shape': [1, 21, 21]
     },
 
-    # 2) convolution, -> 16x16x16
+    # 2) convolution, -> 16x21x21
     { 'type':        'conv',
-      'out_channels': 16,
+      'out_channels': 8,
       'kernel_size':   3,
       'dilation':      1,
       'stride':        1,
       'padding':       1
     },
 
-    # 3) 2×2 max‑pool to half H×W → 16x8x8
+    # 3) 2×2 max‑pool to half H×W → 8x10x10
     { 'type':       'pool',
       'kernel_size': 2,
       'stride':      2
     },
 
-    # 4) Convolution -> 16x8x8
+    # 4) Convolution -> 16x10x10
     { 'type':        'conv',
       'out_channels': 16,
       'kernel_size':   3,
@@ -150,7 +150,21 @@ e2e_cnn_config = [
       'stride':        1,
       'padding':       1
     },
-    # 5) 2×2 adaptive average‑pool,  16x2x2
+    # 5) 2×2 max‑pool to half H×W → 16x5x5
+    { 'type':       'pool',
+      'kernel_size': 2,
+      'stride':      2
+    },
+
+    # 6) Convolution -> 32x5x5
+    { 'type':        'conv',
+      'out_channels': 32,
+      'kernel_size':   3,
+      'dilation':      1,
+      'stride':        1,
+      'padding':       1
+    },
+    # 7) 2×2 adaptive average‑pool,  32x2x2
     { 'type':       'adaptive_pool',
       'output_size': (2, 2)  # Directly specify the output dimensions
     }
@@ -185,8 +199,8 @@ class UnitreeGo2NavigationEnd2EndEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         encoder_type="cnn",
         encoder_obs_normalize=False,
         share_encoder_with_critic=True,
-        actor_hidden_dims=[128, 128, 128, 64],
-        critic_hidden_dims=[128, 128, 128, 64],
+        actor_hidden_dims=[128, 128, 128, 64, 64],
+        critic_hidden_dims=[128, 128, 128, 64, 64],
         activation="elu",
         tanh_output=True,
     )
