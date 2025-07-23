@@ -102,7 +102,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "mass_distribution_params": (-1.0, 3.0),
+            "mass_distribution_params": (-1.0, 5.0),
             "operation": "add",
         },
     )
@@ -122,8 +122,8 @@ class EventCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "force_range": (0.0, 0.0),
-            "torque_range": (-0.0, 0.0),
+            "force_range": (-10.0, 10.0),
+            "torque_range": (-10.0, 10.0),
         },
     )
 
@@ -150,6 +150,27 @@ class EventCfg:
             "position_range": (1.0, 1.0),
             "velocity_range": (0.0, 0.0),
         },
+    )
+
+    joint_torque_offset_curriculum = EventTerm(
+        func=mdp.apply_external_joint_torque_curriculum,
+        mode="reset",
+        params={
+            "base_torque_range": (-0.0, 0.0),
+            "max_torque_range": (-50.0, 50.0),
+            "max_terrain_level": NAVIGATION_TERRAINS_CFG.num_rows,
+            "joint_names": [".*"],
+        })
+    
+    randomize_actuator_gains = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="reset",
+        params={
+            'asset_cfg': SceneEntityCfg("robot"),
+            'stiffness_distribution_params': (20.0, 30.0),
+            'damping_distribution_params': (0.5, 3.0),
+            'operation': 'abs'
+        }
     )
 
 @configclass
@@ -276,7 +297,7 @@ class ObservationsCfg:
         # )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
-        actions = ObsTerm(func=mdp.last_action)
+        # actions = ObsTerm(func=mdp.last_action)
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
