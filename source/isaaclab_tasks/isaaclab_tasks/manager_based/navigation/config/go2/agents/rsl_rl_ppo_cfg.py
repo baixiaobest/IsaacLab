@@ -213,6 +213,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
+    save_jit = True
     experiment_name = "unitree_go2_navigation_end2end_v0"
     empirical_normalization = False
     policy = RslRlPpoEncoderActorCriticCfg(

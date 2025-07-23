@@ -4,3 +4,6 @@
 [submodule "logs"]
 	path = logs
 	url = https://github.com/baixiaobest/isaaclab_models.git
+[submodule "source/unitree_mujoco"]
+	path = source/unitree_mujoco
+	url = git@github.com:baixiaobest/unitree_mujoco.git
