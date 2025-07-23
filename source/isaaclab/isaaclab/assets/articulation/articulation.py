@@ -951,6 +951,29 @@ class Articulation(AssetBase):
         # set targets
         self._data.joint_effort_target[env_ids, joint_ids] = target
 
+    def set_joint_effort_offset(
+        self, offset: torch.Tensor, joint_ids: Sequence[int] | slice | None = None, env_ids: Sequence[int] | None = None
+    ):
+        """Set constant joint effort offsets into internal buffers.
+        
+        These offsets will be added to computed joint efforts before being applied to the simulation.
+        
+        Args:
+            offset: Joint effort offsets. Shape is (len(env_ids), len(joint_ids)).
+            joint_ids: The joint indices to set the offsets for. Defaults to None (all joints).
+            env_ids: The environment indices to set the offsets for. Defaults to None (all environments).
+        """
+        # resolve indices
+        if env_ids is None:
+            env_ids = slice(None)
+        if joint_ids is None:
+            joint_ids = slice(None)
+        # broadcast env_ids if needed to allow double indexing
+        if env_ids != slice(None) and joint_ids != slice(None):
+            env_ids = env_ids[:, None]
+        # set offsets
+        self._data.joint_effort_offset[env_ids, joint_ids] = offset
+
     """
     Operations - Tendons.
     """
@@ -1262,6 +1285,7 @@ class Articulation(AssetBase):
         # -- computed joint efforts from the actuator models
         self._data.computed_torque = torch.zeros_like(self._data.joint_pos_target)
         self._data.applied_torque = torch.zeros_like(self._data.joint_pos_target)
+        self._data.joint_effort_offset = torch.zeros_like(self._data.joint_pos_target)
 
         # -- other data that are filled based on explicit actuator models
         self._data.soft_joint_vel_limits = torch.zeros(self.num_instances, self.num_joints, device=self.device)
@@ -1472,7 +1496,8 @@ class Articulation(AssetBase):
             # update state of the actuator model
             # -- torques
             self._data.computed_torque[:, actuator.joint_indices] = actuator.computed_effort
-            self._data.applied_torque[:, actuator.joint_indices] = actuator.applied_effort
+            applied_effort_with_offset = actuator.applied_effort + self._data.joint_effort_offset[:, actuator.joint_indices]
+            self._data.applied_torque[:, actuator.joint_indices] = applied_effort_with_offset
             # -- actuator data
             self._data.soft_joint_vel_limits[:, actuator.joint_indices] = actuator.velocity_limit
             # TODO: find a cleaner way to handle gear ratio. Only needed for variable gear ratio actuators.

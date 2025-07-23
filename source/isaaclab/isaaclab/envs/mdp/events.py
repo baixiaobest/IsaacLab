@@ -30,9 +30,10 @@ from isaaclab.actuators import ImplicitActuator
 from isaaclab.assets import Articulation, DeformableObject, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
+from collections.abc import Sequence
 
 if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedEnv
+    from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
 
 
 def randomize_rigid_body_scale(
@@ -840,7 +841,98 @@ def apply_external_force_torque(
     # note: these are only applied when you call: `asset.write_data_to_sim()`
     asset.set_external_force_and_torque(forces, torques, env_ids=env_ids, body_ids=asset_cfg.body_ids)
 
+def apply_external_joint_torque(
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor,
+        torque_range: tuple[float, float],
+        joint_names: list[str] | None = None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+):
+    """Randomize the external joint torques applied to the joints."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    # resolve environment ids
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+    
+    # resolve joint indices
+    if joint_names is None:
+        joint_ids = slice(None)  # Select all joints
+    else:
+        joint_ids, _ = asset.find_joints("|".join(joint_names))
+        if len(joint_ids) == 0:
+            print(f"Warning: No joints found matching patterns: {joint_names}")
+            return
+    
+    # sample random torques
+    num_joints = len(joint_ids) if not isinstance(joint_ids, slice) else asset.num_joints
+    torques = math_utils.sample_uniform(*torque_range, (len(env_ids), num_joints), device=asset.device)
+    
+    # set the torque offset to the joints
+    asset.set_joint_effort_offset(torques, joint_ids=joint_ids, env_ids=env_ids)
 
+def apply_external_joint_torque_curriculum(
+    env: ManagerBasedRLEnv, 
+    env_ids: Sequence[int], 
+    base_torque_range: tuple[float, float] = (0.0, 0.0),
+    max_torque_range: tuple[float, float] = (-1.0, 1.0),
+    max_terrain_level: int = 10,
+    joint_names: list[str] | None = None,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Curriculum that gradually increases the range of external joint torques based on the terrain level.
+    
+    As the terrain level increases, the range of random torques applied to the joints also increases
+    proportionally, simulating more challenging conditions for the robot.
+    
+    Args:
+        env: The environment to apply the curriculum to
+        env_ids: The environment IDs to apply the curriculum to
+        base_torque_range: Initial torque range (min, max) at terrain level 0
+        max_torque_range: Maximum torque range (min, max) at max_terrain_level
+        max_terrain_level: The terrain level at which max_torque_range is applied
+        joint_names: List of joint names to apply torques to (None for all joints)
+        asset_cfg: Configuration for accessing the robot asset
+        
+    Returns:
+        The mean terrain level for the given environment IDs
+    """
+    # Extract the used quantities
+    asset: Articulation = env.scene[asset_cfg.name]
+    terrain: TerrainImporter = env.scene.terrain
+    
+    # Get current terrain levels for the specified environments
+    terrain_levels = terrain.terrain_levels.float()
+    mean_terrain_level = torch.mean(terrain_levels)
+    
+    # Scale the torque range based on terrain level (clamp to max_terrain_level)
+    terrain_scale = torch.clamp(mean_terrain_level / max_terrain_level, 0.0, 1.0).item()
+    
+    # Interpolate between base and max torque ranges
+    min_torque = base_torque_range[0] + terrain_scale * (max_torque_range[0] - base_torque_range[0])
+    max_torque = base_torque_range[1] + terrain_scale * (max_torque_range[1] - base_torque_range[1])
+    current_torque_range = (min_torque, max_torque)
+    
+    # Resolve environment IDs if None
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+    
+    # Resolve joint indices
+    if joint_names is None:
+        joint_ids = slice(None)  # Select all joints
+    else:
+        joint_ids, _ = asset.find_joints("|".join(joint_names))
+        if len(joint_ids) == 0:
+            print(f"Warning: No joints found matching patterns: {joint_names}")
+            return mean_terrain_level
+    
+    # Sample random torques within the current range
+    num_joints = len(joint_ids) if not isinstance(joint_ids, slice) else asset.num_joints
+    torques = math_utils.sample_uniform(*current_torque_range, (len(env_ids), num_joints), device=asset.device)
+    
+    # Set the torque offset to the joints
+    asset.set_joint_effort_offset(torques, joint_ids=joint_ids, env_ids=env_ids)
+
+    
 def push_by_setting_velocity(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
