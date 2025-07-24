@@ -204,9 +204,7 @@ class CommandsCfg:
     pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
         asset_name="robot",
         simple_heading=False,
-        ranges=mdp.UniformPose2dCommandCfg.Ranges(
-            pos_x=(-10.0, 10.0),
-            pos_y=(-10.0, 10.0),
+        ranges=mdp.TerrainBasedPose2dCommandCfg.Ranges(
             heading=(-math.pi, math.pi)
         ),
         resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),

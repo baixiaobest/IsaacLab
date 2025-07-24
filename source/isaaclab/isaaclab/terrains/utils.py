@@ -141,6 +141,7 @@ def find_flat_patches(
     y_range: tuple[float, float],
     z_range: tuple[float, float],
     max_height_diff: float,
+    min_distance: float = 0.0
 ) -> torch.Tensor:
     """Finds flat patches of given radius in the input mesh.
 
@@ -154,7 +155,8 @@ def find_flat_patches(
     1. Sample patch locations in the 2D region around the origin.
     2. Define a ring of points around each patch location to query the height of the points using ray-casting.
     3. Reject patches that are outside the z range or have a height difference that is too large.
-    4. Keep sampling until all patches are valid.
+    4. Reject patches that are closer than min_distance from the origin.
+    5. Keep sampling until all patches are valid.
 
     Args:
         wp_mesh: The warp mesh to find patches in.
@@ -168,6 +170,8 @@ def find_flat_patches(
         max_height_diff: The maximum allowable distance between the lowest and highest points
             on a patch to consider it as valid. If the difference is greater than this value,
             the patch is rejected.
+        min_distance: The minimum distance between the sampled patch and origin. Patches closer than
+            this value will be rejected. Defaults to 0.0 (no minimum distance).
 
     Returns:
         A tensor of shape (num_patches, 3) containing the flat patches. The patches are defined in the mesh frame.
@@ -227,13 +231,20 @@ def find_flat_patches(
 
     # sample points and raycast to find the height.
     # 1. Reject points that are outside the z_range or have a height difference that is too large.
-    # 2. Keep sampling until all points are valid.
+    # 2. Reject points that are closer than min_distance to the origin.
+    # 3. Keep sampling until all points are valid.
     iter_count = 0
     while len(points_ids) > 0 and iter_count < 10000:
         # sample points in the 2D region around the origin
         pos_x = torch.empty(len(points_ids), device=device).uniform_(*x_range)
         pos_y = torch.empty(len(points_ids), device=device).uniform_(*y_range)
         flat_patches[points_ids, :2] = torch.stack([pos_x, pos_y], dim=-1)
+        
+        # Calculate distance from each sampled point to the origin (in 2D - x,y plane)
+        distances = torch.sqrt((pos_x - origin[0])**2 + (pos_y - origin[1])**2)
+        
+        # Check if patches are too close to origin
+        too_close = distances < min_distance
 
         # define the query points to check validity of the patch
         # dim: (num_patches, num_radii * 10, 3)
@@ -256,6 +267,8 @@ def find_flat_patches(
         not_valid = torch.any(torch.logical_or(heights < z_range[0], heights > z_range[1]), dim=1)
         # -- height difference is within the max height difference
         not_valid = torch.logical_or(not_valid, (heights.max(dim=1)[0] - heights.min(dim=1)[0]) > max_height_diff)
+        # -- distance is at least min_distance from origin
+        not_valid = torch.logical_or(not_valid, too_close)
 
         # remove invalid patches indices
         points_ids = points_ids[not_valid]
@@ -269,6 +282,7 @@ def find_flat_patches(
             f"\n\tMaximum number of iterations reached: {iter_count}"
             f"\n\tNumber of invalid patches: {len(points_ids)}"
             f"\n\tMaximum height difference: {max_height_diff}"
+            f"\n\tMinimum distance from origin: {min_distance}"
         )
 
     # return the flat patches (in the mesh frame)

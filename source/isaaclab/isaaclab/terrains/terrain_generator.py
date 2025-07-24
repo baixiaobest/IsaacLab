@@ -331,6 +331,7 @@ class TerrainGenerator:
                     y_range=patch_cfg.y_range,
                     z_range=patch_cfg.z_range,
                     max_height_diff=patch_cfg.max_height_diff,
+                    min_distance=patch_cfg.min_distance,
                 )
 
         # transform the mesh to the correct position

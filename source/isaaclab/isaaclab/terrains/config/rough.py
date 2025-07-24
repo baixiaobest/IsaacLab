@@ -16,7 +16,8 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     patch_radius=0.1,
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
-    max_height_diff=0.1
+    max_height_diff=0.1,
+    min_distance=2.0
 )
 
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(

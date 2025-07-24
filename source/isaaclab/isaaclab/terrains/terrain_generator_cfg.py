@@ -61,6 +61,9 @@ class FlatPatchSamplingCfg:
     max_height_diff: float = MISSING
     """Maximum allowed height difference between the highest and lowest points on the patch."""
 
+    min_distance: float = 0.0
+    """Minimum distance from the origin of the terrain to sample patches. Defaults to 0.0."""
+
 
 @configclass
 class SubTerrainBaseCfg:
