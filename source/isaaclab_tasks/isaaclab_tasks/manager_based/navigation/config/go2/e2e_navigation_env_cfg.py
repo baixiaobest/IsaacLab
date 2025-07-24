@@ -199,6 +199,8 @@ class CurriculumCfg:
     random_rough_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "random_rough"})
     box_terrain_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "boxes"})
 
+    discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
+
 @configclass
 class CommandsCfg:
     pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
