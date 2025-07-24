@@ -288,6 +288,107 @@ def discrete_obstacles_terrain(difficulty: float, cfg: hf_terrains_cfg.HfDiscret
     # round off the heights to the nearest vertical step
     return np.rint(hf_raw).astype(np.int16)
 
+@height_field_to_mesh
+def discrete_positive_obstacles_terrain(difficulty: float, cfg: hf_terrains_cfg.HfDiscretePositiveObstaclesTerrainCfg) -> np.ndarray:
+    """Generate a terrain with randomly generated non-overlapping obstacles of two height categories.
+
+    The terrain is a flat platform at the center with two types of obstacles randomly placed around it:
+    - Low obstacles: with heights ranging from 1 to low_obstacle_max_height
+    - High obstacles: with heights ranging from high_obstacle_height_range[0] to high_obstacle_height_range[1]
+
+    The number of obstacles scales with difficulty level from min to max.
+
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        The height field of the terrain as a 2D numpy array with discretized heights.
+        The shape of the array is (width, length), where width and length are the number of points
+        along the x and y axis, respectively.
+    """
+    # Calculate number of obstacles based on difficulty
+    num_low_obstacles = int(cfg.min_num_low_obstacles + difficulty * 
+                          (cfg.max_num_low_obstacles - cfg.min_num_low_obstacles))
+    num_high_obstacles = int(cfg.min_num_high_obstacles + difficulty * 
+                           (cfg.max_num_high_obstacles - cfg.min_num_high_obstacles))
+    
+    # Get heights in discrete units
+    low_max_height = int(cfg.low_obstacle_max_height / cfg.vertical_scale)
+    high_min_height = int(cfg.high_obstacle_height_range[0] / cfg.vertical_scale)
+    high_max_height = int(cfg.high_obstacle_height_range[1] / cfg.vertical_scale)
+    
+    # Switch parameters to discrete units
+    width_pixels = int(cfg.size[0] / cfg.horizontal_scale)
+    length_pixels = int(cfg.size[1] / cfg.horizontal_scale)
+    obs_width_min = int(cfg.obstacle_width_range[0] / cfg.horizontal_scale)
+    obs_width_max = int(cfg.obstacle_width_range[1] / cfg.horizontal_scale)
+    platform_width = int(cfg.platform_width / cfg.horizontal_scale)
+    
+    # Create discrete ranges for the obstacles
+    obs_width_range = np.arange(obs_width_min, obs_width_max, 4)
+    obs_length_range = np.arange(obs_width_min, obs_width_max, 4)
+    obs_x_range = np.arange(0, width_pixels, 4)
+    obs_y_range = np.arange(0, length_pixels, 4)
+    
+    # Create a terrain with flat surface
+    hf_raw = np.zeros((width_pixels, length_pixels))
+    
+    # Create an occupancy grid to track placed obstacles
+    occupancy = np.zeros((width_pixels, length_pixels), dtype=bool)
+    
+    # Mark the center platform area as occupied
+    x1 = (width_pixels - platform_width) // 2
+    x2 = (width_pixels + platform_width) // 2
+    y1 = (length_pixels - platform_width) // 2
+    y2 = (length_pixels + platform_width) // 2
+    occupancy[x1:x2, y1:y2] = True
+    
+    # Function to place obstacles of a specific height range
+    def place_obstacles(num_obstacles, min_height, max_height):
+        obstacles_placed = 0
+        max_attempts = 100 * num_obstacles  # Limit attempts to avoid infinite loops
+        attempts = 0
+        
+        while obstacles_placed < num_obstacles and attempts < max_attempts:
+            # Sample size
+            width = int(np.random.choice(obs_width_range))
+            length = int(np.random.choice(obs_length_range))
+            height = np.random.randint(min_height, max_height + 1)
+            
+            # Sample position
+            x_start = int(np.random.choice(obs_x_range))
+            y_start = int(np.random.choice(obs_y_range))
+            
+            # Check boundaries
+            if x_start + width > width_pixels:
+                x_start = width_pixels - width
+            if y_start + length > length_pixels:
+                y_start = length_pixels - length
+                
+            # Check if area is available (not occupied)
+            if not np.any(occupancy[x_start:x_start+width, y_start:y_start+length]):
+                # Place obstacle
+                hf_raw[x_start:x_start+width, y_start:y_start+length] = height
+                # Mark area as occupied
+                occupancy[x_start:x_start+width, y_start:y_start+length] = True
+                obstacles_placed += 1
+            
+            attempts += 1
+            
+        return obstacles_placed
+    
+    # First place high obstacles (they have priority)
+    high_placed = place_obstacles(num_high_obstacles, high_min_height, high_max_height)
+    
+    # Then place low obstacles
+    low_placed = place_obstacles(num_low_obstacles, 1, low_max_height)
+    
+    # Ensure the center platform is flat
+    hf_raw[x1:x2, y1:y2] = 0
+    
+    # Round off the heights to the nearest vertical step
+    return np.rint(hf_raw).astype(np.int16)
 
 @height_field_to_mesh
 def wave_terrain(difficulty: float, cfg: hf_terrains_cfg.HfWaveTerrainCfg) -> np.ndarray:

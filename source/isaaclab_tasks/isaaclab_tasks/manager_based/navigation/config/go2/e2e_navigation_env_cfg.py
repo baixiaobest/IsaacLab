@@ -399,9 +399,6 @@ class NavigationEnd2EndNoEncoderEnvCfg(NavigationEnd2EndEnvCfg):
         self.scene.height_scanner = None
         self.observations.policy.height_scan = None
 
-        self.scene.terrain.terrain_generator = ROUGH_TERRAINS_CFG
-
-
 @configclass
 class NavigationEnd2EndEnvCfg_PLAY(NavigationEnd2EndEnvCfg):
     def __post_init__(self):
