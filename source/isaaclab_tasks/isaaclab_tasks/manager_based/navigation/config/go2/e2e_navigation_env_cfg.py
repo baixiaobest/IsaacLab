@@ -158,7 +158,7 @@ class EventCfg:
         params={
             "base_torque_range": (-0.0, 0.0),
             "max_torque_range": (-5.0, 5.0),
-            "start_torque_level": int(NAVIGATION_TERRAINS_CFG.num_rows/2),
+            "start_terrain_level": int(NAVIGATION_TERRAINS_CFG.num_rows/2),
             "max_terrain_level": NAVIGATION_TERRAINS_CFG.num_rows,
             "joint_names": [".*"],
         })
