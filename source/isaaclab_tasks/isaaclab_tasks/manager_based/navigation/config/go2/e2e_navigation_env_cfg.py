@@ -259,6 +259,15 @@ class RewardsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
                 "threshold": 0.2},
     )
+
+    mild_contact = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-0.5,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower"]),
+            "threshold": 0.1,
+        })
+    
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     # Avoid jerky action
@@ -274,6 +283,16 @@ class RewardsCfg:
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
         }
     )
+    # Better pose at goal
+    goal_joint_deviation_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.05,
+        params={
+            'func': mdp.joint_deviation_l1,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+        })
 
 @configclass
 class ObservationsCfg:
