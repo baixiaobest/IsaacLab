@@ -875,6 +875,7 @@ def apply_external_joint_torque_curriculum(
     env_ids: Sequence[int], 
     base_torque_range: tuple[float, float] = (0.0, 0.0),
     max_torque_range: tuple[float, float] = (-1.0, 1.0),
+    start_terrain_level: int = 0,
     max_terrain_level: int = 10,
     joint_names: list[str] | None = None,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
@@ -900,18 +901,6 @@ def apply_external_joint_torque_curriculum(
     asset: Articulation = env.scene[asset_cfg.name]
     terrain: TerrainImporter = env.scene.terrain
     
-    # Get current terrain levels for the specified environments
-    terrain_levels = terrain.terrain_levels.float()
-    mean_terrain_level = torch.mean(terrain_levels)
-    
-    # Scale the torque range based on terrain level (clamp to max_terrain_level)
-    terrain_scale = torch.clamp(mean_terrain_level / max_terrain_level, 0.0, 1.0).item()
-    
-    # Interpolate between base and max torque ranges
-    min_torque = base_torque_range[0] + terrain_scale * (max_torque_range[0] - base_torque_range[0])
-    max_torque = base_torque_range[1] + terrain_scale * (max_torque_range[1] - base_torque_range[1])
-    current_torque_range = (min_torque, max_torque)
-    
     # Resolve environment IDs if None
     if env_ids is None:
         env_ids = torch.arange(env.scene.num_envs, device=asset.device)
@@ -923,12 +912,28 @@ def apply_external_joint_torque_curriculum(
         joint_ids, _ = asset.find_joints("|".join(joint_names))
         if len(joint_ids) == 0:
             print(f"Warning: No joints found matching patterns: {joint_names}")
-            return mean_terrain_level
+            return torch.zeros(1, device=asset.device)
+
+    # Get current terrain levels for the specified environments
+    terrain_levels = terrain.terrain_levels[env_ids]
     
-    # Sample random torques within the current range
+    # Scale the torque range based on terrain level (clamp to max_terrain_level)
+    terrain_scale = torch.clamp((terrain_levels - start_terrain_level) / (max_terrain_level - start_terrain_level), 0.0, 1.0)
+    
+    # Interpolate between base and max torque ranges for each environment
+    min_torque = base_torque_range[0] + terrain_scale * (max_torque_range[0] - base_torque_range[0])
+    max_torque = base_torque_range[1] + terrain_scale * (max_torque_range[1] - base_torque_range[1])
+    # Stack min and max into a (num_envs, 2) tensor
+    current_torque_range = torch.stack([min_torque, max_torque], dim=1)  # shape: (num_envs, 2)
+
+    # Sample random torques for each environment from its own range
     num_joints = len(joint_ids) if not isinstance(joint_ids, slice) else asset.num_joints
-    torques = math_utils.sample_uniform(*current_torque_range, (len(env_ids), num_joints), device=asset.device)
-    
+    torques = torch.empty((len(env_ids), num_joints), device=asset.device)
+    for i in range(len(env_ids)):
+        torques[i] = math_utils.sample_uniform(
+            current_torque_range[i, 0], current_torque_range[i, 1], (num_joints,), device=asset.device
+        )
+
     # Set the torque offset to the joints
     asset.set_joint_effort_offset(torques, joint_ids=joint_ids, env_ids=env_ids)
 
