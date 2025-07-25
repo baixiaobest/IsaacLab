@@ -377,6 +377,18 @@ class TerminationsCfg:
                 "threshold": 1.0},
     )
 
+    base_contact_discrete_obstacles = DoneTerm(
+        func=nav_mdp.terrain_specific_reward_callback,
+        params={
+            "terrain_names": ["discrete_obstacles"],
+            "func": mdp.illegal_contact,
+            "callback_params": {
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
+                "threshold": 0.2
+            }
+        }
+    )
+
     base_vel_out_of_limit = DoneTerm(
         func=mdp.root_velocity_out_of_limit,
         params={
