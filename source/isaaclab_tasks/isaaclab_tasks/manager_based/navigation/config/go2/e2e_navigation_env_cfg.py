@@ -43,7 +43,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=NAVIGATION_TERRAINS_SIMPLIFIED_CFG,
+            terrain_generator=ROUGH_TERRAINS_CFG,
             max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -225,19 +225,32 @@ class CommandsCfg:
 class RewardsCfg:
     # Task reward
     goal_reached = RewTerm(
-        func=nav_mdp.terrain_adaptive_pose_2d_command_goal_reached_reward,
+        func=nav_mdp.pose_2d_command_goal_reached_reward,
         weight=1.0,
         params={
             'command_name': 'pose_2d_command',
-            'max_distance_threshold': 0.8,
-            'min_distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'max_angular_threshold': 0.5,
-            'min_angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
             'distance_reward_multiplier': 1.3,
             'angular_reward_multiplier': 1.3,
             'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
         }
     )
+
+    # goal_reached = RewTerm(
+    #     func=nav_mdp.terrain_adaptive_pose_2d_command_goal_reached_reward,
+    #     weight=1.0,
+    #     params={
+    #         'command_name': 'pose_2d_command',
+    #         'max_distance_threshold': 0.8,
+    #         'min_distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'max_angular_threshold': 0.5,
+    #         'min_angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         'distance_reward_multiplier': 1.3,
+    #         'angular_reward_multiplier': 1.3,
+    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+    #     }
+    # )
 
     # Guide the task reward due to sparsity of task reward
     progress_reward = RewTerm(
@@ -409,7 +422,6 @@ class NavigationEnd2EndEnvCfg_PLAY(NavigationEnd2EndEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        self.scene.terrain.terrain_generator = NAVIGATION_TERRAINS_SIMPLIFIED_CFG
 
 @configclass
 class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
