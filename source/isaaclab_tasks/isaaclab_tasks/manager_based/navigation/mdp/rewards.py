@@ -90,6 +90,50 @@ def pose_2d_command_goal_reached_reward(
 
     return goal_reached * reward_active * distance_multiplier * angular_multiplier
 
+def terrain_adaptive_pose_2d_command_goal_reached_reward(
+        env: ManagerBasedRLEnv, 
+        command_name: str,
+        max_distance_threshold: float = 1.0,
+        min_distance_threshold: float = 0.2,
+        max_angular_threshold: float = 0.5, 
+        min_angular_threshold: float = 0.1,
+        distance_reward_multiplier: float = 1.5,
+        angular_reward_multiplier: float = 1.2,
+        active_after_time: float = 0.0) -> torch.Tensor:
+    """ When pose 2d command is within threshold, goal is considered reached. 
+    Thresholds decrease as terrain difficulty increases.
+    """
+    # Get terrain difficulty level (normalized between 0 and 1)
+    terrain = env.scene.terrain
+    terrain_difficulty = terrain.terrain_levels.float() / terrain.max_terrain_level  # Use terrain levels directly
+    
+    # Calculate adaptive thresholds based on terrain difficulty
+    distance_threshold = max_distance_threshold - terrain_difficulty * (max_distance_threshold - min_distance_threshold)
+    angular_threshold = max_angular_threshold - terrain_difficulty * (max_angular_threshold - min_angular_threshold)
+    
+    # Get command and calculate distances
+    command = env.command_manager.get_command(command_name)
+    robot_to_goal_distance = torch.norm(command[:, :3], dim=1)
+    within_distance = robot_to_goal_distance <= distance_threshold
+    within_angular_distance = torch.abs(command[:, 3]) <= angular_threshold
+
+    goal_reached = torch.logical_and(within_distance, within_angular_distance)
+
+    # Calculate reward multipliers
+    distance_multiplier = torch.ones_like(robot_to_goal_distance)
+    distance_multiplier[goal_reached] = distance_reward_multiplier - (distance_reward_multiplier - 1.0) * (
+        robot_to_goal_distance[goal_reached] / distance_threshold[goal_reached]
+    )
+
+    angular_multiplier = torch.ones_like(distance_multiplier)
+    angular_multiplier[goal_reached] = angular_reward_multiplier - (angular_reward_multiplier - 1.0) * (
+        torch.abs(command[goal_reached, 3]) / angular_threshold[goal_reached]
+    )
+
+    reward_active = (env.episode_length_buf * env.step_dt) >= active_after_time
+
+    return goal_reached * reward_active * distance_multiplier * angular_multiplier
+
 class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)

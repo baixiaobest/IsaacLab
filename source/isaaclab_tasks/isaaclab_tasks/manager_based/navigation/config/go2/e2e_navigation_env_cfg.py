@@ -30,6 +30,7 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 EPISDOE_LENGTH = 10.0
+GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
@@ -102,7 +103,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "mass_distribution_params": (-1.0, 5.0),
+            "mass_distribution_params": (-1.0, 3.0),
             "operation": "add",
         },
     )
@@ -224,15 +225,17 @@ class CommandsCfg:
 class RewardsCfg:
     # Task reward
     goal_reached = RewTerm(
-        func=nav_mdp.pose_2d_command_goal_reached_reward,
+        func=nav_mdp.terrain_adaptive_pose_2d_command_goal_reached_reward,
         weight=1.0,
         params={
             'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'max_distance_threshold': 0.8,
+            'min_distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'max_angular_threshold': 0.5,
+            'min_angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
             'distance_reward_multiplier': 1.3,
             'angular_reward_multiplier': 1.3,
-            'active_after_time': EPISDOE_LENGTH - 2.0, # Reward is only active at the last 2 seconds of the episode 
+            'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
         }
     )
 
