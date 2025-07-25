@@ -199,8 +199,8 @@ class UnitreeGo2NavigationEnd2EndEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         encoder_type="cnn",
         encoder_obs_normalize=False,
         share_encoder_with_critic=True,
-        actor_hidden_dims=[128, 128, 128, 64, 64],
-        critic_hidden_dims=[128, 128, 128, 64, 64],
+        actor_hidden_dims=[128, 128, 64, 64],
+        critic_hidden_dims=[128, 128, 64, 64],
         activation="elu",
         tanh_output=True,
     )

@@ -26,7 +26,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG # isort: skip
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, NAVIGATION_TERRAINS_SIMPLIFIED_CFG # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 EPISDOE_LENGTH = 10.0
@@ -42,7 +42,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=NAVIGATION_TERRAINS_CFG,
+            terrain_generator=NAVIGATION_TERRAINS_SIMPLIFIED_CFG,
             max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -152,16 +152,16 @@ class EventCfg:
         },
     )
 
-    joint_torque_offset_curriculum = EventTerm(
-        func=mdp.apply_external_joint_torque_curriculum,
-        mode="reset",
-        params={
-            "base_torque_range": (-0.0, 0.0),
-            "max_torque_range": (-5.0, 5.0),
-            "start_terrain_level": int(NAVIGATION_TERRAINS_CFG.num_rows/2),
-            "max_terrain_level": NAVIGATION_TERRAINS_CFG.num_rows,
-            "joint_names": [".*"],
-        })
+    # joint_torque_offset_curriculum = EventTerm(
+    #     func=mdp.apply_external_joint_torque_curriculum,
+    #     mode="reset",
+    #     params={
+    #         "base_torque_range": (-0.0, 0.0),
+    #         "max_torque_range": (-5.0, 5.0),
+    #         "start_terrain_level": int(NAVIGATION_TERRAINS_CFG.num_rows/2),
+    #         "max_terrain_level": NAVIGATION_TERRAINS_CFG.num_rows,
+    #         "joint_names": [".*"],
+    #     })
     
     # randomize_actuator_gains = EventTerm(
     #     func=mdp.randomize_actuator_gains,
@@ -406,6 +406,8 @@ class NavigationEnd2EndEnvCfg_PLAY(NavigationEnd2EndEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
+        self.scene.terrain.terrain_generator = NAVIGATION_TERRAINS_SIMPLIFIED_CFG
+
 @configclass
 class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):

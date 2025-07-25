@@ -201,6 +201,40 @@ NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
     },
 )
 
+NAVIGATION_TERRAINS_SIMPLIFIED_CFG = TerrainGeneratorCfg(
+    size=(10.0, 10.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=3,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
+            proportion=0.1,
+            min_num_low_obstacles=4,
+            max_num_low_obstacles=16,
+            min_num_high_obstacles=2,
+            max_num_high_obstacles=16,
+            low_obstacle_max_height=0.4,
+            high_obstacle_height_range=(1.0, 2.0),
+            obstacle_width_range=(0.5, 1.0),
+            platform_width=1.8,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}),
+
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.3), platform_width=2.0, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.1, slope_range=(0.0, 0.3), platform_width=2.0, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+    },
+)
+
 COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_height=20.0,
