@@ -56,6 +56,18 @@ def velocity_heading_error_abs(
     
     return rewards
 
+def active_after_time(
+        env: ManagerBasedRLEnv, 
+        func: callable,
+        active_after_time: float = 0.0,
+        callback_params: dict = {}) -> torch.Tensor:
+    """Reward that is active after a certain time in the episode."""
+
+    reward_active = (env.episode_length_buf * env.step_dt) >= active_after_time
+
+    return func(env, **callback_params) * reward_active 
+        
+
 class terrain_specific_callback(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)

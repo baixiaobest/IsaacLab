@@ -237,21 +237,6 @@ class RewardsCfg:
         }
     )
 
-    # goal_reached = RewTerm(
-    #     func=nav_mdp.terrain_adaptive_pose_2d_command_goal_reached_reward,
-    #     weight=1.0,
-    #     params={
-    #         'command_name': 'pose_2d_command',
-    #         'max_distance_threshold': 0.8,
-    #         'min_distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'max_angular_threshold': 0.5,
-    #         'min_angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #         'distance_reward_multiplier': 1.3,
-    #         'angular_reward_multiplier': 1.3,
-    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-    #     }
-    # )
-
     # Guide the task reward due to sparsity of task reward
     progress_reward = RewTerm(
         func=nav_mdp.pose_2d_command_progress_reward,
@@ -322,6 +307,52 @@ class RewardsCfg:
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+        })
+    
+@configclass
+class RewardsCfg2:
+    goal_tracking_coarse = RewTerm(
+        func=nav_mdp.active_after_time,
+        weight=1.0,
+        params={
+            "func": nav_mdp.position_command_error_tanh,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command",
+                "std": 2.0
+            }
+        })
+    
+    goal_tracking_fine = RewTerm(
+        func=nav_mdp.active_after_time,
+        weight=1.0,
+        params={
+            "func": nav_mdp.position_command_error_tanh,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command",
+                "std": 0.5
+            }
+        })
+    
+    # Undesired contacts for all terrain types
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-10.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
+                "threshold": 0.2},
+    )
+    # Additional undesired contacts for discrete obstacle terrain types
+    undesired_contacts_discrete_obstacles = RewTerm(
+        func=nav_mdp.terrain_specific_callback,
+        weight=-10.0,
+        params={
+            "terrain_names": ["discrete_obstacles"],
+            "func": mdp.undesired_contacts,
+            "callback_params": {
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip"]),
+                "threshold": 0.2
+            }
         })
 
 @configclass
@@ -404,7 +435,7 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
+    rewards: RewardsCfg = RewardsCfg2()
     actions: ActionsCfg = ActionsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
