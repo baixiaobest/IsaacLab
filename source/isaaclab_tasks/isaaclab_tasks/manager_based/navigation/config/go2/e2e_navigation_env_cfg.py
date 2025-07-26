@@ -279,13 +279,13 @@ class RewardsCfg:
     )
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
-        func=nav_mdp.terrain_specific_reward_callback,
+        func=nav_mdp.terrain_specific_callback,
         weight=-10.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
             "callback_params": {
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip"]),
                 "threshold": 0.2
             }
         })
@@ -378,12 +378,14 @@ class TerminationsCfg:
     )
 
     base_contact_discrete_obstacles = DoneTerm(
-        func=nav_mdp.terrain_specific_reward_callback,
+        func=nav_mdp.terrain_specific_callback,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.illegal_contact,
             "callback_params": {
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
+                "sensor_cfg": SceneEntityCfg(
+                    "contact_forces", 
+                    body_names=[".*hip", "Head_lower"]),
                 "threshold": 0.2
             }
         }

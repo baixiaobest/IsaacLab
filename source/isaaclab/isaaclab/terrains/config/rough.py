@@ -168,9 +168,9 @@ NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
         "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
             proportion=0.1,
             min_num_low_obstacles=0,
-            max_num_low_obstacles=10,
+            max_num_low_obstacles=14,
             min_num_high_obstacles=0,
-            max_num_high_obstacles=10,
+            max_num_high_obstacles=14,
             low_obstacle_max_height=0.4,
             high_obstacle_height_range=(1.0, 2.0),
             obstacle_width_range=(0.5, 1.0),

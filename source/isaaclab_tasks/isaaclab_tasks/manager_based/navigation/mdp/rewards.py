@@ -56,11 +56,12 @@ def velocity_heading_error_abs(
     
     return rewards
 
-class terrain_specific_reward_callback(ManagerTermBase):
+class terrain_specific_callback(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self.matched_env_ids = None
         self.rewards_mask = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+        self.processed_params = None
 
     def __call__(
             self,
@@ -83,7 +84,15 @@ class terrain_specific_reward_callback(ManagerTermBase):
         if self.matched_env_ids.size() == 0:
             return torch.zeros(env.num_envs, device=env.device)
 
-        rewards = func(env, **callback_params)
+        # Process callback_params to resolve SceneEntity instances
+        if self.processed_params is None:
+            self.processed_params = {}
+            for key, value in callback_params.items():
+                if isinstance(value, SceneEntityCfg):
+                    value.resolve(env.scene)
+                self.processed_params[key] = value
+
+        rewards = func(env, **self.processed_params)
 
         return rewards * self.rewards_mask
     
