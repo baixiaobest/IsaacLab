@@ -64,10 +64,10 @@ def height_field_to_mesh(func: Callable) -> Callable:
         )
         mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
         # compute origin
-        x1 = int((cfg.size[0] * 0.5 - 1) / cfg.horizontal_scale)
-        x2 = int((cfg.size[0] * 0.5 + 1) / cfg.horizontal_scale)
-        y1 = int((cfg.size[1] * 0.5 - 1) / cfg.horizontal_scale)
-        y2 = int((cfg.size[1] * 0.5 + 1) / cfg.horizontal_scale)
+        x1 = int((cfg.size[0] * 0.5 - 0.5) / cfg.horizontal_scale)
+        x2 = int((cfg.size[0] * 0.5 + 0.5) / cfg.horizontal_scale)
+        y1 = int((cfg.size[1] * 0.5 - 0.5) / cfg.horizontal_scale)
+        y2 = int((cfg.size[1] * 0.5 + 0.5) / cfg.horizontal_scale)
         origin_z = np.max(heights[x1:x2, y1:y2]) * cfg.vertical_scale
         origin = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], origin_z])
         # return mesh and origin
@@ -123,10 +123,10 @@ def height_field_to_mesh2(func: Callable) -> Callable:
         )
         mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
         # compute origin
-        x1 = int((cfg.size[0] * 0.5 - 1) / cfg.horizontal_scale)
-        x2 = int((cfg.size[0] * 0.5 + 1) / cfg.horizontal_scale)
-        y1 = int((cfg.size[1] * 0.5 - 1) / cfg.horizontal_scale)
-        y2 = int((cfg.size[1] * 0.5 + 1) / cfg.horizontal_scale)
+        x1 = int((cfg.size[0] * 0.5 - 0.5) / cfg.horizontal_scale)
+        x2 = int((cfg.size[0] * 0.5 + 0.5) / cfg.horizontal_scale)
+        y1 = int((cfg.size[1] * 0.5 - 0.5) / cfg.horizontal_scale)
+        y2 = int((cfg.size[1] * 0.5 + 0.5) / cfg.horizontal_scale)
         origin_z = np.mean(heights[x1:x2, y1:y2]) * cfg.vertical_scale
         origin = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], origin_z])
         # return mesh and origin
