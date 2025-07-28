@@ -239,11 +239,15 @@ class RewardsCfg:
 
     # Guide the task reward due to sparsity of task reward
     progress_reward = RewTerm(
-        func=nav_mdp.pose_2d_command_progress_reward,
+        func=nav_mdp.active_after_time,
         weight=0.1,
         params={
-            'command_name': 'pose_2d_command',
-            'std': 1.0 * SIM_DT
+            'func': nav_mdp.pose_2d_command_progress_reward,
+            'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+            'callback_params': {
+                'command_name': 'pose_2d_command',
+                'std': 1.0 * SIM_DT
+            }
         }
     )
 
@@ -350,7 +354,7 @@ class RewardsCfg2:
     
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-0.5,
+        weight=-0.1,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
