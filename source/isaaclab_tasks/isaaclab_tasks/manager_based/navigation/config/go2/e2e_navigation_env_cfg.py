@@ -362,7 +362,7 @@ class RewardsCfg2:
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-1.0
+        weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
                 "threshold": 0.2},
     )
