@@ -311,6 +311,19 @@ class RewardsCfg:
     
 @configclass
 class RewardsCfg2:
+    goal_reached = RewTerm(
+        func=nav_mdp.pose_2d_command_goal_reached_reward,
+        weight=1.0,
+        params={
+            'command_name': 'pose_2d_command',
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'distance_reward_multiplier': 1.3,
+            'angular_reward_multiplier': 1.3,
+            'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+        }
+    )
+
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
         weight=1.0,
