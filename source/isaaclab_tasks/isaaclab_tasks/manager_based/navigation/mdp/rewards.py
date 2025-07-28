@@ -56,6 +56,27 @@ def velocity_heading_error_abs(
     
     return rewards
 
+def position_command_error_rational(
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        std: float = 1.0) -> torch.Tensor:
+    """Reward position tracking with rational kernel."""
+    command = env.command_manager.get_command(command_name)
+    des_pos_b = command[:, :3]
+    distance = torch.norm(des_pos_b, dim=1)
+
+    return 1.0 / (1.0 + distance / std)
+
+def heading_command_error_rational(
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        std: float = 0.1) -> torch.Tensor:
+    """Penalize tracking orientation error with rational kernel."""
+    command = env.command_manager.get_command(command_name)
+    heading_b = command[:, 3]
+
+    return 1.0 / (1.0 + heading_b.abs() / std)
+
 def active_after_time(
         env: ManagerBasedRLEnv, 
         func: callable,

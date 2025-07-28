@@ -315,7 +315,7 @@ class RewardsCfg2:
         func=nav_mdp.active_after_time,
         weight=1.0,
         params={
-            "func": nav_mdp.position_command_error_tanh,
+            "func": nav_mdp.position_command_error_rational,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
@@ -327,11 +327,22 @@ class RewardsCfg2:
         func=nav_mdp.active_after_time,
         weight=1.0,
         params={
-            "func": nav_mdp.position_command_error_tanh,
+            "func": nav_mdp.position_command_error_rational,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 0.5
+            }
+        })
+    
+    goal_heading_error = RewTerm(
+        func=nav_mdp.active_after_time,
+        weight=1.0,
+        params={
+            "func": nav_mdp.heading_command_error_abs,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command"
             }
         })
     
@@ -353,6 +364,13 @@ class RewardsCfg2:
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip"]),
                 "threshold": 0.2
             }
+        })
+    mild_contact = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-0.3,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*thigh", ".*calf"]),
+            "threshold": 0.1,
         })
 
 @configclass
