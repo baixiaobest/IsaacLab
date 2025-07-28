@@ -274,25 +274,25 @@ class RewardsCfg:
             }
         })
 
-    backward_movement_penalty = RewTerm(
-        func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.05,
-        params={
-            "velocity_threshold": 0.1,
-            "heading_deadband": 0.26,  # 15 degrees
-        }
-    )
+    # backward_movement_penalty = RewTerm(
+    #     func=nav_mdp.velocity_heading_error_abs,
+    #     weight=-0.05,
+    #     params={
+    #         "velocity_threshold": 0.1,
+    #         "heading_deadband": 0.26,  # 15 degrees
+    #     }
+    # )
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-10.0,
+        weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
                 "threshold": 0.2},
     )
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-10.0,
+        weight=-1.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -304,7 +304,7 @@ class RewardsCfg:
     # Less serious contacts
     mild_contact = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-0.5,
+        weight=-0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower"]),
             "threshold": 0.1,
