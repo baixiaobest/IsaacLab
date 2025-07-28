@@ -70,6 +70,18 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
+    obstacle_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1, 
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(0.0, 360),
+            horizontal_res=360/16),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"]
+    )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
     sky_light = AssetBaseCfg(
@@ -214,12 +226,12 @@ class CommandsCfg:
         debug_vis=True
     )
     # This controls the average velocity from origin to target.
-    scalar_velocity_command = mdp.ScalarVelocityCommandCfg(
-        asset_name="robot",
-        velocity_range=(0.5, 2.0),
-        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-        debug_vis=True
-    )
+    # scalar_velocity_command = mdp.ScalarVelocityCommandCfg(
+    #     asset_name="robot",
+    #     velocity_range=(0.5, 2.0),
+    #     resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
+    #     debug_vis=True
+    # )
 
 @configclass
 class RewardsCfg:
@@ -412,6 +424,10 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
+        osbtacles_scan = ObsTerm(
+            func=mdp.lidar_scan,
+            params={"sensor_cfg": SceneEntityCfg("obstacle_scanner")},
+            noise=Unoise(n_min=-0.1, n_max=0.1))
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
