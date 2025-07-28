@@ -362,14 +362,14 @@ class RewardsCfg2:
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-10.0,
+        weight=-1.0
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
                 "threshold": 0.2},
     )
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-10.0,
+        weight=-1.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -380,7 +380,7 @@ class RewardsCfg2:
         })
     mild_contact = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-0.3,
+        weight=-0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*thigh", ".*calf"]),
             "threshold": 0.1,
