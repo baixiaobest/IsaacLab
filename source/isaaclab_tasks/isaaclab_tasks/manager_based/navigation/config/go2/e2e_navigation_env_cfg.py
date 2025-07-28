@@ -437,7 +437,8 @@ class ObservationsCfg:
         actions = ObsTerm(func=mdp.last_action)
         osbtacles_scan = ObsTerm(
             func=mdp.lidar_scan,
-            params={"sensor_cfg": SceneEntityCfg("obstacle_scanner")},
+            params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
+                    "max": 10.0},
             noise=Unoise(n_min=-0.1, n_max=0.1))
         height_scan = ObsTerm(
             func=mdp.height_scan,
