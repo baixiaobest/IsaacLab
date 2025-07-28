@@ -326,7 +326,7 @@ class RewardsCfg2:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=1.0,
+        weight=0.5,
         params={
             "func": nav_mdp.position_command_error_rational,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -338,7 +338,7 @@ class RewardsCfg2:
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=1.0,
+        weight=0.5,
         params={
             "func": nav_mdp.position_command_error_rational,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -350,7 +350,7 @@ class RewardsCfg2:
     
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=1.0,
+        weight=-0.5,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
