@@ -263,6 +263,17 @@ class RewardsCfg:
         }
     )
 
+    goal_heading_error = RewTerm(
+        func=nav_mdp.active_after_time,
+        weight=-0.1,
+        params={
+            "func": nav_mdp.heading_command_error_abs,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command"
+            }
+        })
+
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
         weight=-0.05,
@@ -486,7 +497,7 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg2()
+    rewards: RewardsCfg = RewardsCfg()
     actions: ActionsCfg = ActionsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
