@@ -26,7 +26,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG # isort: skip
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, DISCRETE_OBSTACLES_ROUGH_ONLY # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 EPISDOE_LENGTH = 10.0
@@ -43,7 +43,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=NAVIGATION_TERRAINS_CFG,
+            terrain_generator=DISCRETE_OBSTACLES_ROUGH_ONLY,
             max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -292,7 +292,7 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-1.0/SIM_DT,
+        weight=-8.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,

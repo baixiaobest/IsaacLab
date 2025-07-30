@@ -179,6 +179,35 @@ NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
     },
 )
 
+DISCRETE_OBSTACLES_ROUGH_ONLY = TerrainGeneratorCfg(
+    size=(10.0, 10.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.1, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
+            proportion=0.1,
+            min_num_low_obstacles=4,
+            max_num_low_obstacles=14,
+            min_num_high_obstacles=4,
+            max_num_high_obstacles=14,
+            low_obstacle_max_height=0.4,
+            high_obstacle_height_range=(1.0, 2.0),
+            obstacle_width_range=(0.5, 1.0),
+            platform_width=1.1,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG})
+    },
+)
+
 COST_MAP_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_height=20.0,
