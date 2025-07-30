@@ -292,12 +292,12 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-8.0,
+        weight=-20.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
             "callback_params": {
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
                 "threshold": 0.2
             }
         })
@@ -424,6 +424,9 @@ class ObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        # heading_sin_cos = ObsTerm(
+        #     func=mdp.root_yaw_sin_cos, noise=Unoise(n_min=-0.05, n_max=0.05)
+        # )
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
