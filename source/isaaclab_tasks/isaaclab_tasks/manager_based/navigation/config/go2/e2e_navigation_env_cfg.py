@@ -290,17 +290,17 @@ class RewardsCfg:
                 "threshold": 0.2},
     )
     # Additional undesired contacts for discrete obstacle terrain types
-    # undesired_contacts_discrete_obstacles = RewTerm(
-    #     func=nav_mdp.terrain_specific_callback,
-    #     weight=-8.0,
-    #     params={
-    #         "terrain_names": ["discrete_obstacles"],
-    #         "func": mdp.undesired_contacts,
-    #         "callback_params": {
-    #             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip"]),
-    #             "threshold": 0.2
-    #         }
-    #     })
+    undesired_contacts_discrete_obstacles = RewTerm(
+        func=nav_mdp.terrain_specific_callback,
+        weight=-8.0,
+        params={
+            "terrain_names": ["discrete_obstacles"],
+            "func": mdp.undesired_contacts,
+            "callback_params": {
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
+                "threshold": 0.2
+            }
+        })
     # Less serious contacts
     # mild_contact = RewTerm(
     #     func=mdp.undesired_contacts,
@@ -479,7 +479,7 @@ class TerminationsCfg:
             "callback_params": {
                 "sensor_cfg": SceneEntityCfg(
                     "contact_forces", 
-                    body_names=[".*hip", "Head_lower"]),
+                    body_names=[".*hip", "Head_lower", ".*thigh"]),
                 "threshold": 0.2
             }
         }
@@ -548,5 +548,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        # self.commands.scalar_velocity_command.velocity_range = (0.3, 1.0)
+        # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.0
+        # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope"].proportion = 0.0
+        # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope_inv"].proportion = 0.0
+        # self.scene.terrain.terrain_generator.num_cols = 1
 
