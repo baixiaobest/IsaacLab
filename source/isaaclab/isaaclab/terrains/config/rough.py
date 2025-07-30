@@ -146,7 +146,7 @@ NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=20.0,
     num_rows=10,
-    num_cols=4,
+    num_cols=2,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
@@ -157,14 +157,14 @@ NAVIGATION_TERRAINS_CFG = TerrainGeneratorCfg(
             proportion=0.1, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25,
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
-        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
-            flat_patch_sampling={"target": FLAT_PATCH_CFG}
-        ),
-        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
-            flat_patch_sampling={"target": FLAT_PATCH_CFG}
-        ),
+        # "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+        #     proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
+        #     flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        # ),
+        # "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+        #     proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,
+        #     flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        # ),
         "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
             proportion=0.1,
             min_num_low_obstacles=4,
