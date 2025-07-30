@@ -20,6 +20,16 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
+    num_patches=30,
+    patch_radius=0.1,
+    x_range=(-10, 10.0),
+    y_range=(-10.0, 10.0),
+    z_range=(-0.4, 0.4),  # Limit the height to a small range
+    max_height_diff=0.1,
+    min_distance=0.0
+)
+
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
@@ -192,19 +202,19 @@ DISCRETE_OBSTACLES_ROUGH_ONLY = TerrainGeneratorCfg(
     sub_terrains={
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
             proportion=0.1, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25,
-            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+            flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG}
         ),
         "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
             proportion=0.1,
             min_num_low_obstacles=4,
-            max_num_low_obstacles=14,
+            max_num_low_obstacles=4,
             min_num_high_obstacles=4,
             max_num_high_obstacles=14,
-            low_obstacle_max_height=0.4,
+            low_obstacle_max_height=0.3,
             high_obstacle_height_range=(1.0, 2.0),
             obstacle_width_range=(0.5, 1.0),
             platform_width=1.1,
-            flat_patch_sampling={"target": FLAT_PATCH_CFG})
+            flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG})
     },
 )
 
