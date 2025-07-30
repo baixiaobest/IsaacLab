@@ -292,12 +292,12 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-8.0,
+        weight=-1.0/SIM_DT,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
             "callback_params": {
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
                 "threshold": 0.2
             }
         })
