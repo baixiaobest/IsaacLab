@@ -265,7 +265,7 @@ class RewardsCfg:
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-0.1,
+        weight=-0.05,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -309,7 +309,7 @@ class RewardsCfg:
             "std": 1.2,
             "sensor_radius": 0.2,
         },
-        weight=-5.0
+        weight=-1.0
     )
 
     # Less serious contacts
