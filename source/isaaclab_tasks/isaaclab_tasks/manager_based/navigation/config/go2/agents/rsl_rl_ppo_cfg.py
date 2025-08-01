@@ -180,7 +180,7 @@ NavE2EPPOConfig = RslRlPpoAlgorithmCfg(
         learning_rate=1.0e-3,
         schedule="adaptive",
         gamma=0.99,
-        lam=0.99,
+        lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
@@ -224,7 +224,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
         encoder_obs_normalize=False,
         actor_hidden_dims=[128, 128, 64],
         critic_hidden_dims=[128, 128, 64],
-        activation="elu",
+        activation="tanh",
         tanh_output=True,
     )
     algorithm = NavE2EPPOConfig
