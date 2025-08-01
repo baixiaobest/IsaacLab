@@ -224,7 +224,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
         encoder_obs_normalize=False,
         actor_hidden_dims=[128, 128, 64],
         critic_hidden_dims=[128, 128, 64],
-        activation="tanh",
+        activation="elu",
         tanh_output=True,
     )
     algorithm = NavE2EPPOConfig
