@@ -292,7 +292,7 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-8.0,
+        weight=-20.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -302,15 +302,15 @@ class RewardsCfg:
             }
         })
     
-    obstacle_clearance_penalty = RewTerm(
-        func=nav_mdp.obstacle_clearance_penalty,
-        params={
-            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-            "std": 1.2,
-            "sensor_radius": 0.2,
-        },
-        weight=-0.1
-    )
+    # obstacle_clearance_penalty = RewTerm(
+    #     func=nav_mdp.obstacle_clearance_penalty,
+    #     params={
+    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+    #         "std": 1.2,
+    #         "sensor_radius": 0.2,
+    #     },
+    #     weight=-0.1
+    # )
 
     # Less serious contacts
     # mild_contact = RewTerm(
