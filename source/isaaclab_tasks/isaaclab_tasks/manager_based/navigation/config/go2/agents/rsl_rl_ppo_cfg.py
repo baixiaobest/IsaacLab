@@ -226,7 +226,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
         # critic_hidden_dims=[128, 128, 64, 64],
         # actor_hidden_dims=[128, 128, 64],
         # critic_hidden_dims=[128, 128, 64],
-        actor_hidden_dims=[128, 64],
+        actor_hidden_dims=[128, 128, 64],
         critic_hidden_dims=[128, 64],
         activation="elu",
         tanh_output=True,
