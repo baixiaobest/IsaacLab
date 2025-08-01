@@ -302,15 +302,15 @@ class RewardsCfg:
             }
         })
     
-    # obstacle_clearance_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_clearance_penalty,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-    #         "std": 1.2,
-    #         "sensor_radius": 0.2,
-    #     },
-    #     weight=-0.1
-    # )
+    obstacle_clearance_penalty = RewTerm(
+        func=nav_mdp.obstacle_clearance_penalty,
+        params={
+            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+            "std": 1.2,
+            "sensor_radius": 0.2,
+        },
+        weight=-0.1
+    )
 
     # Less serious contacts
     # mild_contact = RewTerm(
@@ -562,8 +562,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.0
+        self.scene.terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.0
         # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope"].proportion = 0.0
         # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope_inv"].proportion = 0.0
-        # self.scene.terrain.terrain_generator.num_cols = 1
+        self.scene.terrain.terrain_generator.num_cols = 1
 
