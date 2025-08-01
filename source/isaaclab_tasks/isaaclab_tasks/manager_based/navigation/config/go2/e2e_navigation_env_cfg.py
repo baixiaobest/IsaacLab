@@ -309,7 +309,7 @@ class RewardsCfg:
             "std": 1.2,
             "sensor_radius": 0.2,
         },
-        weight=-1.0
+        weight=-0.1
     )
 
     # Less serious contacts
