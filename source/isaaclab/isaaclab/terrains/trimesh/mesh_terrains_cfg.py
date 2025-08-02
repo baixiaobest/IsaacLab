@@ -11,6 +11,7 @@ import isaaclab.terrains.trimesh.utils as mesh_utils_terrains
 from isaaclab.utils import configclass
 
 from ..terrain_generator_cfg import SubTerrainBaseCfg
+from ..test_terrain_generator_cfg import SubTerrainTestCfg
 
 """
 Different trimesh terrain configurations.

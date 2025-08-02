@@ -16,6 +16,7 @@ from .terrain_importer import TerrainImporter
 if TYPE_CHECKING:
     from .terrain_generator_cfg import TerrainGeneratorCfg
     from .single_terrain_generator_cfg import SingleTerrainGeneratorCfg
+    from .test_terrain_generator_cfg import TestTerrainGeneratorCfg  # Add this import
 
 
 @configclass
@@ -44,10 +45,10 @@ class TerrainImporterCfg:
     :attr:`isaaclab.scene.InteractiveSceneCfg.num_envs` attribute.
     """
 
-    terrain_type: Literal["generator", "plane", "usd", "single_terrain_generator"] = "generator"
+    terrain_type: Literal["generator", "plane", "usd", "single_terrain_generator", "test_generator"] = "generator"
     """The type of terrain to generate. Defaults to "generator".
 
-    Available options are "plane", "usd", and "generator".
+    Available options are "plane", "usd", "generator", "single_terrain_generator", and "test_generator".
     """
 
     terrain_generator: TerrainGeneratorCfg | None = None
@@ -57,6 +58,16 @@ class TerrainImporterCfg:
     """
 
     single_terrain_generator: SingleTerrainGeneratorCfg | None = None
+    """The single terrain generator configuration.
+    
+    Only used if ``terrain_type`` is set to "single_terrain_generator".
+    """
+    
+    test_terrain_generator: TestTerrainGeneratorCfg | None = None
+    """The test terrain generator configuration.
+    
+    Only used if ``terrain_type`` is set to "test_generator".
+    """
 
     usd_path: str | None = None
     """The path to the USD file containing the terrain.
