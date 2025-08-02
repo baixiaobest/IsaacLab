@@ -27,6 +27,7 @@ from isaaclab.sim.simulation_cfg import SimulationCfg
 # Pre-defined configs
 ##
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, DISCRETE_OBSTACLES_ROUGH_ONLY # isort: skip
+from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
 EPISDOE_LENGTH = 10.0
@@ -562,8 +563,50 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        self.scene.terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.0
+        # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.0
         # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope"].proportion = 0.0
         # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope_inv"].proportion = 0.0
-        self.scene.terrain.terrain_generator.num_cols = 1
+        # self.scene.terrain.terrain_generator.num_cols = 1
+
+        self.curriculum = None
+        self.rewards = None
+        self.terminations.base_contact = DoneTerm(
+            func=mdp.illegal_contact,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", 
+                                                body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
+                    "threshold": 1.0})
+        
+        self.terminations.base_contact_discrete_obstacles = None
+
+        self.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="test_generator",
+            test_terrain_generator=TEST_TERRAIN_CFG,
+            max_init_terrain_level=10,
+            collision_group=-1,
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="multiply",
+                restitution_combine_mode="multiply",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+            visual_material=sim_utils.MdlFileCfg(
+                mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+                project_uvw=True,
+                texture_scale=(0.25, 0.25),
+            ),
+            debug_vis=False,
+        )
+
+        self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
+            asset_name="robot",
+            simple_heading=False,
+            ranges=mdp.UniformPose2dCommandCfg.Ranges(
+                heading=(-math.pi, math.pi),
+                pos_x=(-10.0, 10.0),
+                pos_y=(-10.0, 10.0)
+            ),
+            resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
+            debug_vis=True
+        )
 
