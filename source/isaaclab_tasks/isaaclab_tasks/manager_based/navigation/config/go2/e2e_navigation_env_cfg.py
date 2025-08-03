@@ -36,7 +36,7 @@ SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.2
-NUM_RAYS = 32
+NUM_RAYS = 15
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -331,13 +331,13 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-2.0,
+        weight=-10.0,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-            'SOI': 1.5 # Sphere of influence
+            'SOI': 2.0 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(
@@ -600,10 +600,6 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        # self.scene.terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.0
-        # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope"].proportion = 0.0
-        # self.scene.terrain.terrain_generator.sub_terrains["hf_pyramid_slope_inv"].proportion = 0.0
-        # self.scene.terrain.terrain_generator.num_cols = 1
 
         self.curriculum = None
         self.rewards = None
@@ -640,8 +636,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             simple_heading=False,
             ranges=mdp.UniformPose2dCommandCfg.Ranges(
                 heading=(-math.pi, math.pi),
-                pos_x=(7.0, 10.0),
-                pos_y=(7.0, 10.0)
+                pos_x=(-7.0, -5.0),
+                pos_y=(-7.0, -5.0)
             ),
             resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
             debug_vis=True
