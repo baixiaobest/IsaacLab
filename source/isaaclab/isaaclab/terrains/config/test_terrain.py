@@ -61,7 +61,7 @@ sub_terrain2 = SubTerrainTestCfg(
 TEST_TERRAIN_CFG = TestTerrainGeneratorCfg(
     size=(50.0, 50.0),
     num_rows=1,
-    num_cols=2,
-    sub_terrains=[sub_terrain1, sub_terrain2],
+    num_cols=1,
+    sub_terrains=[sub_terrain2],
     subterrain_spacing=4.0
 )

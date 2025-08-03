@@ -36,6 +36,7 @@ SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.2
+NUM_RAYS = 32
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -80,7 +81,7 @@ class MySceneCfg(InteractiveSceneCfg):
             channels=1, 
             vertical_fov_range=(0.0, 0.0),
             horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/16),
+            horizontal_res=360/NUM_RAYS-1e-3),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -92,7 +93,7 @@ class MySceneCfg(InteractiveSceneCfg):
             channels=1, 
             vertical_fov_range=(0.0, 0.0),
             horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/16),
+            horizontal_res=360/NUM_RAYS-1e-3),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
@@ -104,7 +105,7 @@ class MySceneCfg(InteractiveSceneCfg):
             channels=1, 
             vertical_fov_range=(0.0, 0.0),
             horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/16),
+            horizontal_res=360/NUM_RAYS-1e-3),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
@@ -264,7 +265,7 @@ class RewardsCfg:
     # Task reward
     goal_reached = RewTerm(
         func=nav_mdp.pose_2d_command_goal_reached_reward,
-        weight=0.3,
+        weight=0.5,
         params={
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
@@ -278,7 +279,7 @@ class RewardsCfg:
     # Guide the task reward due to sparsity of task reward
     progress_reward = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.5,
+        weight=0.3,
         params={
             'func': nav_mdp.pose_2d_command_progress_reward,
             'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
@@ -330,13 +331,13 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-0.5,
+        weight=-2.0,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-            'SOI': 1.2 # Sphere of influence
+            'SOI': 1.5 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(
@@ -639,8 +640,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             simple_heading=False,
             ranges=mdp.UniformPose2dCommandCfg.Ranges(
                 heading=(-math.pi, math.pi),
-                pos_x=(-10.0, 10.0),
-                pos_y=(-10.0, 10.0)
+                pos_x=(7.0, 10.0),
+                pos_y=(7.0, 10.0)
             ),
             resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
             debug_vis=True
