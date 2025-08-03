@@ -17,7 +17,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, RayCasterCameraCfg, patterns
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
@@ -72,6 +72,23 @@ class MySceneCfg(InteractiveSceneCfg):
         mesh_prim_paths=["/World/ground"],
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+    depth_sensor = RayCasterCameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",  # Attach to the robot's base
+            offset=RayCasterCameraCfg.OffsetCfg(
+                pos=(0.0, 0.0, 1.0),  # Position offset (x, y, z)
+                rot=(0.0, 1.0, 0.0, 0.0), # Quaternion rotation (w, x, y, z)
+                convention="ros",  # Use ROS convention for the camera frame
+            ),
+            attach_yaw_only=True,
+            data_types=["distance_to_image_plane"],  # Depth data type
+            depth_clipping_behavior="max",  # Clip values to the maximum range
+            pattern_cfg=patterns.PinholeCameraPatternCfg(
+                width=320,  # Image width
+                height=240,  # Image height
+            ),
+            debug_vis=True,  # Enable visualization for debugging
+            mesh_prim_paths=["/World/ground"],
+        )
     # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",

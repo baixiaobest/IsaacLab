@@ -38,6 +38,27 @@ from isaaclab.terrains.config.rough import DIVERSE_TERRAINS_CFG, COST_MAP_TERRAI
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 
+from isaaclab.managers.recorder_manager import RecorderManagerBaseCfg, RecorderTermCfg
+from .depth_logger import DepthLogger
+
+@configclass
+class RecordersCfg(RecorderManagerBaseCfg):
+    # change output directory and filename:
+    dataset_export_dir_path: str = "/home/azureuser/Desktop/dataset"
+    dataset_filename:       str = "depth_scandot"
+    export_in_record_pre_reset: bool = False
+
+    # register your term:
+    depth_logger: RecorderTermCfg = RecorderTermCfg(
+        class_type=DepthLogger,
+    )
+    
+    def __post_init__(self):
+        print("[INFO] Initializing RecordersCfg...")
+        print(f"[INFO] Dataset export directory: {self.dataset_export_dir_path}")
+        print(f"[INFO] Dataset filename: {self.dataset_filename}")
+        super().__post_init__()
+
 @configclass
 class RoughTeacherSceneCfg(MySceneCfg):
     # sensors
@@ -51,6 +72,42 @@ class RoughTeacherSceneCfg(MySceneCfg):
     )
     foot_contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*foot", history_length=5, track_air_time=True, debug_vis=True)
+
+class RoughTeacherDepthCamSceneCfg(MySceneCfg):
+    def __post_init__(self):
+        # First initialize parent class sensors
+        super().__post_init__()
+        # sensors
+        self.height_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",
+            offset=RayCasterCfg.OffsetCfg(pos=(0.5, 0.0, 20.0)),
+            attach_yaw_only=True,
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[2, 1.5]),
+            debug_vis=True,
+            mesh_prim_paths=["/World/ground"],
+        )
+        
+        self.foot_contact_forces = ContactSensorCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/.*foot", history_length=5, track_air_time=True, debug_vis=True)
+        
+        
+        self.depth_sensor = RayCasterCameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",  # Attach to the robot's base
+            offset=RayCasterCameraCfg.OffsetCfg(
+                pos=(0.0, 0.0, 1.0),  # Position offset (x, y, z)
+                rot=(0.0, 1.0, 0.0, 0.0), # Quaternion rotation (w, x, y, z)
+                convention="ros",  # Use ROS convention for the camera frame
+            ),
+            attach_yaw_only=True,
+            data_types=["distance_to_image_plane"],  # Depth data type
+            depth_clipping_behavior="max",  # Clip values to the maximum range
+            pattern_cfg=patterns.PinholeCameraPatternCfg(
+                width=320,  # Image width
+                height=240,  # Image height
+            ),
+            debug_vis=True,  # Enable visualization for debugging
+            mesh_prim_paths=["/World/ground"],
+        )
 
 @configclass
 class RoughDepthCameraOnlySceneCfg(MySceneCfg):
@@ -408,6 +465,16 @@ class UnitreeGo2Test_v0(UnitreeGo2RoughEnvCfg):
         self.commands.base_velocity.world_frame_command = True
 
         self.curriculum = UnitreeGo2RoughTeacherCurriculum()
+
+class UnitreeGo2CollectDepthAndScandotsCfg(UnitreeGo2RoughTeacherEnvCfg_v3):
+    """Config for collecting depth and scandots data for Unitree Go2."""
+
+    scene: RoughTeacherSceneCfg = RoughTeacherDepthCamSceneCfg(num_envs=4096, env_spacing=2.5)
+    observations: RoughTeacherObservationsCfg = RoughTeacherObservationsCfg()
+    def __post_init__(self):
+        super().__post_init__()
+        self.recorders = RecordersCfg()
+
 
 @configclass
 class UnitreeGo2RoughStudentEnvCfg_v0(UnitreeGo2RoughEnvCfg):
