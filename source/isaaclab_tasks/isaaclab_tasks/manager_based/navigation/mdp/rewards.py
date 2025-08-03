@@ -590,3 +590,49 @@ def obstacle_clearance_penalty(
     min_distances, _ = torch.min(distances, dim=1)
     # Calculate the penalty based on the distances
     return 1.0 - torch.tanh((min_distances - sensor_radius) / std)
+
+def obstacle_gradient_penalty(
+        env: ManagerBasedRLEnv,
+        sensor_center_cfg: SceneEntityCfg,
+        sensor_dx_cfg: SceneEntityCfg,
+        sensor_dy_cfg: SceneEntityCfg,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        sensor_spacing: float = 0.2,
+        SOI: float = 2.0, # Sphere of Influence
+        ) -> torch.Tensor:
+    """Penalty based on the gradient of the distance function to obstacles."""
+    sensor_center: RayCaster = env.scene.sensors[sensor_center_cfg.name]   
+    sensor_dx: RayCaster = env.scene.sensors[sensor_dx_cfg.name]
+    sensor_dy: RayCaster = env.scene.sensors[sensor_dy_cfg.name]
+
+    # Get the distances to the closest obstacles
+    distances_center = torch.norm((sensor_center.data.pos_w.unsqueeze(1) - sensor_center.data.ray_hits_w), dim=2)
+    distances_dx = torch.norm((sensor_dx.data.pos_w.unsqueeze(1) - sensor_dx.data.ray_hits_w), dim=2)
+    distances_dy = torch.norm((sensor_dy.data.pos_w.unsqueeze(1) - sensor_dy.data.ray_hits_w), dim=2)
+    # Get the distances to the closest obstacles
+    min_distances_center, _ = torch.min(distances_center, dim=1)
+    min_distances_dx, _ = torch.min(distances_dx, dim=1)
+    min_distances_dy, _ = torch.min(distances_dy, dim=1)
+    min_distances_center = torch.clamp(min_distances_center, min=0.05, max=SOI)
+    min_distances_dx = torch.clamp(min_distances_dx, min=0.05, max=SOI)
+    min_distances_dy = torch.clamp(min_distances_dy, min=0.05, max=SOI)
+
+    # Compute the potential function
+    potential_center = 1.0/min_distances_center  - 1.0/SOI
+    potential_center = torch.clamp(potential_center, min=0.0)
+    potential_dx = 1.0/min_distances_dx - 1.0/SOI
+    potential_dx = torch.clamp(potential_dx, min=0.0)
+    potential_dy = 1.0/min_distances_dy - 1.0/SOI
+    potential_dy = torch.clamp(potential_dy, min=0.0)
+
+    # Compute the gradient of the potential function
+    gradient_x = (potential_dx - potential_center) / sensor_spacing
+    gradient_y = (potential_dy - potential_center) / sensor_spacing
+    gradient = torch.cat((gradient_x.unsqueeze(1), gradient_y.unsqueeze(1)), dim=1)
+
+    # Penalty is the dot product of the gradient and the robot's velocity
+    robot: Articulation = env.scene[asset_cfg.name]
+    robot_vel = robot.data.root_lin_vel_b[:, :2]
+    penalty = torch.sum(gradient * robot_vel, dim=1)
+
+    return penalty

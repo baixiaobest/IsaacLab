@@ -35,6 +35,7 @@ GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
+OBSTACLE_SCANNER_SPACING = 0.2
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -81,6 +82,30 @@ class MySceneCfg(InteractiveSceneCfg):
             horizontal_fov_range=(0.0, 360),
             horizontal_res=360/16),
         debug_vis=True,
+        mesh_prim_paths=["/World/ground"]
+    )
+    obstacle_scanner_dx = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1, 
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(0.0, 360),
+            horizontal_res=360/16),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"]
+    )
+    obstacle_scanner_dy = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1, 
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(0.0, 360),
+            horizontal_res=360/16),
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
@@ -239,7 +264,7 @@ class RewardsCfg:
     # Task reward
     goal_reached = RewTerm(
         func=nav_mdp.pose_2d_command_goal_reached_reward,
-        weight=0.1,
+        weight=0.3,
         params={
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
@@ -253,7 +278,7 @@ class RewardsCfg:
     # Guide the task reward due to sparsity of task reward
     progress_reward = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.2,
+        weight=0.5,
         params={
             'func': nav_mdp.pose_2d_command_progress_reward,
             'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
@@ -293,7 +318,7 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-20.0,
+        weight=-8.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -301,6 +326,17 @@ class RewardsCfg:
                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
                 "threshold": 0.2
             }
+        })
+    
+    obstacle_gradient_penalty = RewTerm(
+        func=nav_mdp.obstacle_gradient_penalty,
+        weight=-0.1,
+        params={
+            'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
+            'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
+            'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
+            'sensor_spacing': OBSTACLE_SCANNER_SPACING,
+            'SOI': 2.0 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(

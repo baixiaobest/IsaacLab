@@ -37,11 +37,23 @@ sub_terrain1 = SubTerrainTestCfg(
 sub_terrain2 = SubTerrainTestCfg(
     cubes=[
         CubeCfg(
-            position=[5.0, 5.0, 0.5],
+            position=[3.0, 3.0, 0.5],
+            dimensions=[2.0, 2.0, 1.0]
+        ),
+        CubeCfg(
+            position=[3.0, -3.0, 0.5],
+            dimensions=[2.0, 2.0, 1.0]
+        ),
+        CubeCfg(
+            position=[-3.0, -3.0, 0.5],
+            dimensions=[2.0, 2.0, 1.0]
+        ),
+        CubeCfg(
+            position=[-3.0, 3.0, 0.5],
             dimensions=[2.0, 2.0, 1.0]
         )
     ],
-    start_position=[1.0, 1.0, 0.0],
+    start_position=[0.0, 0.0, 0.0],
     goal_position=[9.0, 9.0, 0.0]
 )
 
@@ -49,6 +61,7 @@ sub_terrain2 = SubTerrainTestCfg(
 TEST_TERRAIN_CFG = TestTerrainGeneratorCfg(
     size=(50.0, 50.0),
     num_rows=1,
-    num_cols=1,
-    sub_terrains=[sub_terrain1]
+    num_cols=2,
+    sub_terrains=[sub_terrain1, sub_terrain2],
+    subterrain_spacing=4.0
 )
