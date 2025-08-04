@@ -301,6 +301,16 @@ class RewardsCfg:
                 "command_name":"pose_2d_command"
             }
         })
+    
+    # Needed after adding countdown to the observation
+    stall_penalty = RewTerm(
+        func=nav_mdp.stall_penalty,
+        weight=-0.1,
+        params={
+            'command_name': 'pose_2d_command',
+            'velocity_threshold': 0.3, 
+            'distance_threshold': 0.5
+        })
 
     # backward_movement_penalty = RewTerm(
     #     func=nav_mdp.velocity_heading_error_abs,
@@ -642,8 +652,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 simple_heading=False,
                 ranges=mdp.UniformPose2dCommandCfg.Ranges(
                     heading=(-math.pi, math.pi),
-                    pos_x=(5.0, 7.0),
-                    pos_y=(5.0, 7.0)
+                    pos_x=(-7.0, -5.0),
+                    pos_y=(-7.0, -5.0)
                 ),
                 resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
                 debug_vis=True

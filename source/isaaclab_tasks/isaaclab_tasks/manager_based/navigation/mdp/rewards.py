@@ -636,3 +636,27 @@ def obstacle_gradient_penalty(
     penalty = torch.sum(gradient * robot_vel, dim=1)
 
     return penalty
+
+def stall_penalty(
+        env: ManagerBasedRLEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        command_name: str = "pose_2d_command",
+        velocity_threshold: float = 0.1,
+        distance_threshold: float = 0.5) -> torch.Tensor:
+    """Penalty for being stalled, i.e., not moving towards the goal."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_vel = asset.data.root_lin_vel_w
+
+    command = env.command_manager.get_command(command_name)
+    
+    # robot out of goal region
+    distance_to_goal = torch.norm(command[:, :3], dim=1)
+    goal_out_of_region = distance_to_goal > distance_threshold
+    
+    # robot not moving
+    robot_not_moving = torch.norm(robot_vel, dim=1) < velocity_threshold
+
+    # penalty is applied when robot is not moving and is outside the goal region
+    penalty = torch.logical_and(robot_not_moving, goal_out_of_region)
+
+    return penalty.float()
