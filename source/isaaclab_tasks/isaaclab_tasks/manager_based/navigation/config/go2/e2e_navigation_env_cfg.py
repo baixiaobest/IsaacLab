@@ -304,11 +304,11 @@ class RewardsCfg:
     
     # Needed after adding countdown to the observation
     stall_penalty = RewTerm(
-        func=nav_mdp.stall_penalty,
-        weight=-0.1,
+        func=nav_mdp.movement_reward,
+        weight=0.1,
         params={
             'command_name': 'pose_2d_command',
-            'velocity_threshold': 0.3, 
+            'velocity_threshold': 0.2, 
             'distance_threshold': 0.5
         })
 
