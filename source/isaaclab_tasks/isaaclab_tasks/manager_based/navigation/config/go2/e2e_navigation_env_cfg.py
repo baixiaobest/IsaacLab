@@ -293,13 +293,13 @@ class RewardsCfg:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.5,
+        weight=0.5*5.0, # weight * std to scale the gradient of reward.
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
-                "std": 4.0
+                "std": 5.0
             }
         })
 
