@@ -278,18 +278,30 @@ class RewardsCfg:
     )
 
     # Guide the task reward due to sparsity of task reward
-    progress_reward = RewTerm(
+    # progress_reward = RewTerm(
+    #     func=nav_mdp.active_after_time,
+    #     weight=0.3,
+    #     params={
+    #         'func': nav_mdp.pose_2d_command_progress_reward,
+    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+    #         'callback_params': {
+    #             'command_name': 'pose_2d_command',
+    #             'std': 1.0 * SIM_DT
+    #         }
+    #     }
+    # )
+
+    goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.3,
+        weight=0.5,
         params={
-            'func': nav_mdp.pose_2d_command_progress_reward,
-            'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-            'callback_params': {
-                'command_name': 'pose_2d_command',
-                'std': 1.0 * SIM_DT
+            "func": nav_mdp.position_command_error_tanh,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command",
+                "std": 4.0
             }
-        }
-    )
+        })
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
@@ -303,7 +315,7 @@ class RewardsCfg:
         })
     
     # Needed after adding countdown to the observation
-    stall_penalty = RewTerm(
+    movement_reward = RewTerm(
         func=nav_mdp.movement_reward,
         weight=0.1,
         params={
