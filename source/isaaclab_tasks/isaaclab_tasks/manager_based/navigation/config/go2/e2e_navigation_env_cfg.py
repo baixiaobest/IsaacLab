@@ -36,7 +36,8 @@ SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.2
-NUM_RAYS = 15
+NUM_RAYS = 32
+USE_TEST_ENV = False
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -331,13 +332,13 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-10.0,
+        weight=-2.0,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-            'SOI': 2.0 # Sphere of influence
+            'SOI': 1.5 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(
@@ -487,6 +488,10 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
+        count_down = ObsTerm(
+            func=mdp.count_down,
+            params={"episode_length": EPISDOE_LENGTH}
+        )
         osbtacles_scan = ObsTerm(
             func=mdp.lidar_scan,
             params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
@@ -601,45 +606,46 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
 
-        self.curriculum = None
-        self.rewards = None
-        self.terminations.base_contact = DoneTerm(
-            func=mdp.illegal_contact,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", 
-                                                body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
-                    "threshold": 1.0})
-        
-        self.terminations.base_contact_discrete_obstacles = None
+        if USE_TEST_ENV:
+            self.curriculum = None
+            self.rewards = None
+            self.terminations.base_contact = DoneTerm(
+                func=mdp.illegal_contact,
+                params={"sensor_cfg": SceneEntityCfg("contact_forces", 
+                                                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
+                        "threshold": 1.0})
+            
+            self.terminations.base_contact_discrete_obstacles = None
 
-        self.scene.terrain = TerrainImporterCfg(
-            prim_path="/World/ground",
-            terrain_type="test_generator",
-            test_terrain_generator=TEST_TERRAIN_CFG,
-            max_init_terrain_level=10,
-            collision_group=-1,
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                friction_combine_mode="multiply",
-                restitution_combine_mode="multiply",
-                static_friction=1.0,
-                dynamic_friction=1.0,
-            ),
-            visual_material=sim_utils.MdlFileCfg(
-                mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
-                project_uvw=True,
-                texture_scale=(0.25, 0.25),
-            ),
-            debug_vis=False,
-        )
+            self.scene.terrain = TerrainImporterCfg(
+                prim_path="/World/ground",
+                terrain_type="test_generator",
+                test_terrain_generator=TEST_TERRAIN_CFG,
+                max_init_terrain_level=10,
+                collision_group=-1,
+                physics_material=sim_utils.RigidBodyMaterialCfg(
+                    friction_combine_mode="multiply",
+                    restitution_combine_mode="multiply",
+                    static_friction=1.0,
+                    dynamic_friction=1.0,
+                ),
+                visual_material=sim_utils.MdlFileCfg(
+                    mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+                    project_uvw=True,
+                    texture_scale=(0.25, 0.25),
+                ),
+                debug_vis=False,
+            )
 
-        self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
-            asset_name="robot",
-            simple_heading=False,
-            ranges=mdp.UniformPose2dCommandCfg.Ranges(
-                heading=(-math.pi, math.pi),
-                pos_x=(-7.0, -5.0),
-                pos_y=(-7.0, -5.0)
-            ),
-            resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-            debug_vis=True
-        )
+            self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
+                asset_name="robot",
+                simple_heading=False,
+                ranges=mdp.UniformPose2dCommandCfg.Ranges(
+                    heading=(-math.pi, math.pi),
+                    pos_x=(5.0, 7.0),
+                    pos_y=(5.0, 7.0)
+                ),
+                resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
+                debug_vis=True
+            )
 
