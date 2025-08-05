@@ -30,8 +30,8 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_
 from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-EPISDOE_LENGTH = 10.0
-GOAL_REACHED_ACTIVE_AFTER = 6.0
+EPISDOE_LENGTH = 14.0
+GOAL_REACHED_ACTIVE_AFTER = 10.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
