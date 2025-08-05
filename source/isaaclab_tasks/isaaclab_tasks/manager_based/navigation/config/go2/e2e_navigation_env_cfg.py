@@ -37,7 +37,7 @@ GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.2
 NUM_RAYS = 32
-USE_TEST_ENV = False
+USE_TEST_ENV = True
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -354,7 +354,7 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-8.0,
+        weight=-20.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -366,7 +366,7 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-1.0,
+        weight=-2.0,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
@@ -671,13 +671,19 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 debug_vis=False,
             )
 
+            goal_set_1 = [(-7, -5), (-7, -5)]
+            goal_set_2 = [(5, 7), (-7, -5)]
+            goal_set_3 = [(5, 7), (5, 7)]
+
+            goal_set = goal_set_2
+
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
                 asset_name="robot",
                 simple_heading=False,
                 ranges=mdp.UniformPose2dCommandCfg.Ranges(
                     heading=(-math.pi, math.pi),
-                    pos_x=(5, 7),
-                    pos_y=(5, 7)
+                    pos_x=goal_set[0],
+                    pos_y=goal_set[1]
                 ),
                 resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
                 debug_vis=True
