@@ -293,13 +293,25 @@ class RewardsCfg:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.5*5.0, # weight * std to scale the gradient of reward.
+        weight=0.5,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 5.0
+            }
+        })
+    
+    goal_tracking_fine = RewTerm(
+        func=nav_mdp.active_after_time,
+        weight=0.5,
+        params={
+            "func": nav_mdp.position_command_error_tanh,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command",
+                "std": 0.5
             }
         })
 
@@ -354,7 +366,7 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-0.5,
+        weight=-1.0,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
@@ -664,8 +676,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 simple_heading=False,
                 ranges=mdp.UniformPose2dCommandCfg.Ranges(
                     heading=(-math.pi, math.pi),
-                    pos_x=(-7.0, -5.0),
-                    pos_y=(-7.0, -5.0)
+                    pos_x=(5, 7),
+                    pos_y=(5, 7)
                 ),
                 resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
                 debug_vis=True
