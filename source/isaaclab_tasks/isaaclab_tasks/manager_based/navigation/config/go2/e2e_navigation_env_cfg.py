@@ -34,7 +34,7 @@ EPISDOE_LENGTH = 10.0
 GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
-GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
+GOAL_REACHED_ANGULAR_THRESHOLD = 1.0
 OBSTACLE_SCANNER_SPACING = 0.2
 NUM_RAYS = 32
 USE_TEST_ENV = True
@@ -264,18 +264,18 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     # Task reward
-    goal_reached = RewTerm(
-        func=nav_mdp.pose_2d_command_goal_reached_reward,
-        weight=0.3,
-        params={
-            'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'distance_reward_multiplier': 1.3,
-            'angular_reward_multiplier': 1.3,
-            'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-        }
-    )
+    # goal_reached = RewTerm(
+    #     func=nav_mdp.pose_2d_command_goal_reached_reward,
+    #     weight=0.1,
+    #     params={
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         'distance_reward_multiplier': 1.3,
+    #         'angular_reward_multiplier': 1.3,
+    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+    #     }
+    # )
 
     # Guide the task reward due to sparsity of task reward
     # progress_reward = RewTerm(
@@ -293,7 +293,7 @@ class RewardsCfg:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.5,
+        weight=0.3,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -333,16 +333,16 @@ class RewardsCfg:
         params={
             'command_name': 'pose_2d_command',
             'velocity_threshold': 0.2, 
-            'distance_threshold': 0.5
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD
         })
     
-    speed_limit_penalty = RewTerm(
-        func=nav_mdp.speed_limit_penalty,
-        weight=-0.1,
-        params={
-            'speed_limit': 1.5,  # Speed limit in m/s
-            'std': 0.2
-        })
+    # speed_limit_penalty = RewTerm(
+    #     func=nav_mdp.speed_limit_penalty,
+    #     weight=-0.1,
+    #     params={
+    #         'speed_limit': 1.5,  # Speed limit in m/s
+    #         'std': 0.2
+    #     })
 
     # backward_movement_penalty = RewTerm(
     #     func=nav_mdp.velocity_heading_error_abs,
@@ -684,7 +684,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             goal_set_3 = [(5, 7), (5, 7)]
             goal_set_4 = [(-7, -5), (5, 7)]
 
-            goal_set = goal_set_2
+            goal_set = goal_set_3
 
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
                 asset_name="robot",
