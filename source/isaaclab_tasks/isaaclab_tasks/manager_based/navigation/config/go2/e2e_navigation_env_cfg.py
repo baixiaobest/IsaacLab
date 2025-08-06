@@ -86,30 +86,30 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
-    # obstacle_scanner_dx = RayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base",
-    #     offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
-    #     attach_yaw_only=True,
-    #     pattern_cfg=patterns.LidarPatternCfg(
-    #         channels=1, 
-    #         vertical_fov_range=(0.0, 0.0),
-    #         horizontal_fov_range=(0.0, 360),
-    #         horizontal_res=360/NUM_RAYS-1e-3),
-    #     debug_vis=False,
-    #     mesh_prim_paths=["/World/ground"]
-    # )
-    # obstacle_scanner_dy = RayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base",
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
-    #     attach_yaw_only=True,
-    #     pattern_cfg=patterns.LidarPatternCfg(
-    #         channels=1, 
-    #         vertical_fov_range=(0.0, 0.0),
-    #         horizontal_fov_range=(0.0, 360),
-    #         horizontal_res=360/NUM_RAYS-1e-3),
-    #     debug_vis=False,
-    #     mesh_prim_paths=["/World/ground"]
-    # )
+    obstacle_scanner_dx = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1, 
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(0.0, 360),
+            horizontal_res=360/NUM_RAYS-1e-3),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"]
+    )
+    obstacle_scanner_dy = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1, 
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(0.0, 360),
+            horizontal_res=360/NUM_RAYS-1e-3),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"]
+    )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
     sky_light = AssetBaseCfg(
@@ -372,27 +372,27 @@ class RewardsCfg:
             }
         })
     
-    # obstacle_gradient_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_gradient_penalty,
-    #     weight=-1.0,
-    #     params={
-    #         'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
-    #         'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
-    #         'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
-    #         'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-    #         'robot_radius': 0.3,
-    #         'SOI': 1.5 # Sphere of influence
-    #     })
-    
-    obstacle_clearance_penalty = RewTerm(
-        func=nav_mdp.obstacle_clearance_penalty,
+    obstacle_gradient_penalty = RewTerm(
+        func=nav_mdp.obstacle_gradient_penalty,
+        weight=-1.0,
         params={
-            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-            "SOI": 1.5, # Sphere of influence
-            "sensor_radius": 0.3,
-        },
-        weight=-1.0
-    )
+            'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
+            'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
+            'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
+            'sensor_spacing': OBSTACLE_SCANNER_SPACING,
+            'robot_radius': 0.3,
+            'SOI': 1.5 # Sphere of influence
+        })
+    
+    # obstacle_clearance_penalty = RewTerm(
+    #     func=nav_mdp.obstacle_clearance_penalty,
+    #     params={
+    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+    #         "SOI": 1.5, # Sphere of influence
+    #         "sensor_radius": 0.3,
+    #     },
+    #     weight=-1.0
+    # )
 
     # Less serious contacts
     # mild_contact = RewTerm(

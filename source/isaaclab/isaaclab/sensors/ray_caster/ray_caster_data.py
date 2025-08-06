@@ -21,6 +21,8 @@ class RayCasterData:
 
     Shape is (N, 4), where N is the number of sensors.
     """
+    ray_starts_w: torch.Tensor = None
+    """The ray start positions in the world frame."""
     ray_hits_w: torch.Tensor = None
     """The ray hit positions in the world frame.
 

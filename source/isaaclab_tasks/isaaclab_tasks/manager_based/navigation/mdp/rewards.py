@@ -615,16 +615,16 @@ def obstacle_gradient_penalty(
     sensor_dy: RayCaster = env.scene.sensors[sensor_dy_cfg.name]
 
     # Get the distances to the closest obstacles
-    distances_center = torch.norm((sensor_center.data.pos_w.unsqueeze(1) - sensor_center.data.ray_hits_w), dim=2) - robot_radius
-    distances_dx = torch.norm((sensor_dx.data.pos_w.unsqueeze(1) - sensor_dx.data.ray_hits_w), dim=2) - robot_radius
-    distances_dy = torch.norm((sensor_dy.data.pos_w.unsqueeze(1) - sensor_dy.data.ray_hits_w), dim=2) - robot_radius
+    distances_center = torch.norm((sensor_center.data.ray_starts_w - sensor_center.data.ray_hits_w), dim=2) - robot_radius
+    distances_dx = torch.norm((sensor_dx.data.ray_starts_w - sensor_dx.data.ray_hits_w), dim=2) - robot_radius
+    distances_dy = torch.norm((sensor_dy.data.ray_starts_w - sensor_dy.data.ray_hits_w), dim=2) - robot_radius
     # Get the distances to the closest obstacles
     min_distances_center, _ = torch.min(distances_center, dim=1)
     min_distances_dx, _ = torch.min(distances_dx, dim=1)
     min_distances_dy, _ = torch.min(distances_dy, dim=1)
     min_distances_center = torch.clamp(min_distances_center, min=0.05, max=SOI)
-    min_distances_dx = torch.clamp(min_distances_dx, min=0.05, max=SOI)
-    min_distances_dy = torch.clamp(min_distances_dy, min=0.05, max=SOI)
+    min_distances_dx = torch.clamp(min_distances_dx, min=1e-3, max=SOI)
+    min_distances_dy = torch.clamp(min_distances_dy, min=1e-3, max=SOI)
 
     # Compute the potential function
     potential_center = 1.0/min_distances_center  - 1.0/SOI
