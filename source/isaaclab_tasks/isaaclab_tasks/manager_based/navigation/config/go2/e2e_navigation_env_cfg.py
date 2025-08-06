@@ -35,7 +35,7 @@ GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 1.0
-OBSTACLE_SCANNER_SPACING = 0.2
+OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = True
 
@@ -86,30 +86,30 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
-    obstacle_scanner_dx = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"]
-    )
-    obstacle_scanner_dy = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"]
-    )
+    # obstacle_scanner_dx = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
+    #     attach_yaw_only=True,
+    #     pattern_cfg=patterns.LidarPatternCfg(
+    #         channels=1, 
+    #         vertical_fov_range=(0.0, 0.0),
+    #         horizontal_fov_range=(0.0, 360),
+    #         horizontal_res=360/NUM_RAYS-1e-3),
+    #     debug_vis=False,
+    #     mesh_prim_paths=["/World/ground"]
+    # )
+    # obstacle_scanner_dy = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
+    #     attach_yaw_only=True,
+    #     pattern_cfg=patterns.LidarPatternCfg(
+    #         channels=1, 
+    #         vertical_fov_range=(0.0, 0.0),
+    #         horizontal_fov_range=(0.0, 360),
+    #         horizontal_res=360/NUM_RAYS-1e-3),
+    #     debug_vis=False,
+    #     mesh_prim_paths=["/World/ground"]
+    # )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
     sky_light = AssetBaseCfg(
@@ -293,7 +293,7 @@ class RewardsCfg:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=5.0,
+        weight=0.3,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -305,7 +305,7 @@ class RewardsCfg:
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=5.0,
+        weight=0.3,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -317,7 +317,7 @@ class RewardsCfg:
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-2.0,
+        weight=-0.1,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -329,7 +329,7 @@ class RewardsCfg:
     # Needed after adding countdown to the observation
     movement_reward = RewTerm(
         func=nav_mdp.movement_reward,
-        weight=0.5,
+        weight=0.1,
         params={
             'command_name': 'pose_2d_command',
             'velocity_threshold': 0.2, 
@@ -362,7 +362,7 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-40.0,
+        weight=-8.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -372,26 +372,27 @@ class RewardsCfg:
             }
         })
     
-    obstacle_gradient_penalty = RewTerm(
-        func=nav_mdp.obstacle_gradient_penalty,
-        weight=-10.0,
-        params={
-            'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
-            'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
-            'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
-            'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-            'SOI': 1.5 # Sphere of influence
-        })
-    
-    # obstacle_clearance_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_clearance_penalty,
+    # obstacle_gradient_penalty = RewTerm(
+    #     func=nav_mdp.obstacle_gradient_penalty,
+    #     weight=-1.0,
     #     params={
-    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-    #         "std": 1.2,
-    #         "sensor_radius": 0.2,
-    #     },
-    #     weight=-0.1
-    # )
+    #         'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
+    #         'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
+    #         'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
+    #         'sensor_spacing': OBSTACLE_SCANNER_SPACING,
+    #         'robot_radius': 0.3,
+    #         'SOI': 1.5 # Sphere of influence
+    #     })
+    
+    obstacle_clearance_penalty = RewTerm(
+        func=nav_mdp.obstacle_clearance_penalty,
+        params={
+            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+            "SOI": 1.5, # Sphere of influence
+            "sensor_radius": 0.3,
+        },
+        weight=-1.0
+    )
 
     # Less serious contacts
     # mild_contact = RewTerm(
@@ -650,12 +651,12 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
 
         if USE_TEST_ENV:
             self.curriculum = None
-            self.rewards = None
+            self.rewards.undesired_contacts_discrete_obstacles = None
             self.terminations.base_contact = DoneTerm(
                 func=mdp.illegal_contact,
                 params={"sensor_cfg": SceneEntityCfg("contact_forces", 
                                                     body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
-                        "threshold": 1.0})
+                        "threshold": 0.2})
             
             self.terminations.base_contact_discrete_obstacles = None
 
@@ -679,12 +680,12 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 debug_vis=False,
             )
 
-            goal_set_1 = [(-7, -5), (-7, -5)]
+            goal_set_1 = [(-7, -7), (-7, -7)]
             goal_set_2 = [(5, 7), (-7, -5)]
             goal_set_3 = [(5, 7), (5, 7)]
             goal_set_4 = [(-7, -5), (5, 7)]
 
-            goal_set = goal_set_1
+            goal_set = goal_set_3
 
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
                 asset_name="robot",

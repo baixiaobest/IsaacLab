@@ -581,15 +581,23 @@ def lateral_movement_penalty_obstacle_dependent(
 def obstacle_clearance_penalty(
         env: ManagerBasedRLEnv,
         sensor_cfg: SceneEntityCfg,
-        std: float = 1.0,
-        sensor_radius = 0.2) -> torch.Tensor:
+        sensor_radius = 0.2,
+        SOI = 2.0) -> torch.Tensor:
     """Penalty for being too close to obstacles."""
     sensor: RayCaster = env.scene.sensors[sensor_cfg.name]   
     # Get the distances to the closest obstacles
-    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2)
+    distances = torch.norm((sensor.data.pos_w.unsqueeze(1) - sensor.data.ray_hits_w), dim=2) - sensor_radius
     min_distances, _ = torch.min(distances, dim=1)
-    # Calculate the penalty based on the distances
-    return 1.0 - torch.tanh((min_distances - sensor_radius) / std)
+    
+    # Clamp distances to avoid division by zero
+    min_distances = torch.clamp(min_distances, min=0.01)
+    
+    # Compute the potential function
+    potential = 1.0 / min_distances - 1.0 / SOI
+    potential = torch.clamp(potential, min=0.0)
+
+    return potential
+
 
 def obstacle_gradient_penalty(
         env: ManagerBasedRLEnv,
@@ -598,6 +606,7 @@ def obstacle_gradient_penalty(
         sensor_dy_cfg: SceneEntityCfg,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
         sensor_spacing: float = 0.2,
+        robot_radius: float = 0.3,
         SOI: float = 2.0, # Sphere of Influence
         ) -> torch.Tensor:
     """Penalty based on the gradient of the distance function to obstacles."""
@@ -606,9 +615,9 @@ def obstacle_gradient_penalty(
     sensor_dy: RayCaster = env.scene.sensors[sensor_dy_cfg.name]
 
     # Get the distances to the closest obstacles
-    distances_center = torch.norm((sensor_center.data.pos_w.unsqueeze(1) - sensor_center.data.ray_hits_w), dim=2)
-    distances_dx = torch.norm((sensor_dx.data.pos_w.unsqueeze(1) - sensor_dx.data.ray_hits_w), dim=2)
-    distances_dy = torch.norm((sensor_dy.data.pos_w.unsqueeze(1) - sensor_dy.data.ray_hits_w), dim=2)
+    distances_center = torch.norm((sensor_center.data.pos_w.unsqueeze(1) - sensor_center.data.ray_hits_w), dim=2) - robot_radius
+    distances_dx = torch.norm((sensor_dx.data.pos_w.unsqueeze(1) - sensor_dx.data.ray_hits_w), dim=2) - robot_radius
+    distances_dy = torch.norm((sensor_dy.data.pos_w.unsqueeze(1) - sensor_dy.data.ray_hits_w), dim=2) - robot_radius
     # Get the distances to the closest obstacles
     min_distances_center, _ = torch.min(distances_center, dim=1)
     min_distances_dx, _ = torch.min(distances_dx, dim=1)
