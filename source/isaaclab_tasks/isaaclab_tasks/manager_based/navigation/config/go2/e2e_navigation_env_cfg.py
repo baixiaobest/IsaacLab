@@ -293,7 +293,7 @@ class RewardsCfg:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.3,
+        weight=5.0,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -305,7 +305,7 @@ class RewardsCfg:
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.3,
+        weight=5.0,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -317,7 +317,7 @@ class RewardsCfg:
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-0.1,
+        weight=-2.0,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -329,7 +329,7 @@ class RewardsCfg:
     # Needed after adding countdown to the observation
     movement_reward = RewTerm(
         func=nav_mdp.movement_reward,
-        weight=0.1,
+        weight=0.5,
         params={
             'command_name': 'pose_2d_command',
             'velocity_threshold': 0.2, 
@@ -362,7 +362,7 @@ class RewardsCfg:
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
-        weight=-8.0,
+        weight=-40.0,
         params={
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
@@ -374,7 +374,7 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-1.0,
+        weight=-10.0,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
@@ -684,7 +684,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             goal_set_3 = [(5, 7), (5, 7)]
             goal_set_4 = [(-7, -5), (5, 7)]
 
-            goal_set = goal_set_3
+            goal_set = goal_set_1
 
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
                 asset_name="robot",
