@@ -293,7 +293,7 @@ class RewardsCfg:
 
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.3,
+        weight=1.0,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -305,7 +305,7 @@ class RewardsCfg:
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.3,
+        weight=1.0,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -317,7 +317,7 @@ class RewardsCfg:
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-0.1,
+        weight=-0.2,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -329,7 +329,7 @@ class RewardsCfg:
     # Needed after adding countdown to the observation
     movement_reward = RewTerm(
         func=nav_mdp.movement_reward,
-        weight=0.1,
+        weight=0.2,
         params={
             'command_name': 'pose_2d_command',
             'velocity_threshold': 0.2, 
@@ -374,14 +374,14 @@ class RewardsCfg:
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
-        weight=-1.0,
+        weight=-0.5,
         params={
             'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
             'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
             'robot_radius': 0.3,
-            'SOI': 1.5 # Sphere of influence
+            'SOI': 1.2 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(
