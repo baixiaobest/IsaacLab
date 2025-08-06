@@ -49,8 +49,8 @@ sub_terrain2 = SubTerrainTestCfg(
             dimensions=[0.5, 0.5, 1.0]
         ),
         CubeCfg(
-            position=[-3.0, 3.0, 0.5],
-            dimensions=[2.0, 2.0, 1.0]
+            position=[-1.5, 1.5, 0.5],
+            dimensions=[0.5, 0.5, 1.0]
         )
     ],
     start_position=[0.0, 0.0, 0.0],

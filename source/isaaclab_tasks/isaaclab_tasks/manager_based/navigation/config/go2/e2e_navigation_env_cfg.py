@@ -30,8 +30,8 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_
 from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
-EPISDOE_LENGTH = 14.0
-GOAL_REACHED_ACTIVE_AFTER = 10.0
+EPISDOE_LENGTH = 10.0
+GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
@@ -266,7 +266,7 @@ class RewardsCfg:
     # Task reward
     goal_reached = RewTerm(
         func=nav_mdp.pose_2d_command_goal_reached_reward,
-        weight=0.5,
+        weight=0.3,
         params={
             'command_name': 'pose_2d_command',
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
@@ -305,7 +305,7 @@ class RewardsCfg:
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.5,
+        weight=0.3,
         params={
             "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -336,14 +336,14 @@ class RewardsCfg:
             'distance_threshold': 0.5
         })
 
-    # backward_movement_penalty = RewTerm(
-    #     func=nav_mdp.velocity_heading_error_abs,
-    #     weight=-0.05,
-    #     params={
-    #         "velocity_threshold": 0.1,
-    #         "heading_deadband": 0.26,  # 15 degrees
-    #     }
-    # )
+    backward_movement_penalty = RewTerm(
+        func=nav_mdp.velocity_heading_error_abs,
+        weight=-0.05,
+        params={
+            "velocity_threshold": 0.1,
+            "heading_deadband": 0.26,  # 15 degrees
+        }
+    )
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
@@ -674,6 +674,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             goal_set_1 = [(-7, -5), (-7, -5)]
             goal_set_2 = [(5, 7), (-7, -5)]
             goal_set_3 = [(5, 7), (5, 7)]
+            goal_set_4 = [(-7, -5), (5, 7)]
 
             goal_set = goal_set_2
 
