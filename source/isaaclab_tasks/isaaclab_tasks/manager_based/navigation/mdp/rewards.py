@@ -660,3 +660,16 @@ def movement_reward(
     reward = torch.logical_and(robot_moving, out_of_goal_region)
 
     return reward.float()
+
+def speed_limit_penalty(
+        env: ManagerBasedRLEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        speed_limit: float = 1.0,
+        std: float = 0.2) -> torch.Tensor:
+    """Penalty for exceeding the speed limit."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_vel = torch.norm(asset.data.root_lin_vel_w, dim=1)
+
+    penalty = 0.5* (torch.tanh((robot_vel - speed_limit) / std) + 1.0)
+
+    return penalty

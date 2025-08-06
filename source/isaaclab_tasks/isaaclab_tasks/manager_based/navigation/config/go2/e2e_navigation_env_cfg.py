@@ -335,15 +335,23 @@ class RewardsCfg:
             'velocity_threshold': 0.2, 
             'distance_threshold': 0.5
         })
-
-    backward_movement_penalty = RewTerm(
-        func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.05,
+    
+    speed_limit_penalty = RewTerm(
+        func=nav_mdp.speed_limit_penalty,
+        weight=-0.1,
         params={
-            "velocity_threshold": 0.1,
-            "heading_deadband": 0.26,  # 15 degrees
-        }
-    )
+            'speed_limit': 1.5,  # Speed limit in m/s
+            'std': 0.2
+        })
+
+    # backward_movement_penalty = RewTerm(
+    #     func=nav_mdp.velocity_heading_error_abs,
+    #     weight=-0.05,
+    #     params={
+    #         "velocity_threshold": 0.1,
+    #         "heading_deadband": 0.26,  # 15 degrees
+    #     }
+    # )
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
