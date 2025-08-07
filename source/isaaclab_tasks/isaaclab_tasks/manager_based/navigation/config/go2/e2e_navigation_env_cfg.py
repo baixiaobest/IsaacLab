@@ -381,7 +381,7 @@ class RewardsCfg:
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
             'robot_radius': 0.3,
-            'SOI': 0.8 # Sphere of influence
+            'SOI': 1.2 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(
