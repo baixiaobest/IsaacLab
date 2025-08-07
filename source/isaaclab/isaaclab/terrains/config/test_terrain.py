@@ -7,30 +7,24 @@ from isaaclab.terrains.test_terrain_generator_cfg import (
 sub_terrain1 = SubTerrainTestCfg(
     cubes=[
         CubeCfg(
-            position=[3.0, 7.0, 0.5],
-            dimensions=[1.0, 1.0, 1.0]
-        )
-    ],
-    cylinders=[
-        CylinderCfg(
-            position=[7.0, 3.0, 0.75],
-            radius=0.5,
-            height=1.5
+            position=[2, 2, 0.5],
+            dimensions=[2.0, 2.0, 2.0]
         ),
-        CylinderCfg(
-            position=[3.0, 3.0, 0.75],
-            radius=0.5,
-            height=1.5
-        )
+        CubeCfg(
+            position=[-2, 2, 0.5],
+            dimensions=[2.0, 2.0, 2.0]
+        ),
+        CubeCfg(
+            position=[2, -2, 0.5],
+            dimensions=[2.0, 2.0, 2.0]
+        ),
+        CubeCfg(
+            position=[-2, -2, 0.5],
+            dimensions=[2.0, 2.0, 2.0]
+        ),
     ],
-    spheres=[
-        SphereCfg(
-            position=[0.0, 0.0, 0.5],
-            radius=0.5
-        )
-    ],
-    start_position=[5.0, 5.0, 0.0],
-    goal_position=[9.0, 9.0, 0.0]
+    start_position=[-2.0, -5.0, 0.0],
+    goal_position=[6.0, 6.0, 0.0]
 )
 
 # Create a second sub-terrain with different objects
@@ -62,6 +56,6 @@ TEST_TERRAIN_CFG = TestTerrainGeneratorCfg(
     size=(50.0, 50.0),
     num_rows=1,
     num_cols=1,
-    sub_terrains=[sub_terrain2],
+    sub_terrains=[sub_terrain1],
     subterrain_spacing=4.0
 )
