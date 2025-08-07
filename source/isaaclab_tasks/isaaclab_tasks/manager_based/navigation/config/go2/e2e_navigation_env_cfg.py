@@ -355,22 +355,22 @@ class RewardsCfg:
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-20.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]), 
-                "threshold": 0.2},
+        weight=-8.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
+                "threshold": 1.0},
     )
     # Additional undesired contacts for discrete obstacle terrain types
-    # undesired_contacts_discrete_obstacles = RewTerm(
-    #     func=nav_mdp.terrain_specific_callback,
-    #     weight=-40.0,
-    #     params={
-    #         "terrain_names": ["discrete_obstacles"],
-    #         "func": mdp.undesired_contacts,
-    #         "callback_params": {
-    #             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
-    #             "threshold": 0.2
-    #         }
-    #     })
+    undesired_contacts_discrete_obstacles = RewTerm(
+        func=nav_mdp.terrain_specific_callback,
+        weight=-8.0,
+        params={
+            "terrain_names": ["discrete_obstacles"],
+            "func": mdp.undesired_contacts,
+            "callback_params": {
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
+                "threshold": 0.2
+            }
+        })
     
     obstacle_gradient_penalty = RewTerm(
         func=nav_mdp.obstacle_gradient_penalty,
@@ -579,7 +579,7 @@ class TerminationsCfg:
             "callback_params": {
                 "sensor_cfg": SceneEntityCfg(
                     "contact_forces", 
-                    body_names=[".*hip", "Head_lower", ".*thigh"]),
+                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]),
                 "threshold": 0.2
             }
         }
