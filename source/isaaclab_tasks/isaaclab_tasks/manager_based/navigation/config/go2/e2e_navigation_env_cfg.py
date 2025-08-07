@@ -680,7 +680,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 debug_vis=False,
             )
 
-            goal_set_1 = [(-7, -7), (-7, -7)]
+            goal_set_1 = [(-7, -5), (-7, -5)]
             goal_set_2 = [(5, 7), (-7, -5)]
             goal_set_3 = [(5, 7), (5, 7)]
             goal_set_4 = [(-7, -5), (5, 7)]
