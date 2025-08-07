@@ -37,7 +37,7 @@ GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 1.0
 OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
-USE_TEST_ENV = True
+USE_TEST_ENV = False
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -381,7 +381,7 @@ class RewardsCfg:
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
             'robot_radius': 0.3,
-            'SOI': 1.2 # Sphere of influence
+            'SOI': 0.8 # Sphere of influence
         })
     
     # obstacle_clearance_penalty = RewTerm(
@@ -685,7 +685,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             goal_set_3 = [(5, 7), (5, 7)]
             goal_set_4 = [(-7, -5), (5, 7)]
 
-            goal_set = goal_set_3
+            goal_set = goal_set_2
 
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
                 asset_name="robot",

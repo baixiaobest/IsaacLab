@@ -13,7 +13,7 @@ from ..trimesh.mesh_terrains_cfg import MeshPlaneTerrainCfg
 
 FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     num_patches=30,
-    patch_radius=0.1,
+    patch_radius=0.35,
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
     max_height_diff=0.1,
@@ -22,7 +22,7 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
 
 FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
     num_patches=30,
-    patch_radius=0.1,
+    patch_radius=0.35,
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
     z_range=(-0.4, 0.4),  # Limit the height to a small range
