@@ -408,16 +408,16 @@ class RewardsCfg:
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     # Reduce motion at goal
-    # goal_reached_action_penalty = RewTerm(
-    #     func=nav_mdp.pose_2d_goal_callback_reward,
-    #     weight=-0.05,
-    #     params={
-    #         'func': mdp.action_rate_l2,
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #     }
-    # )
+    goal_reached_action_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.05,
+        params={
+            'func': mdp.action_rate_l2,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+        }
+    )
     # Better pose at goal
     # goal_joint_deviation_penalty = RewTerm(
     #     func=nav_mdp.pose_2d_goal_callback_reward,
