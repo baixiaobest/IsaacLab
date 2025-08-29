@@ -517,35 +517,33 @@ class ObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        # heading_sin_cos = ObsTerm(
-        #     func=mdp.root_yaw_sin_cos, noise=Unoise(n_min=-0.05, n_max=0.05)
-        # )
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
-        # scalar_velocity_command = ObsTerm(
-        #     func=mdp.generated_commands, params={"command_name": "scalar_velocity_command"}
-        # )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
         count_down = ObsTerm(
             func=mdp.count_down,
-            params={"episode_length": EPISDOE_LENGTH}
+            params={
+                "episode_length": EPISDOE_LENGTH,
+                "max": EPISDOE_LENGTH
+                }
         )
         osbtacles_scan = ObsTerm(
             func=mdp.lidar_scan,
             params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
-                    "max": 10.0},
+                    "max": 30.0},
             noise=Unoise(n_min=-0.1, n_max=0.1))
-        height_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
-            noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-1.0, 1.0),
-        )
+        
+        # height_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
+        #     noise=Unoise(n_min=-0.1, n_max=0.1),
+        #     clip=(-1.0, 1.0),
+        # )
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -651,14 +649,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
 
         if USE_TEST_ENV:
             self.curriculum = None
-            self.rewards.undesired_contacts_discrete_obstacles = None
-            self.terminations.base_contact = DoneTerm(
-                func=mdp.illegal_contact,
-                params={"sensor_cfg": SceneEntityCfg("contact_forces", 
-                                                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
-                        "threshold": 0.2})
-            
             self.terminations.base_contact_discrete_obstacles = None
+            self.rewards.undesired_contacts_discrete_obstacles = None
 
             self.scene.terrain = TerrainImporterCfg(
                 prim_path="/World/ground",
@@ -685,7 +677,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             # goal_set_3 = [(5, 7), (5, 7)]
             # goal_set_4 = [(-7, -5), (5, 7)]
 
-            # goal_set = goal_set_2
+            # goal_set = goal_set_1
 
             # self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
             #     asset_name="robot",
@@ -700,7 +692,6 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             # )
 
             goal_set_1 = [(2, 2), (8, 8)]
-
             goal_set = goal_set_1
 
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
