@@ -787,7 +787,7 @@ def generated_commands(env: ManagerBasedRLEnv, command_name: str) -> torch.Tenso
 Timer
 """
 
-def count_down(env: ManagerBasedRLEnv, episode_length: float, max: float=1e3) -> torch.Tensor:
+def count_down(env: ManagerBasedRLEnv, episode_length: float) -> torch.Tensor:
     """Countdown timer for the episode length.
 
     Args:
@@ -800,7 +800,7 @@ def count_down(env: ManagerBasedRLEnv, episode_length: float, max: float=1e3) ->
     if hasattr(env, "episode_length_buf"):
         time_remaining = episode_length - env.episode_length_buf * env.step_dt
         # ensure the time remaining is non-negative
-        time_remaining = torch.clamp(time_remaining, min=0.0, max=max)
+        time_remaining = torch.clamp(time_remaining, min=0.0)
         return time_remaining.unsqueeze(1)
     else:
         return torch.ones((env.num_envs, 1), device=env.device) * episode_length

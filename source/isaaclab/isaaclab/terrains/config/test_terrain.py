@@ -23,7 +23,7 @@ sub_terrain1 = SubTerrainTestCfg(
             dimensions=[2.0, 2.0, 2.0]
         ),
     ],
-    start_position=[-2.0, -6.0, 0.0],
+    start_position=[-2.0, -5.0, 0.0],
     goal_position=[6.0, 6.0, 0.0]
 )
 

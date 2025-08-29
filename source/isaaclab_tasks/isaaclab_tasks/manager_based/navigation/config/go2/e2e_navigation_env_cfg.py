@@ -264,6 +264,33 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     # Task reward
+    # goal_reached = RewTerm(
+    #     func=nav_mdp.pose_2d_command_goal_reached_reward,
+    #     weight=0.1,
+    #     params={
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         'distance_reward_multiplier': 1.3,
+    #         'angular_reward_multiplier': 1.3,
+    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+    #     }
+    # )
+
+    # Guide the task reward due to sparsity of task reward
+    # progress_reward = RewTerm(
+    #     func=nav_mdp.active_after_time,
+    #     weight=0.3,
+    #     params={
+    #         'func': nav_mdp.pose_2d_command_progress_reward,
+    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
+    #         'callback_params': {
+    #             'command_name': 'pose_2d_command',
+    #             'std': 1.0 * SIM_DT
+    #         }
+    #     }
+    # )
+
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
         weight=1.0,
@@ -308,16 +335,23 @@ class RewardsCfg:
             'velocity_threshold': 0.2, 
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD
         })
+    
+    # speed_limit_penalty = RewTerm(
+    #     func=nav_mdp.speed_limit_penalty,
+    #     weight=-0.1,
+    #     params={
+    #         'speed_limit': 1.5,  # Speed limit in m/s
+    #         'std': 0.2
+    #     })
 
-    backward_movement_penalty = RewTerm(
-        func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.05,
-        params={
-            "velocity_threshold": 0.1,
-            "heading_deadband": 0.26,  # 15 degrees
-        }
-    )
-
+    # backward_movement_penalty = RewTerm(
+    #     func=nav_mdp.velocity_heading_error_abs,
+    #     weight=-0.05,
+    #     params={
+    #         "velocity_threshold": 0.1,
+    #         "heading_deadband": 0.26,  # 15 degrees
+    #     }
+    # )
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
@@ -333,8 +367,8 @@ class RewardsCfg:
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
             "callback_params": {
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip", ".*thigh"]),
-                "threshold": 1.0
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
+                "threshold": 0.2
             }
         })
     
@@ -349,6 +383,25 @@ class RewardsCfg:
             'robot_radius': 0.3,
             'SOI': 1.2 # Sphere of influence
         })
+    
+    # obstacle_clearance_penalty = RewTerm(
+    #     func=nav_mdp.obstacle_clearance_penalty,
+    #     params={
+    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+    #         "SOI": 1.5, # Sphere of influence
+    #         "sensor_radius": 0.3,
+    #     },
+    #     weight=-1.0
+    # )
+
+    # Less serious contacts
+    # mild_contact = RewTerm(
+    #     func=mdp.undesired_contacts,
+    #     weight=-0.1,
+    #     params={
+    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower"]),
+    #         "threshold": 0.1,
+    #     })
     
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
@@ -464,33 +517,35 @@ class ObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        # heading_sin_cos = ObsTerm(
+        #     func=mdp.root_yaw_sin_cos, noise=Unoise(n_min=-0.05, n_max=0.05)
+        # )
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        # scalar_velocity_command = ObsTerm(
+        #     func=mdp.generated_commands, params={"command_name": "scalar_velocity_command"}
+        # )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
         count_down = ObsTerm(
             func=mdp.count_down,
-            params={
-                "episode_length": EPISDOE_LENGTH,
-                "max": EPISDOE_LENGTH
-                }
+            params={"episode_length": EPISDOE_LENGTH}
         )
         osbtacles_scan = ObsTerm(
             func=mdp.lidar_scan,
             params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
-                    "max": 30.0},
+                    "max": 10.0},
             noise=Unoise(n_min=-0.1, n_max=0.1))
-        
-        # height_scan = ObsTerm(
-        #     func=mdp.height_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
-        #     noise=Unoise(n_min=-0.1, n_max=0.1),
-        #     clip=(-1.0, 1.0),
-        # )
+        height_scan = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+            clip=(-1.0, 1.0),
+        )
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -524,8 +579,8 @@ class TerminationsCfg:
             "callback_params": {
                 "sensor_cfg": SceneEntityCfg(
                     "contact_forces", 
-                    body_names=[".*hip", "Head_lower", ".*thigh"]),
-                "threshold": 1.0
+                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]),
+                "threshold": 0.2
             }
         }
     )
@@ -596,8 +651,14 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
 
         if USE_TEST_ENV:
             self.curriculum = None
-            self.terminations.base_contact_discrete_obstacles = None
             self.rewards.undesired_contacts_discrete_obstacles = None
+            self.terminations.base_contact = DoneTerm(
+                func=mdp.illegal_contact,
+                params={"sensor_cfg": SceneEntityCfg("contact_forces", 
+                                                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
+                        "threshold": 0.2})
+            
+            self.terminations.base_contact_discrete_obstacles = None
 
             self.scene.terrain = TerrainImporterCfg(
                 prim_path="/World/ground",
@@ -624,7 +685,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             # goal_set_3 = [(5, 7), (5, 7)]
             # goal_set_4 = [(-7, -5), (5, 7)]
 
-            # goal_set = goal_set_1
+            # goal_set = goal_set_2
 
             # self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
             #     asset_name="robot",
@@ -639,6 +700,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             # )
 
             goal_set_1 = [(2, 2), (8, 8)]
+
             goal_set = goal_set_1
 
             self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
