@@ -264,33 +264,6 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     # Task reward
-    # goal_reached = RewTerm(
-    #     func=nav_mdp.pose_2d_command_goal_reached_reward,
-    #     weight=0.1,
-    #     params={
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #         'distance_reward_multiplier': 1.3,
-    #         'angular_reward_multiplier': 1.3,
-    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-    #     }
-    # )
-
-    # Guide the task reward due to sparsity of task reward
-    # progress_reward = RewTerm(
-    #     func=nav_mdp.active_after_time,
-    #     weight=0.3,
-    #     params={
-    #         'func': nav_mdp.pose_2d_command_progress_reward,
-    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-    #         'callback_params': {
-    #             'command_name': 'pose_2d_command',
-    #             'std': 1.0 * SIM_DT
-    #         }
-    #     }
-    # )
-
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
         weight=1.0,
@@ -335,23 +308,16 @@ class RewardsCfg:
             'velocity_threshold': 0.2, 
             'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD
         })
-    
-    # speed_limit_penalty = RewTerm(
-    #     func=nav_mdp.speed_limit_penalty,
-    #     weight=-0.1,
-    #     params={
-    #         'speed_limit': 1.5,  # Speed limit in m/s
-    #         'std': 0.2
-    #     })
 
-    # backward_movement_penalty = RewTerm(
-    #     func=nav_mdp.velocity_heading_error_abs,
-    #     weight=-0.05,
-    #     params={
-    #         "velocity_threshold": 0.1,
-    #         "heading_deadband": 0.26,  # 15 degrees
-    #     }
-    # )
+    backward_movement_penalty = RewTerm(
+        func=nav_mdp.velocity_heading_error_abs,
+        weight=-0.05,
+        params={
+            "velocity_threshold": 0.1,
+            "heading_deadband": 0.26,  # 15 degrees
+        }
+    )
+
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
@@ -383,25 +349,6 @@ class RewardsCfg:
             'robot_radius': 0.3,
             'SOI': 1.2 # Sphere of influence
         })
-    
-    # obstacle_clearance_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_clearance_penalty,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-    #         "SOI": 1.5, # Sphere of influence
-    #         "sensor_radius": 0.3,
-    #     },
-    #     weight=-1.0
-    # )
-
-    # Less serious contacts
-    # mild_contact = RewTerm(
-    #     func=mdp.undesired_contacts,
-    #     weight=-0.1,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower"]),
-    #         "threshold": 0.1,
-    #     })
     
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
