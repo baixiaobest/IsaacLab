@@ -285,7 +285,7 @@ class RewardsCfg:
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-0.5,
+        weight=-0.3,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -349,7 +349,7 @@ class RewardsCfg:
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.1)
     
     # Reduce motion at goal
     goal_reached_pitch_roll_penalty = RewTerm(
