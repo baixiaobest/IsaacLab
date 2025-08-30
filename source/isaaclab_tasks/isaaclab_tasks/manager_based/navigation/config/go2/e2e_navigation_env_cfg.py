@@ -368,7 +368,7 @@ class RewardsCfg:
 
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
+        weight=-0.05,
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',
