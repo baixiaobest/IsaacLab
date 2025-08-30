@@ -35,9 +35,11 @@ GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 1.0
+STRICT_GOAL_REACHED_DISTANCE_THRESHOLD = 0.2
+STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
 OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
-USE_TEST_ENV = True
+USE_TEST_ENV = False
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -414,8 +416,8 @@ class RewardsCfg:
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
         }
     )
     # Better pose at goal
