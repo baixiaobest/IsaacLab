@@ -255,13 +255,6 @@ class CommandsCfg:
         resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
         debug_vis=True
     )
-    # This controls the average velocity from origin to target.
-    # scalar_velocity_command = mdp.ScalarVelocityCommandCfg(
-    #     asset_name="robot",
-    #     velocity_range=(0.5, 2.0),
-    #     resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-    #     debug_vis=True
-    # )
 
 @configclass
 class RewardsCfg:
@@ -312,14 +305,6 @@ class RewardsCfg:
                 'command_name': 'pose_2d_command',
             }
         })
-    
-    # speed_limit_penalty = RewTerm(
-    #     func=nav_mdp.speed_limit_penalty,
-    #     weight=-0.1,
-    #     params={
-    #         'speed_limit': 1.5,  # Speed limit in m/s
-    #         'std': 0.2
-    #     })
 
     # backward_movement_penalty = RewTerm(
     #     func=nav_mdp.velocity_heading_error_abs,
@@ -361,43 +346,26 @@ class RewardsCfg:
             'SOI': 1.2 # Sphere of influence
         })
     
-    # obstacle_clearance_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_clearance_penalty,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-    #         "SOI": 1.5, # Sphere of influence
-    #         "sensor_radius": 0.3,
-    #     },
-    #     weight=-1.0
-    # )
-
-    # Less serious contacts
-    # mild_contact = RewTerm(
-    #     func=mdp.undesired_contacts,
-    #     weight=-0.1,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower"]),
-    #         "threshold": 0.1,
-    #     })
-    
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    
     # Reduce motion at goal
-    goal_reached_action_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
-        params={
-            'func': mdp.action_l2,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-        }
-    )
+    # goal_reached_action_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.05,
+    #     params={
+    #         'func': mdp.action_l2,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     }
+    # )
+
     goal_reached_movement_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
+        weight=-0.05,
         params={
             'func': mdp.lin_vel_l2,
             'command_name': 'pose_2d_command',
@@ -407,91 +375,14 @@ class RewardsCfg:
     )
     
     # Better pose at goal
-    # goal_joint_deviation_penalty = RewTerm(
-    #     func=nav_mdp.pose_2d_goal_callback_reward,
-    #     weight=-0.05,
-    #     params={
-    #         'func': mdp.joint_deviation_l1,
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #     })
-    
-@configclass
-class RewardsCfg2:
-    goal_reached = RewTerm(
-        func=nav_mdp.pose_2d_command_goal_reached_reward,
-        weight=1.0,
+    goal_joint_deviation_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.1,
         params={
+            'func': mdp.joint_deviation_l1,
             'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-            'distance_reward_multiplier': 1.3,
-            'angular_reward_multiplier': 1.3,
-            'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-        }
-    )
-
-    goal_tracking_coarse = RewTerm(
-        func=nav_mdp.active_after_time,
-        weight=0.5,
-        params={
-            "func": nav_mdp.position_command_error_rational,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
-            "callback_params": {
-                "command_name":"pose_2d_command",
-                "std": 2.0
-            }
-        })
-    
-    goal_tracking_fine = RewTerm(
-        func=nav_mdp.active_after_time,
-        weight=0.5,
-        params={
-            "func": nav_mdp.position_command_error_rational,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
-            "callback_params": {
-                "command_name":"pose_2d_command",
-                "std": 0.5
-            }
-        })
-    
-    goal_heading_error = RewTerm(
-        func=nav_mdp.active_after_time,
-        weight=-0.1,
-        params={
-            "func": nav_mdp.heading_command_error_abs,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
-            "callback_params": {
-                "command_name":"pose_2d_command"
-            }
-        })
-    
-    # Undesired contacts for all terrain types
-    undesired_contacts = RewTerm(
-        func=mdp.undesired_contacts,
-        weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper"]), 
-                "threshold": 0.2},
-    )
-    # Additional undesired contacts for discrete obstacle terrain types
-    # undesired_contacts_discrete_obstacles = RewTerm(
-    #     func=nav_mdp.terrain_specific_callback,
-    #     weight=-1.0,
-    #     params={
-    #         "terrain_names": ["discrete_obstacles"],
-    #         "func": mdp.undesired_contacts,
-    #         "callback_params": {
-    #             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_lower", ".*hip"]),
-    #             "threshold": 0.2
-    #         }
-    #     })
-    mild_contact = RewTerm(
-        func=mdp.undesired_contacts,
-        weight=-0.1,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*thigh", ".*calf"]),
-            "threshold": 0.1,
+            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
         })
 
 @configclass
