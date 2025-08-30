@@ -306,14 +306,14 @@ class RewardsCfg:
             }
         })
 
-    # backward_movement_penalty = RewTerm(
-    #     func=nav_mdp.velocity_heading_error_abs,
-    #     weight=-0.05,
-    #     params={
-    #         "velocity_threshold": 0.1,
-    #         "heading_deadband": 0.26,  # 15 degrees
-    #     }
-    # )
+    backward_movement_penalty = RewTerm(
+        func=nav_mdp.velocity_heading_error_abs,
+        weight=-0.05,
+        params={
+            "velocity_threshold": 0.1,
+            "heading_deadband": 0.26,  # 15 degrees
+        }
+    )
     # Undesired contacts for all terrain types
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
