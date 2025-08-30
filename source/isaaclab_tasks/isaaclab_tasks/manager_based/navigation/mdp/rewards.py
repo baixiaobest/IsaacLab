@@ -87,6 +87,16 @@ def active_after_time(
     reward_active = (env.episode_length_buf * env.step_dt) >= active_after_time
 
     return func(env, **callback_params) * reward_active 
+
+def inactivate_after_time(
+        env: ManagerBasedRLEnv,
+        func: callable,
+        inactivate_after_time: float = 0.0,
+        callback_params: dict = {}) -> torch.Tensor:
+    """Reward that is inactive after a certain time in the episode."""
+    reward_active = (env.episode_length_buf * env.step_dt) < inactivate_after_time
+
+    return func(env, **callback_params) * reward_active
         
 
 class terrain_specific_callback(ManagerTermBase):

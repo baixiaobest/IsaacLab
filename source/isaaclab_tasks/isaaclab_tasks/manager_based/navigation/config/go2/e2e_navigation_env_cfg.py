@@ -266,33 +266,6 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     # Task reward
-    # goal_reached = RewTerm(
-    #     func=nav_mdp.pose_2d_command_goal_reached_reward,
-    #     weight=0.1,
-    #     params={
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #         'distance_reward_multiplier': 1.3,
-    #         'angular_reward_multiplier': 1.3,
-    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-    #     }
-    # )
-
-    # Guide the task reward due to sparsity of task reward
-    # progress_reward = RewTerm(
-    #     func=nav_mdp.active_after_time,
-    #     weight=0.3,
-    #     params={
-    #         'func': nav_mdp.pose_2d_command_progress_reward,
-    #         'active_after_time': GOAL_REACHED_ACTIVE_AFTER,
-    #         'callback_params': {
-    #             'command_name': 'pose_2d_command',
-    #             'std': 1.0 * SIM_DT
-    #         }
-    #     }
-    # )
-
     goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
         weight=1.0,
@@ -330,12 +303,14 @@ class RewardsCfg:
     
     # Needed after adding countdown to the observation
     movement_reward = RewTerm(
-        func=nav_mdp.movement_reward,
+        func=nav_mdp.inactivate_after_time,
         weight=0.2,
         params={
-            'command_name': 'pose_2d_command',
-            'velocity_threshold': 0.2, 
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD
+            'func': nav_mdp.movement_reward,
+            'inactivate_after_time': GOAL_REACHED_ACTIVE_AFTER,
+            'callback_params': {
+                'command_name': 'pose_2d_command',
+            }
         })
     
     # speed_limit_penalty = RewTerm(
@@ -412,14 +387,25 @@ class RewardsCfg:
     # Reduce motion at goal
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.05,
+        weight=-0.1,
         params={
-            'func': mdp.action_rate_l2,
+            'func': mdp.action_l2,
             'command_name': 'pose_2d_command',
             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
         }
     )
+    goal_reached_movement_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.1,
+        params={
+            'func': mdp.lin_vel_l2,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+        }
+    )
+    
     # Better pose at goal
     # goal_joint_deviation_penalty = RewTerm(
     #     func=nav_mdp.pose_2d_goal_callback_reward,
