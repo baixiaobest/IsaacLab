@@ -285,7 +285,7 @@ class RewardsCfg:
 
     goal_heading_error = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=-0.2,
+        weight=-0.5,
         params={
             "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -352,9 +352,23 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     
     # Reduce motion at goal
+    goal_reached_pitch_roll_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.1,
+        params={
+            'func': mdp.flat_orientation_exp,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+            'callback_params': {
+                "threshold_deg": 10.0
+            }
+        }
+    )
+
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.3,
+        weight=-0.1,
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',
@@ -382,7 +396,7 @@ class RewardsCfg:
             'func': mdp.joint_deviation_l1,
             'command_name': 'pose_2d_command',
             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
         })
 
 @configclass
