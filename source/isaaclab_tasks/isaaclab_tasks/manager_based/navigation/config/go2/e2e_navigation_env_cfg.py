@@ -370,7 +370,7 @@ class RewardsCfg:
     #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-5e-5) # Power transferred from motor to joints
+    dof_power = RewTerm(func=mdp.joint_power, weight=-1e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -378,7 +378,7 @@ class RewardsCfg:
     # Reduce pitch roll
     pitch_roll_penalty = RewTerm(
         func=mdp.flat_orientation_exp,
-        weight=-0.02,
+        weight=-0.01,
         params=
         {
             "threshold_deg": 10.0
@@ -394,7 +394,7 @@ class RewardsCfg:
     # Joint limit penalty
     joint_limit_penalty = RewTerm(
         func=mdp.joint_pos_limits,
-        weight=-0.2
+        weight=-0.1
     )
 
     # Hip joint deviation penalty
