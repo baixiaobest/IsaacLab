@@ -348,7 +348,7 @@ class RewardsCfg:
     
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-1e-4) # Power transferred from motor to joints
+    dof_power = RewTerm(func=mdp.joint_power, weight=-1e-3) # Power transferred from motor to joints
 
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
