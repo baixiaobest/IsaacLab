@@ -294,7 +294,7 @@ class RewardsCfg:
                 "command_name":"pose_2d_command",
                 "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
                 "angular_threshold": math.pi,
-                "callack_params": {
+                "callback_params": {
                     "command_name":"pose_2d_command"
                 }
             }
