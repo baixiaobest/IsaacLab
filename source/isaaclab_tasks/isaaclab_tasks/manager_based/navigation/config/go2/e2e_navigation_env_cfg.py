@@ -370,7 +370,7 @@ class RewardsCfg:
     #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-1e-4) # Power transferred from motor to joints
+    dof_power = RewTerm(func=mdp.joint_power, weight=-5e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -394,13 +394,13 @@ class RewardsCfg:
     # Joint limit penalty
     joint_limit_penalty = RewTerm(
         func=mdp.joint_pos_limits,
-        weight=-1.0
+        weight=-0.2
     )
 
     # Hip joint deviation penalty
     hip_joint_deviation_penalty = RewTerm(
         func=mdp.joint_deviation_l2,
-        weight=-0.03,
+        weight=-0.01,
         params={
             'asset_cfg': SceneEntityCfg("robot", joint_names=[".*hip.*"])
         }
