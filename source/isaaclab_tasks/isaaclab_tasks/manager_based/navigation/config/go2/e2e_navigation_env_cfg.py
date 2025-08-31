@@ -287,12 +287,19 @@ class RewardsCfg:
         func=nav_mdp.active_after_time,
         weight=-0.3,
         params={
-            "func": nav_mdp.heading_command_error_abs,
+            "func": nav_mdp.pose_2d_goal_callback_reward,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
-                "command_name":"pose_2d_command"
+                "func": nav_mdp.heading_command_error_abs,
+                "command_name":"pose_2d_command",
+                "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
+                "angular_threshold": math.pi,
+                "callack_params": {
+                    "command_name":"pose_2d_command"
+                }
             }
-        })
+        }
+    )
     
     # Needed after adding countdown to the observation
     movement_reward = RewTerm(
@@ -346,6 +353,9 @@ class RewardsCfg:
             'SOI': 1.2 # Sphere of influence
         })
     
+    #################################
+    #Regularization terms
+    #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
     dof_power = RewTerm(func=mdp.joint_power, weight=-1e-4) # Power transferred from motor to joints
@@ -364,11 +374,14 @@ class RewardsCfg:
     )
 
     # reduce x y angular velocity
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
 
     # Reduce vertical movement
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
-
+    
+    #################################
+    # Goal reached reward/penalty
+    #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
         weight=-0.1,
