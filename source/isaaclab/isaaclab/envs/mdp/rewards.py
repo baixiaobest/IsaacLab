@@ -225,6 +225,16 @@ def joint_vel_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Ten
     asset: Articulation = env.scene[asset_cfg.name]
     return torch.sum(torch.abs(asset.data.joint_vel[:, asset_cfg.joint_ids]), dim=1)
 
+def joint_power(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize joint power on the articulation using L1-kernel.
+
+    This is computed as the sum of the absolute value of the product of joint torques and joint velocities.
+    NOTE: Only the joints configured in :attr:`asset_cfg.joint_ids` will have their joint power contribute to the term.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    return torch.sum(torch.abs(asset.data.applied_torque[:, asset_cfg.joint_ids] * asset.data.joint_vel[:, asset_cfg.joint_ids]), dim=1)
+
 
 def joint_vel_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize joint velocities on the articulation using L2 squared kernel.
