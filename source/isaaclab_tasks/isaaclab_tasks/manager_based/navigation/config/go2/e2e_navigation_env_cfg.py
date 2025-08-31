@@ -22,6 +22,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
 from isaaclab.sim.simulation_cfg import SimulationCfg
+from isaaclab.actuators import DCMotorCfg
 
 ##
 # Pre-defined configs
@@ -66,7 +67,18 @@ class MySceneCfg(InteractiveSceneCfg):
             debug_vis=False,
         )
     # robots
-    robot: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = UNITREE_GO2_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Robot", 
+        actuators={
+        "base_legs": DCMotorCfg(
+            joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
+            effort_limit=23.5,
+            saturation_effort=23.5,
+            velocity_limit=30.0,
+            stiffness=50.0,
+            damping=5.0,
+            friction=0.0)
+        })
     # sensors
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
@@ -383,6 +395,15 @@ class RewardsCfg:
     joint_limit_penalty = RewTerm(
         func=mdp.joint_pos_limits,
         weight=-1.0
+    )
+
+    # Hip joint deviation penalty
+    hip_joint_deviation_penalty = RewTerm(
+        func=mdp.joint_deviation_l2,
+        weight=-0.03,
+        params={
+            'asset_cfg': SceneEntityCfg("robot", joint_names=[".*hip.*"])
+        }
     )
     
     #################################
