@@ -378,6 +378,12 @@ class RewardsCfg:
 
     # Reduce vertical movement
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
+
+    # Joint limit penalty
+    joint_limit_penalty = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=-1.0
+    )
     
     #################################
     # Goal reached reward/penalty
