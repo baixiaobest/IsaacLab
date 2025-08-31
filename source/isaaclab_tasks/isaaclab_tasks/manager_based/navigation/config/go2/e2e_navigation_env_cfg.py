@@ -374,37 +374,37 @@ class RewardsCfg:
 
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    
-    # Reduce pitch roll
-    pitch_roll_penalty = RewTerm(
-        func=mdp.flat_orientation_exp,
-        weight=-0.01,
-        params=
-        {
-            "threshold_deg": 10.0
-        }
-    )
 
-    # reduce x y angular velocity
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.002)
+    # # reduce x y angular velocity
+    # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.002)
 
-    # Reduce vertical movement
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
+    # # Reduce vertical movement
+    # lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
 
-    # Joint limit penalty
-    joint_limit_penalty = RewTerm(
-        func=mdp.joint_pos_limits,
-        weight=-0.1
-    )
+    # # Reduce pitch roll
+    # pitch_roll_penalty = RewTerm(
+    #     func=mdp.flat_orientation_exp,
+    #     weight=-0.1,
+    #     params=
+    #     {
+    #         "threshold_deg": 10.0
+    #     }
+    # )
 
-    # Hip joint deviation penalty
-    hip_joint_deviation_penalty = RewTerm(
-        func=mdp.joint_deviation_l2,
-        weight=-0.01,
-        params={
-            'asset_cfg': SceneEntityCfg("robot", joint_names=[".*hip.*"])
-        }
-    )
+    # # Joint limit penalty
+    # joint_limit_penalty = RewTerm(
+    #     func=mdp.joint_pos_limits,
+    #     weight=-1.0
+    # )
+
+    # # Hip joint deviation penalty
+    # hip_joint_deviation_penalty = RewTerm(
+    #     func=mdp.joint_deviation_l2,
+    #     weight=-0.1,
+    #     params={
+    #         'asset_cfg': SceneEntityCfg("robot", joint_names=[".*hip.*"])
+    #     }
+    # )
     
     #################################
     # Goal reached reward/penalty
