@@ -348,25 +348,26 @@ class RewardsCfg:
     
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-2e-4) # Power transferred from motor to joints
+    dof_power = RewTerm(func=mdp.joint_power, weight=-1e-4) # Power transferred from motor to joints
 
     # Avoid jerky action
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     
-    # Reduce motion at goal
+    # Reduce pitch roll
     goal_reached_pitch_roll_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.03,
-        params={
-            'func': mdp.flat_orientation_exp,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-            'callback_params': {
-                "threshold_deg": 10.0
-            }
+        func=mdp.flat_orientation_exp,
+        weight=-0.05,
+        params=
+        {
+            "threshold_deg": 10.0
         }
     )
+
+    # reduce x y angular velocity
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
+
+    # Reduce vertical movement
+    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
 
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
