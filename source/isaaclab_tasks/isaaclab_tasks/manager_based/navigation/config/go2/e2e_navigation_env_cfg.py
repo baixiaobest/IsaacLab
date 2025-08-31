@@ -349,12 +349,12 @@ class RewardsCfg:
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.02)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.03)
     
     # Reduce motion at goal
     goal_reached_pitch_roll_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
+        weight=-0.03,
         params={
             'func': mdp.flat_orientation_exp,
             'command_name': 'pose_2d_command',
@@ -368,7 +368,7 @@ class RewardsCfg:
 
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
+        weight=-0.05,
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',
