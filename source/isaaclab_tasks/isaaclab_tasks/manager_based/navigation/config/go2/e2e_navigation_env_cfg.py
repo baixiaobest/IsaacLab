@@ -409,10 +409,10 @@ class RewardsCfg:
         func=nav_mdp.pose_2d_goal_callback_reward,
         weight=-0.1,
         params={
-            'func': mdp.joint_deviation_l1,
+            'func': mdp.joint_deviation_l2,
             'command_name': 'pose_2d_command',
-            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
         })
 
 @configclass
