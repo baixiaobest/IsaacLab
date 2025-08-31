@@ -75,7 +75,7 @@ class MySceneCfg(InteractiveSceneCfg):
             effort_limit=23.5,
             saturation_effort=23.5,
             velocity_limit=30.0,
-            stiffness=50.0,
+            stiffness=40.0,
             damping=5.0,
             friction=0.0)
         })
@@ -366,14 +366,17 @@ class RewardsCfg:
         })
     
     #################################
-    #Regularization terms
+    # Regularization terms
     #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
     dof_power = RewTerm(func=mdp.joint_power, weight=-1e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.001)
+
+    ### The following regularization penalty can hinder exploration, 
+    ### activate them after the robot can move reasonably well
 
     # # reduce x y angular velocity
     # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.002)
@@ -411,7 +414,7 @@ class RewardsCfg:
     #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
+        weight=-0.03,
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',
