@@ -364,9 +364,9 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     
     # Reduce pitch roll
-    goal_reached_pitch_roll_penalty = RewTerm(
+    pitch_roll_penalty = RewTerm(
         func=mdp.flat_orientation_exp,
-        weight=-0.05,
+        weight=-0.02,
         params=
         {
             "threshold_deg": 10.0
@@ -374,7 +374,7 @@ class RewardsCfg:
     )
 
     # reduce x y angular velocity
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.002)
 
     # Reduce vertical movement
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
