@@ -300,16 +300,10 @@ class RewardsCfg:
         func=nav_mdp.active_after_time,
         weight=-0.3,
         params={
-            "func": nav_mdp.pose_2d_goal_callback_reward,
+            "func": nav_mdp.heading_command_error_abs,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
-                "func": nav_mdp.heading_command_error_abs,
-                "command_name":"pose_2d_command",
-                "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
-                "angular_threshold": math.pi,
-                "callback_params": {
-                    "command_name":"pose_2d_command"
-                }
+                "command_name":"pose_2d_command"
             }
         }
     )
@@ -371,10 +365,10 @@ class RewardsCfg:
     #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-1e-5) # Power transferred from motor to joints
+    dof_power = RewTerm(func=mdp.joint_power, weight=-2e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.001)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.002)
 
     ### The following regularization penalty can hinder exploration, 
     ### activate them after the robot can move reasonably well
