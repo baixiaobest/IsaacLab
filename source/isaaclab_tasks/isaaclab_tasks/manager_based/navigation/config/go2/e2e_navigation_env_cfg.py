@@ -75,7 +75,7 @@ class MySceneCfg(InteractiveSceneCfg):
             effort_limit=23.5,
             saturation_effort=23.5,
             velocity_limit=30.0,
-            stiffness=40.0,
+            stiffness=25.0,
             damping=5.0,
             friction=0.0)
         })
@@ -387,7 +387,7 @@ class RewardsCfg:
     # # Reduce pitch roll
     # pitch_roll_penalty = RewTerm(
     #     func=mdp.flat_orientation_exp,
-    #     weight=-0.1,
+    #     weight=-0.05,
     #     params=
     #     {
     #         "threshold_deg": 10.0
