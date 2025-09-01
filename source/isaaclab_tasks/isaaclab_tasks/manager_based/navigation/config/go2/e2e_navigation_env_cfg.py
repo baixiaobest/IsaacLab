@@ -37,8 +37,8 @@ GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 1.0
-STRICT_GOAL_REACHED_DISTANCE_THRESHOLD = 0.2
-STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
+STRICT_GOAL_REACHED_DISTANCE_THRESHOLD = 0.15
+STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
@@ -361,7 +361,7 @@ class RewardsCfg:
     dof_power = RewTerm(func=mdp.joint_power, weight=-4e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.004)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.002)
 
     # reduce x y angular velocity
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
@@ -408,7 +408,7 @@ class RewardsCfg:
     #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.03,
+        weight=-0.06,
         params={
             'func': mdp.action_rate_l2,
             'command_name': 'pose_2d_command',
