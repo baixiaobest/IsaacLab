@@ -308,6 +308,14 @@ class RewardsCfg:
                 'command_name': 'pose_2d_command',
             }
         })
+    
+    speed_limit_penalty = RewTerm(
+        func=nav_mdp.speed_limit_penalty,
+        weight=-1.0,
+        params={
+            "speed_limit": 1.7,
+            "std": 0.2
+        }
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
@@ -358,41 +366,41 @@ class RewardsCfg:
     ### The following regularization penalty can hinder exploration, 
     ### activate them after the robot can move reasonably well
 
-    dof_power = RewTerm(func=mdp.joint_power, weight=-4e-5) # Power transferred from motor to joints
+    # dof_power = RewTerm(func=mdp.joint_power, weight=-4e-5) # Power transferred from motor to joints
 
-    # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.002)
+    # # Avoid jerky action
+    # action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.002)
 
-    # reduce x y angular velocity
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
+    # # reduce x y angular velocity
+    # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
 
-    # Reduce vertical movement
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
+    # # Reduce vertical movement
+    # lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
 
-    # Reduce pitch roll
-    pitch_roll_penalty = RewTerm(
-        func=mdp.flat_orientation_exp,
-        weight=-0.05,
-        params=
-        {
-            "threshold_deg": 10.0
-        }
-    )
+    # # Reduce pitch roll
+    # pitch_roll_penalty = RewTerm(
+    #     func=mdp.flat_orientation_exp,
+    #     weight=-0.05,
+    #     params=
+    #     {
+    #         "threshold_deg": 10.0
+    #     }
+    # )
 
-    # Joint limit penalty
-    joint_limit_penalty = RewTerm(
-        func=mdp.joint_pos_limits,
-        weight=-1.0
-    )
+    # # Joint limit penalty
+    # joint_limit_penalty = RewTerm(
+    #     func=mdp.joint_pos_limits,
+    #     weight=-1.0
+    # )
 
-    # Penalize overly fast joint movement
-    joint_vel_limit_penalty = RewTerm(
-        func=mdp.joint_vel_limits,
-        weight=-1.0,
-        params={
-            'soft_ratio': 0.8,
-        }
-    )
+    # # Penalize overly fast joint movement
+    # joint_vel_limit_penalty = RewTerm(
+    #     func=mdp.joint_vel_limits,
+    #     weight=-1.0,
+    #     params={
+    #         'soft_ratio': 0.8,
+    #     }
+    # )
 
     # # Hip joint deviation penalty
     # hip_joint_deviation_penalty = RewTerm(
@@ -406,27 +414,27 @@ class RewardsCfg:
     #################################
     # Goal reached reward/penalty
     #################################
-    goal_reached_action_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.2,
-        params={
-            'func': mdp.action_rate_l2,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-        }
-    )
+    # goal_reached_action_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.2,
+    #     params={
+    #         'func': mdp.action_rate_l2,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     }
+    # )
 
-    goal_reached_joint_movement_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.2,
-        params={
-            'func': mdp.joint_vel_l2,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-        }
-    )
+    # goal_reached_joint_movement_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.2,
+    #     params={
+    #         'func': mdp.joint_vel_l2,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     }
+    # )
 
     # goal_reached_movement_penalty = RewTerm(
     #     func=nav_mdp.pose_2d_goal_callback_reward,
@@ -440,15 +448,15 @@ class RewardsCfg:
     # )
     
     # Better pose at goal
-    goal_joint_deviation_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
-        params={
-            'func': mdp.joint_deviation_l2,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-        })
+    # goal_joint_deviation_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.1,
+    #     params={
+    #         'func': mdp.joint_deviation_l2,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     })
 
 @configclass
 class ObservationsCfg:
