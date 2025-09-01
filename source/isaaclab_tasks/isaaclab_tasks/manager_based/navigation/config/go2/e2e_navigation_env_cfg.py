@@ -390,7 +390,7 @@ class RewardsCfg:
         func=mdp.joint_vel_limits,
         weight=-1.0,
         params={
-            'soft_ration': 0.8,
+            'soft_ratio': 0.8,
         }
     )
 
