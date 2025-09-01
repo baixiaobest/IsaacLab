@@ -68,18 +68,7 @@ class MySceneCfg(InteractiveSceneCfg):
             debug_vis=False,
         )
     # robots
-    robot: ArticulationCfg = UNITREE_GO2_CFG.replace(
-        prim_path="{ENV_REGEX_NS}/Robot", 
-        actuators={
-        "base_legs": DCMotorCfg(
-            joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
-            effort_limit=23.5,
-            saturation_effort=23.5,
-            velocity_limit=30.0,
-            stiffness=25.0,
-            damping=0.5,
-            friction=0.0)
-        })
+    robot: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # sensors
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
@@ -365,10 +354,10 @@ class RewardsCfg:
     #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-4e-5) # Power transferred from motor to joints
+    # dof_power = RewTerm(func=mdp.joint_power, weight=-4e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.004)
+    # action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.004)
 
     ### The following regularization penalty can hinder exploration, 
     ### activate them after the robot can move reasonably well
@@ -407,16 +396,16 @@ class RewardsCfg:
     #################################
     # Goal reached reward/penalty
     #################################
-    goal_reached_action_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.03,
-        params={
-            'func': mdp.action_rate_l2,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-        }
-    )
+    # goal_reached_action_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.03,
+    #     params={
+    #         'func': mdp.action_rate_l2,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     }
+    # )
 
     # goal_reached_movement_penalty = RewTerm(
     #     func=nav_mdp.pose_2d_goal_callback_reward,
@@ -430,15 +419,15 @@ class RewardsCfg:
     # )
     
     # Better pose at goal
-    goal_joint_deviation_penalty = RewTerm(
-        func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.1,
-        params={
-            'func': mdp.joint_deviation_l2,
-            'command_name': 'pose_2d_command',
-            'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-            'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-        })
+    # goal_joint_deviation_penalty = RewTerm(
+    #     func=nav_mdp.pose_2d_goal_callback_reward,
+    #     weight=-0.1,
+    #     params={
+    #         'func': mdp.joint_deviation_l2,
+    #         'command_name': 'pose_2d_command',
+    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
+    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
+    #     })
 
 @configclass
 class ObservationsCfg:
