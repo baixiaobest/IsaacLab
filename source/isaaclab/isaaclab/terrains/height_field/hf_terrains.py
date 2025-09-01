@@ -26,11 +26,9 @@ def random_uniform_terrain(difficulty: float, cfg: hf_terrains_cfg.HfRandomUnifo
        :width: 40%
        :align: center
 
-    Note:
-        The :obj:`difficulty` parameter is ignored for this terrain.
-
     Args:
         difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+            Controls the range of heights - higher difficulty means more extreme height variations.
         cfg: The configuration for the terrain.
 
     Returns:
@@ -58,9 +56,13 @@ def random_uniform_terrain(difficulty: float, cfg: hf_terrains_cfg.HfRandomUnifo
     # -- downsampled scale
     width_downsampled = int(cfg.size[0] / cfg.downsampled_scale)
     length_downsampled = int(cfg.size[1] / cfg.downsampled_scale)
-    # -- height
-    height_min = int(cfg.noise_range[0] / cfg.vertical_scale)
-    height_max = int(cfg.noise_range[1] / cfg.vertical_scale)
+    
+    # -- height (now using difficulty to scale the range)
+    min_noise = cfg.noise_range[0]
+    max_noise = min_noise + (cfg.noise_range[1] - cfg.noise_range[0]) * difficulty
+    
+    height_min = int(min_noise / cfg.vertical_scale)
+    height_max = int(max_noise / cfg.vertical_scale)
     height_step = int(cfg.noise_step / cfg.vertical_scale)
 
     # create range of heights possible
