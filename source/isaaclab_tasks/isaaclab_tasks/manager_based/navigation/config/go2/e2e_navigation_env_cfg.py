@@ -27,7 +27,8 @@ from isaaclab.actuators import DCMotorCfg
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, DISCRETE_OBSTACLES_ROUGH_ONLY # isort: skip
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, \
+    DISCRETE_OBSTACLES_ROUGH_ONLY, ROUGH_ONLY # isort: skip
 from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
@@ -50,7 +51,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=DISCRETE_OBSTACLES_ROUGH_ONLY,
+            terrain_generator=ROUGH_ONLY,
             max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
