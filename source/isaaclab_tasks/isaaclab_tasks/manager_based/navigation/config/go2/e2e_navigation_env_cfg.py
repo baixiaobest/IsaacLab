@@ -77,7 +77,7 @@ class MySceneCfg(InteractiveSceneCfg):
             saturation_effort=23.5,
             velocity_limit=30.0,
             stiffness=25.0,
-            damping=1.0,
+            damping=0.5,
             friction=0.0)
         })
     # sensors
