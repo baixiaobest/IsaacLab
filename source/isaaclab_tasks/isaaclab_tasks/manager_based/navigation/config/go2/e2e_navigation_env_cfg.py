@@ -316,6 +316,7 @@ class RewardsCfg:
             "speed_limit": 1.7,
             "std": 0.2
         }
+    )
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
