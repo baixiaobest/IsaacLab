@@ -51,7 +51,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=ROUGH_ONLY,
+            terrain_generator=DISCRETE_OBSTACLES_ROUGH_ONLY,
             max_init_terrain_level=10,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
