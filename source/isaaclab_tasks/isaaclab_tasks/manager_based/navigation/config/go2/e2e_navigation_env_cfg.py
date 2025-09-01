@@ -408,9 +408,20 @@ class RewardsCfg:
     #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.pose_2d_goal_callback_reward,
-        weight=-0.06,
+        weight=-0.1,
         params={
             'func': mdp.action_rate_l2,
+            'command_name': 'pose_2d_command',
+            'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+            'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+        }
+    )
+
+    goal_reached_joint_movement_penalty = RewTerm(
+        func=nav_mdp.pose_2d_goal_callback_reward,
+        weight=-0.1,
+        params={
+            'func': mdp.joint_vel_l2,
             'command_name': 'pose_2d_command',
             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
