@@ -365,10 +365,10 @@ class RewardsCfg:
     #################################
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
-    dof_power = RewTerm(func=mdp.joint_power, weight=-2e-5) # Power transferred from motor to joints
+    dof_power = RewTerm(func=mdp.joint_power, weight=-4e-5) # Power transferred from motor to joints
 
     # Avoid jerky action
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.002)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.004)
 
     ### The following regularization penalty can hinder exploration, 
     ### activate them after the robot can move reasonably well
