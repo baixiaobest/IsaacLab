@@ -414,16 +414,16 @@ class RegularizationRewardsCfg(RewardsCfg):
     )
 
     # Avoid jerky action
-    action_rate_l2 = RewTerm(
-        func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.0001,
-        params={
-            "func": mdp.action_rate_l2,
-            "terrain_names": TERRAIN_LEVEL_NAMES,
-            "operator": "max",
-            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
-        }
-    )
+    # action_rate_l2 = RewTerm(
+    #     func=nav_mdp.activate_reward_terrain_level_reached,
+    #     weight=-0.0001,
+    #     params={
+    #         "func": mdp.action_rate_l2,
+    #         "terrain_names": TERRAIN_LEVEL_NAMES,
+    #         "operator": "max",
+    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
+    #     }
+    # )
 
     # Joint limit penalty
     joint_limit_penalty = RewTerm(
@@ -453,10 +453,10 @@ class RegularizationRewardsCfg(RewardsCfg):
     )
 
     # reduce x y angular velocity
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
+    # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
 
     # Reduce vertical movement
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
+    # lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
 
     # Reduce pitch roll
     # pitch_roll_penalty = RewTerm(
@@ -480,40 +480,40 @@ class RegularizationRewardsCfg(RewardsCfg):
     #################################
     # Goal reached reward/penalty
     #################################
-    goal_reached_action_penalty = RewTerm(
-        func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.05,
-        params={
-            "func": nav_mdp.pose_2d_goal_callback_reward,
-            "terrain_names": TERRAIN_LEVEL_NAMES,
-            "operator": "max",
-            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-            "callback_params": {
-                'func': mdp.action_rate_l2,
-                'command_name': 'pose_2d_command',
-                'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-                'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-            }
-        }
-    )
+    # goal_reached_action_penalty = RewTerm(
+    #     func=nav_mdp.activate_reward_terrain_level_reached,
+    #     weight=-0.05,
+    #     params={
+    #         "func": nav_mdp.pose_2d_goal_callback_reward,
+    #         "terrain_names": TERRAIN_LEVEL_NAMES,
+    #         "operator": "max",
+    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+    #         "callback_params": {
+    #             'func': mdp.action_rate_l2,
+    #             'command_name': 'pose_2d_command',
+    #             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         }
+    #     }
+    # )
 
     # Better pose at goal
-    goal_joint_deviation_penalty = RewTerm(
-        func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.1,
-        params={
-            "func": nav_mdp.pose_2d_goal_callback_reward,
-            "terrain_names": TERRAIN_LEVEL_NAMES,
-            "operator": "max",
-            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-            "callback_params": {
-                'func': mdp.joint_deviation_l2,
-                'command_name': 'pose_2d_command',
-                'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-                'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-            }
-        }
-    )
+    # goal_joint_deviation_penalty = RewTerm(
+    #     func=nav_mdp.activate_reward_terrain_level_reached,
+    #     weight=-0.1,
+    #     params={
+    #         "func": nav_mdp.pose_2d_goal_callback_reward,
+    #         "terrain_names": TERRAIN_LEVEL_NAMES,
+    #         "operator": "max",
+    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+    #         "callback_params": {
+    #             'func': mdp.joint_deviation_l2,
+    #             'command_name': 'pose_2d_command',
+    #             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         }
+    #     }
+    # )
     
     # goal_reached_joint_movement_penalty = RewTerm(
     #     func=nav_mdp.pose_2d_goal_callback_reward,
@@ -631,7 +631,7 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
+    rewards: RewardsCfg = RegularizationRewardsCfg()
     actions: ActionsCfg = ActionsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
