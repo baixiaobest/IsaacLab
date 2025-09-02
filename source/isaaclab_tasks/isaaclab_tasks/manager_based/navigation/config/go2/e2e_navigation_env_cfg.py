@@ -407,7 +407,7 @@ class RewardsCfg:
     # Joint limit penalty
     joint_limit_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-1.0,
+        weight=-0.1,
         params={
             "func": mdp.joint_pos_limits,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -419,7 +419,7 @@ class RewardsCfg:
     # Penalize overly fast joint movement
     joint_vel_limit_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-1.0,
+        weight=-0.1,
         params={
             "func": mdp.joint_vel_limits,
             "terrain_names": TERRAIN_LEVEL_NAMES,
