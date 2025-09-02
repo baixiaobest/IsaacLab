@@ -220,7 +220,7 @@ def no_encoder_augmentation(
 
       # Flip horizontally
       base_lin_vel_flipped = base_lin_vel * torch.tensor([1.0, -1.0, 1.0], device=obs.device)
-      base_ang_vel_flipped = base_ang_vel * torch.tensor([1.0, -1.0, 1.0], device=obs.device)
+      base_ang_vel_flipped = base_ang_vel * torch.tensor([-1.0, 1.0, -1.0], device=obs.device)
       pose_2d_command_flipped = pose_2d_command * torch.tensor([1.0, -1.0, 1.0, -1.0], device=obs.device)
       projected_gravity_flipped = projected_gravity * torch.tensor([1.0, -1.0, 1.0], device=obs.device)
       
