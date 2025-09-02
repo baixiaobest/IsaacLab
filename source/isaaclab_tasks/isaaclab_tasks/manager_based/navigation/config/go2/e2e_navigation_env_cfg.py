@@ -263,8 +263,8 @@ class CommandsCfg:
         asset_name="robot",
         simple_heading=False,
         ranges=mdp.UniformPose2dCommandCfg.Ranges(
-            pos_x=(-10.0, 10.0),
-            pos_y=(-10.0, 10.0),
+            pos_x=(-5.0, 5.0),
+            pos_y=(-5.0, 5.0),
             heading=(-math.pi, math.pi)
         ),
         resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
@@ -395,7 +395,7 @@ class RewardsCfg:
     # Avoid jerky action
     action_rate_l2 = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.001,
+        weight=-0.0005,
         params={
             "func": mdp.action_rate_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -426,7 +426,7 @@ class RewardsCfg:
             "operator": "max",
             "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
             "callback_params": {
-                'soft_ratio': 0.8,
+                'soft_ratio': 0.9,
             }
         }
     )
@@ -459,22 +459,22 @@ class RewardsCfg:
     #################################
     # Goal reached reward/penalty
     #################################
-    goal_reached_action_penalty = RewTerm(
-        func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.05,
-        params={
-            "func": nav_mdp.pose_2d_goal_callback_reward,
-            "terrain_names": TERRAIN_LEVEL_NAMES,
-            "operator": "max",
-            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-            "callback_params": {
-                'func': mdp.action_rate_l2,
-                'command_name': 'pose_2d_command',
-                'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-                'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-            }
-        }
-    )
+    # goal_reached_action_penalty = RewTerm(
+    #     func=nav_mdp.activate_reward_terrain_level_reached,
+    #     weight=-0.1,
+    #     params={
+    #         "func": nav_mdp.pose_2d_goal_callback_reward,
+    #         "terrain_names": TERRAIN_LEVEL_NAMES,
+    #         "operator": "max",
+    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+    #         "callback_params": {
+    #             'func': mdp.action_rate_l2,
+    #             'command_name': 'pose_2d_command',
+    #             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         }
+    #     }
+    # )
     
     # goal_reached_joint_movement_penalty = RewTerm(
     #     func=nav_mdp.pose_2d_goal_callback_reward,
@@ -499,22 +499,22 @@ class RewardsCfg:
     # )
     
     # Better pose at goal
-    goal_joint_deviation_penalty = RewTerm(
-        func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.05,
-        params={
-            "func": nav_mdp.pose_2d_goal_callback_reward,
-            "terrain_names": TERRAIN_LEVEL_NAMES,
-            "operator": "max",
-            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-            "callback_params": {
-                'func': mdp.joint_deviation_l2,
-                'command_name': 'pose_2d_command',
-                'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-                'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-            }
-        }
-    )
+    # goal_joint_deviation_penalty = RewTerm(
+    #     func=nav_mdp.activate_reward_terrain_level_reached,
+    #     weight=-0.1,
+    #     params={
+    #         "func": nav_mdp.pose_2d_goal_callback_reward,
+    #         "terrain_names": TERRAIN_LEVEL_NAMES,
+    #         "operator": "max",
+    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+    #         "callback_params": {
+    #             'func': mdp.joint_deviation_l2,
+    #             'command_name': 'pose_2d_command',
+    #             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+    #             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+    #         }
+    #     }
+    # )
 
 @configclass
 class ObservationsCfg:
