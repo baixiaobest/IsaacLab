@@ -372,6 +372,17 @@ class RewardsCfg:
             'SOI': 1.2 # Sphere of influence
         })
     
+    feet_air_time_range = RewTerm(
+        func=mdp.feet_air_time_range,
+        weight=0.1,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
+            "command_name": "base_velocity",
+            "range": (0.5, 1.5),
+            "T": 0.2
+        },
+    )
+    
     #################################
     # Regularization terms
     #################################
@@ -481,7 +492,7 @@ class RegularizationRewardsCfg(RewardsCfg):
     # Better pose at goal
     goal_joint_deviation_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.05,
+        weight=-0.1,
         params={
             "func": nav_mdp.pose_2d_goal_callback_reward,
             "terrain_names": TERRAIN_LEVEL_NAMES,
