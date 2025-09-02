@@ -633,7 +633,7 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RegularizationRewardsCfg()
+    rewards: RewardsCfg = RewardsCfg()
     actions: ActionsCfg = ActionsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
