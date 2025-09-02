@@ -381,63 +381,63 @@ class RewardsCfg:
     ### activate them after the robot can move reasonably well
 
     # Power transferred from motor to joints
-    # dof_power = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-2e-5,
-    #     params={
-    #         "func": mdp.joint_power,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
-    #     }
-    # )
+    dof_power = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-2e-5,
+        params={
+            "func": mdp.joint_power,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
+        }
+    )
 
     # Avoid jerky action
-    # action_rate_l2 = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-0.0001,
-    #     params={
-    #         "func": mdp.action_rate_l2,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
-    #     }
-    # )
+    action_rate_l2 = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.0001,
+        params={
+            "func": mdp.action_rate_l2,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
+        }
+    )
 
     # Joint limit penalty
-    # joint_limit_penalty = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-0.1,
-    #     params={
-    #         "func": mdp.joint_pos_limits,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
-    #     }
-    # )
+    joint_limit_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.1,
+        params={
+            "func": mdp.joint_pos_limits,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
+        }
+    )
 
     # Penalize overly fast joint movement
-    # joint_vel_limit_penalty = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-0.1,
-    #     params={
-    #         "func": mdp.joint_vel_limits,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-    #         "callback_params": {
-    #             'soft_ratio': 0.9,
-    #         }
-    #     }
-    # )
+    joint_vel_limit_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.1,
+        params={
+            "func": mdp.joint_vel_limits,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+            "callback_params": {
+                'soft_ratio': 0.9,
+            }
+        }
+    )
 
-    # # reduce x y angular velocity
-    # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
+    # reduce x y angular velocity
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
 
-    # # Reduce vertical movement
-    # lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
+    # Reduce vertical movement
+    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
 
-    # # Reduce pitch roll
+    # Reduce pitch roll
     # pitch_roll_penalty = RewTerm(
     #     func=mdp.flat_orientation_exp,
     #     weight=-0.05,
@@ -447,7 +447,7 @@ class RewardsCfg:
     #     }
     # )
 
-    # # Hip joint deviation penalty
+    # Hip joint deviation penalty
     # hip_joint_deviation_penalty = RewTerm(
     #     func=mdp.joint_deviation_l2,
     #     weight=-0.1,
