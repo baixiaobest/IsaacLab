@@ -44,6 +44,7 @@ NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
 TERRAIN_LEVEL_NAMES = ["random_rough"]
+BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh", ".*calf"]
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -343,7 +344,7 @@ class RewardsCfg:
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-8.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip"]), 
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
                 "threshold": 0.6},
     )
     # Additional undesired contacts for discrete obstacle terrain types
@@ -377,6 +378,7 @@ class RewardsCfg:
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
 
+class RegularizationRewardsCfg(RewardsCfg):
     ### The following regularization penalty can hinder exploration, 
     ### activate them after the robot can move reasonably well
 
@@ -579,7 +581,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip"]), 
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
                 "threshold": 0.6},
     )
 
