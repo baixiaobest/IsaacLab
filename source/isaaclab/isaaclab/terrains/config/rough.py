@@ -201,7 +201,7 @@ ROUGH_ONLY = TerrainGeneratorCfg(
     curriculum=True,
     sub_terrains={
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=1.0, noise_range=(0.02, 0.10), noise_step=0.01, border_width=0.25,
+            proportion=1.0, noise_range=(0.02, 0.06), noise_step=0.01, border_width=0.25,
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
     },
@@ -219,7 +219,7 @@ DISCRETE_OBSTACLES_ROUGH_ONLY = TerrainGeneratorCfg(
     curriculum=True,
     sub_terrains={
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=0.1, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25,
+            proportion=0.1, noise_range=(0.02, 0.06), noise_step=0.02, border_width=0.25,
             flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG}
         ),
         "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
