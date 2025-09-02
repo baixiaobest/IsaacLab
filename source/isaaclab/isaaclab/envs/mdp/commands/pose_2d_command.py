@@ -114,8 +114,14 @@ class UniformPose2dCommand(CommandTerm):
                 self.pos_command_w[stationary_env_ids, 0] = self.robot.data.root_pos_w[stationary_env_ids, 0]
                 self.pos_command_w[stationary_env_ids, 1] = self.robot.data.root_pos_w[stationary_env_ids, 1]
 
-        # Set height for all environments
-        self.pos_command_w[env_ids, 2] += self.robot.data.default_root_state[env_ids, 2]
+        # Handle z position (height)
+        if hasattr(self.cfg.ranges, 'pos_z') and self.cfg.ranges.pos_z is not None:
+            # Sample height from the provided range
+            r = torch.empty(len(env_ids), device=self.device)
+            self.pos_command_w[env_ids, 2] += r.uniform_(*self.cfg.ranges.pos_z)
+        else:
+            # Use default root height
+            self.pos_command_w[env_ids, 2] += self.robot.data.default_root_state[env_ids, 2]
 
         if self.cfg.simple_heading:
             # set heading command to point towards target

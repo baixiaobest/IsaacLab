@@ -267,6 +267,7 @@ class CommandsCfg:
         ranges=mdp.UniformPose2dCommandCfg.Ranges(
             pos_x=(-5.0, 5.0),
             pos_y=(-5.0, 5.0),
+            pos_z=(0.2, 0.4),
             heading=(-math.pi, math.pi)
         ),
         resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
