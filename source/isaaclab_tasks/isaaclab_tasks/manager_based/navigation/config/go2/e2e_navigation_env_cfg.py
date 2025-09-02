@@ -44,7 +44,7 @@ NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
 TERRAIN_LEVEL_NAMES = ["random_rough"]
-BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh", ".*calf"]
+BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -347,6 +347,14 @@ class RewardsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
                 "threshold": 0.6},
     )
+
+    mild_undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-0.2,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*calf"]), 
+                "threshold": 0.6},
+    )
+
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
         func=nav_mdp.terrain_specific_callback,
