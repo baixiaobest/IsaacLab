@@ -404,7 +404,7 @@ class RegularizationRewardsCfg(RewardsCfg):
     # Power transferred from motor to joints
     dof_power = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-2e-5,
+        weight=-1e-4,
         params={
             "func": mdp.joint_power,
             "terrain_names": TERRAIN_LEVEL_NAMES,
