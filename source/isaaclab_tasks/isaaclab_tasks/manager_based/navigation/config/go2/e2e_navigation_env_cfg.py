@@ -344,7 +344,7 @@ class RewardsCfg:
         func=mdp.undesired_contacts,
         weight=-8.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip"]), 
-                "threshold": 1.0},
+                "threshold": 0.6},
     )
     # Additional undesired contacts for discrete obstacle terrain types
     undesired_contacts_discrete_obstacles = RewTerm(
@@ -580,7 +580,7 @@ class TerminationsCfg:
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip"]), 
-                "threshold": 1.0},
+                "threshold": 0.6},
     )
 
     base_contact_discrete_obstacles = DoneTerm(
