@@ -97,6 +97,47 @@ def inactivate_after_time(
     reward_active = (env.episode_length_buf * env.step_dt) < inactivate_after_time
 
     return func(env, **callback_params) * reward_active
+
+class activate_reward_terrain_level_reached(ManagerTermBase):
+    def __init__(self, cfg: RewardTermCfg, env:ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self.activated = False
+        self.matched_env_ids = None
+    
+    def __call__(self,
+                 env: ManagerBasedRLEnv,
+                func: callable,
+                terrain_names: list[str],
+                operator: str = "max", # max or mean
+                terrain_level_threshold: float = 0.0,
+                callback_params: dict = {}
+    ) -> torch.Tensor:
+        
+        terrain: TerrainImporter = env.scene.terrain
+        if self.matched_env_ids is None:
+            env_terrain_names = terrain.get_env_terrain_names()
+            self.matched_env_ids = torch.tensor([i for i, name in enumerate(env_terrain_names) if name in terrain_names], dtype=torch.int, device=env.device) 
+
+        if self.matched_env_ids.size() == 0:
+            raise ValueError("No environments match the specified terrain names.")
+        
+        matched_env_terrain_levels = terrain.terrain_levels[self.matched_env_ids]
+
+        level = 0
+        if operator == "max":
+            level = torch.max(matched_env_terrain_levels.float()).item()
+        elif operator == "mean":
+            level = torch.mean(matched_env_terrain_levels.float()).item()
+        else:
+            raise ValueError("operator must be 'max' or 'mean'")
+
+        if not self.activated and level >= terrain_level_threshold:
+            self.activated = True
+        
+        if self.activated:
+            return func(env, **callback_params)
+        else:
+            return torch.zeros(env.num_envs, device=env.device)
         
 
 class terrain_specific_callback(ManagerTermBase):
