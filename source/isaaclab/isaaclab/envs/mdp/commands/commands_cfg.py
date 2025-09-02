@@ -225,6 +225,11 @@ class UniformPose2dCommandCfg(CommandTermCfg):
 
     If True, the heading is in the direction of the target position.
     """
+    
+    stationary_prob: float = 0.0
+    """Probability that the position command matches the robot's current position (making it stationary).
+    When stationary, the height is set to the default root height and the heading is still randomly sampled.
+    Defaults to 0.0."""
 
     @configclass
     class Ranges:

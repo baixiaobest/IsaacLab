@@ -36,7 +36,7 @@ EPISDOE_LENGTH = 10.0
 GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
-GOAL_REACHED_ANGULAR_THRESHOLD = 1.0
+GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
 STRICT_GOAL_REACHED_DISTANCE_THRESHOLD = 0.15
 STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.1
@@ -263,6 +263,7 @@ class CommandsCfg:
     pose_2d_command = mdp.UniformPose2dCommandCfg(
         asset_name="robot",
         simple_heading=False,
+        stationary_prob = 0.05,
         ranges=mdp.UniformPose2dCommandCfg.Ranges(
             pos_x=(-5.0, 5.0),
             pos_y=(-5.0, 5.0),

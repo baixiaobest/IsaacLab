@@ -85,12 +85,36 @@ class UniformPose2dCommand(CommandTerm):
         self.metrics["error_heading"] = torch.abs(wrap_to_pi(self.heading_command_w - self.robot.data.heading_w))
 
     def _resample_command(self, env_ids: Sequence[int]):
-        # obtain env origins for the environments
+        # Determine which environments should be stationary
+        stationary_mask = torch.rand(len(env_ids), device=self.device) < self.cfg.stationary_prob
+
+        # obtain env origins for all environments
         self.pos_command_w[env_ids] = self._env.scene.env_origins[env_ids]
-        # offset the position command by the current root position
-        r = torch.empty(len(env_ids), device=self.device)
-        self.pos_command_w[env_ids, 0] += r.uniform_(*self.cfg.ranges.pos_x)
-        self.pos_command_w[env_ids, 1] += r.uniform_(*self.cfg.ranges.pos_y)
+
+        # For non-stationary environments, apply random offsets
+        if not torch.all(stationary_mask):
+            # Get indices of non-stationary environments
+            non_stationary_indices = torch.nonzero(~stationary_mask).squeeze(-1)
+            non_stationary_env_ids = [env_ids[i] for i in non_stationary_indices.tolist()]
+
+            # Apply random offsets only to non-stationary environments
+            if len(non_stationary_env_ids) > 0:
+                r = torch.empty(len(non_stationary_env_ids), device=self.device)
+                self.pos_command_w[non_stationary_env_ids, 0] += r.uniform_(*self.cfg.ranges.pos_x)
+                self.pos_command_w[non_stationary_env_ids, 1] += r.uniform_(*self.cfg.ranges.pos_y)
+
+        # For stationary environments, use robot's current position (x,y)
+        if torch.any(stationary_mask):
+            # Get indices of stationary environments
+            stationary_indices = torch.nonzero(stationary_mask).squeeze(-1)
+            stationary_env_ids = [env_ids[i] for i in stationary_indices.tolist()]
+
+            # Set position to current robot position
+            if len(stationary_env_ids) > 0:
+                self.pos_command_w[stationary_env_ids, 0] = self.robot.data.root_pos_w[stationary_env_ids, 0]
+                self.pos_command_w[stationary_env_ids, 1] = self.robot.data.root_pos_w[stationary_env_ids, 1]
+
+        # Set height for all environments
         self.pos_command_w[env_ids, 2] += self.robot.data.default_root_state[env_ids, 2]
 
         if self.cfg.simple_heading:
@@ -112,6 +136,7 @@ class UniformPose2dCommand(CommandTerm):
             )
         else:
             # random heading command
+            r = torch.empty(len(env_ids), device=self.device)
             self.heading_command_w[env_ids] = r.uniform_(*self.cfg.ranges.heading)
 
     def _update_command(self):
