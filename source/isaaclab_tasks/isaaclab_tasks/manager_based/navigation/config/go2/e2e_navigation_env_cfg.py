@@ -377,7 +377,7 @@ class RewardsCfg:
         weight=0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
-            "command_name": "base_velocity",
+            "command_name": "pose_2d_command",
             "range": (0.5, 1.5),
             "T": 0.2
         },
