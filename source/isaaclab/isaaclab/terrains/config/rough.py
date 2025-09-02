@@ -16,7 +16,7 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     patch_radius=0.35,
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
-    max_height_diff=0.1,
+    max_height_diff=0.2,
     min_distance=0.0
 )
 
@@ -26,7 +26,7 @@ FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
     z_range=(-0.4, 0.4),  # Limit the height to a small range
-    max_height_diff=0.1,
+    max_height_diff=0.2,
     min_distance=0.0
 )
 
