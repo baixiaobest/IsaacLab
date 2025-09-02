@@ -373,13 +373,12 @@ class RewardsCfg:
         })
     
     feet_air_time_range = RewTerm(
-        func=mdp.feet_air_time_range,
+        func=mdp.feet_air_time,
         weight=0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
-            "range": (0.5, 1.5),
-            "T": 0.2
+            "threshold": 0.3
         },
     )
     
