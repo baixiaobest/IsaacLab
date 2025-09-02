@@ -384,7 +384,7 @@ class RewardsCfg:
     # Avoid jerky action
     action_rate_l2 = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.002,
+        weight=-0.001,
         params={
             "func": mdp.action_rate_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -450,7 +450,7 @@ class RewardsCfg:
     #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.1,
+        weight=-0.05,
         params={
             "func": nav_mdp.pose_2d_goal_callback_reward,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -488,15 +488,22 @@ class RewardsCfg:
     # )
     
     # Better pose at goal
-    # goal_joint_deviation_penalty = RewTerm(
-    #     func=nav_mdp.pose_2d_goal_callback_reward,
-    #     weight=-0.1,
-    #     params={
-    #         'func': mdp.joint_deviation_l2,
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': GOAL_REACHED_ANGULAR_THRESHOLD,
-    #     })
+    goal_joint_deviation_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.05,
+        params={
+            "func": nav_mdp.pose_2d_goal_callback_reward,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+            "callback_params": {
+                'func': mdp.joint_deviation_l2,
+                'command_name': 'pose_2d_command',
+                'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+                'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+            }
+        }
+    )
 
 @configclass
 class ObservationsCfg:
