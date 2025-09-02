@@ -12,7 +12,7 @@ from ..single_terrain_generator_cfg import SingleTerrainGeneratorCfg
 from ..trimesh.mesh_terrains_cfg import MeshPlaneTerrainCfg
 
 FLAT_PATCH_CFG = FlatPatchSamplingCfg(
-    num_patches=30,
+    num_patches=1000,
     patch_radius=0.35,
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
@@ -21,7 +21,7 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
 )
 
 FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
-    num_patches=30,
+    num_patches=1000,
     patch_radius=0.35,
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),

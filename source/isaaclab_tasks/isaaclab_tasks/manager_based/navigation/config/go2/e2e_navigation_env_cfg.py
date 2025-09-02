@@ -250,23 +250,23 @@ class CurriculumCfg:
 
 @configclass
 class CommandsCfg:
-    # pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
-    #     asset_name="robot",
-    #     simple_heading=False,
-    #     ranges=mdp.TerrainBasedPose2dCommandCfg.Ranges(
-    #         heading=(-math.pi, math.pi)
-    #     ),
-    #     resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-    #     debug_vis=True
-    # )
-    pose_2d_command = mdp.UniformPose2dCommandCfg(
+    pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
+        asset_name="robot",
         simple_heading=False,
-        ranges=mdp.UniformPose2dCommandCfg.Ranges(
-            pos_x=(-10.0, 10.0),
-            pos_y=(-10.0, 10.0),
+        ranges=mdp.TerrainBasedPose2dCommandCfg.Ranges(
             heading=(-math.pi, math.pi)
-        )
+        ),
+        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
+        debug_vis=True
     )
+    # pose_2d_command = mdp.UniformPose2dCommandCfg(
+    #     simple_heading=False,
+    #     ranges=mdp.UniformPose2dCommandCfg.Ranges(
+    #         pos_x=(-10.0, 10.0),
+    #         pos_y=(-10.0, 10.0),
+    #         heading=(-math.pi, math.pi)
+    #     )
+    # )
 
 @configclass
 class RewardsCfg:
