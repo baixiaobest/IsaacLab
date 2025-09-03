@@ -395,7 +395,7 @@ class RewardsCfg:
 
     feet_drag_penalty = RewTerm(
         func=mdp.feet_drag_penalty,
-        weight=-0.2,
+        weight=-0.02,
         params={
             "contact_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "force_threshold": 0.2
