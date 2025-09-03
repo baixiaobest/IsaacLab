@@ -256,7 +256,10 @@ def no_encoder_augmentation(
 
 ObstacleScanNoEncoderSymmetryConfig = RslRlSymmetryCfg(
     use_data_augmentation=True,
-    data_augmentation_func=no_encoder_augmentation)
+    data_augmentation_func=no_encoder_augmentation,
+    use_mirror_loss=True,
+    mirror_loss_coeff=0.1
+)
 
 NavE2EObstacleScanNoEncoderPPOConfig = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
