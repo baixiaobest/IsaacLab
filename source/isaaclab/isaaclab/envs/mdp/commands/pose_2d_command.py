@@ -210,16 +210,15 @@ class TerrainBasedPose2dCommand(UniformPose2dCommand):
         if not torch.all(stationary_mask):
             # Get indices of non-stationary environments
             non_stationary_indices = torch.nonzero(~stationary_mask).squeeze(-1)
-            non_stationary_env_ids = [env_ids[i] for i in non_stationary_indices.tolist()]
+            non_stationary_env_ids = env_ids[non_stationary_indices]
             
-            if len(non_stationary_env_ids) > 0:
+            if non_stationary_env_ids.size()[0] > 0:
                 # Sample new position targets from the terrain
                 ids = torch.randint(0, self.valid_targets.shape[2], size=(len(non_stationary_env_ids),), device=self.device)
-                self.pos_command_w[non_stationary_env_ids] = self.valid_targets[
-                    self.terrain.terrain_levels[non_stationary_env_ids], 
-                    self.terrain.terrain_types[non_stationary_env_ids], 
-                    ids
-                ]
+                levels = self.terrain.terrain_levels[non_stationary_env_ids]
+                types = self.terrain.terrain_types[non_stationary_env_ids]
+                
+                self.pos_command_w[non_stationary_env_ids] = self.valid_targets[levels, types, ids]
 
         # For stationary environments, use robot's current position
         if torch.any(stationary_mask):
