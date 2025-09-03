@@ -493,7 +493,7 @@ class RegularizationRewardsCfg(RewardsCfg):
     #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.1,
+        weight=-0.05,
         params={
             "func": nav_mdp.pose_2d_goal_callback_reward,
             "terrain_names": TERRAIN_LEVEL_NAMES,
