@@ -384,7 +384,7 @@ class RewardsCfg:
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
-        weight=0.2,
+        weight=0.5,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
@@ -393,14 +393,14 @@ class RewardsCfg:
         },
     )
 
-    feet_drag_penalty = RewTerm(
-        func=mdp.feet_drag_penalty,
-        weight=-0.02,
-        params={
-            "contact_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
-            "force_threshold": 0.2
-        }
-    )
+    # feet_drag_penalty = RewTerm(
+    #     func=mdp.feet_drag_penalty,
+    #     weight=-0.02,
+    #     params={
+    #         "contact_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
+    #         "force_threshold": 0.2
+    #     }
+    # )
     
     #################################
     # Regularization terms
@@ -425,16 +425,16 @@ class RegularizationRewardsCfg(RewardsCfg):
     )
 
     # Avoid jerky action
-    # action_rate_l2 = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-0.0001,
-    #     params={
-    #         "func": mdp.action_rate_l2,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
-    #     }
-    # )
+    action_rate_l2 = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.0001,
+        params={
+            "func": mdp.action_rate_l2,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD
+        }
+    )
 
     # Joint limit penalty
     joint_limit_penalty = RewTerm(
@@ -642,7 +642,7 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
+    rewards: RewardsCfg = RegularizationRewardsCfg()
     actions: ActionsCfg = ActionsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
