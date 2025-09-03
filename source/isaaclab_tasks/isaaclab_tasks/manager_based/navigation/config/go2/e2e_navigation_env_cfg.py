@@ -28,7 +28,7 @@ from isaaclab.actuators import DCMotorCfg
 # Pre-defined configs
 ##
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, \
-    DISCRETE_OBSTACLES_ROUGH_ONLY, ROUGH_ONLY # isort: skip
+    DISCRETE_OBSTACLES_ROUGH_ONLY, ROUGH_ONLY, DISCRETE_OBSTACLES_ONLY # isort: skip
 from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
@@ -43,7 +43,7 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
-TERRAIN_LEVEL_NAMES = ["random_rough"]
+TERRAIN_LEVEL_NAMES = ['discrete_obstacles'] # ["random_rough"]
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
@@ -54,7 +54,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=ROUGH_ONLY,
+            terrain_generator=DISCRETE_OBSTACLES_ONLY,
             max_init_terrain_level=5,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -251,28 +251,30 @@ class CurriculumCfg:
 
 @configclass
 class CommandsCfg:
-    # pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
+    pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
+        asset_name="robot",
+        simple_heading=False,
+        stationary_prob=0.05,
+        ranges=mdp.TerrainBasedPose2dCommandCfg.Ranges(
+            heading=(-math.pi, math.pi),
+            pos_z=(0.2, 0.4)
+        ),
+        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
+        debug_vis=True
+    )
+    # pose_2d_command = mdp.UniformPose2dCommandCfg(
     #     asset_name="robot",
     #     simple_heading=False,
-    #     ranges=mdp.TerrainBasedPose2dCommandCfg.Ranges(
+    #     stationary_prob = 0.05,
+    #     ranges=mdp.UniformPose2dCommandCfg.Ranges(
+    #         pos_x=(-5.0, 5.0),
+    #         pos_y=(-5.0, 5.0),
+    #         pos_z=(0.2, 0.4),
     #         heading=(-math.pi, math.pi)
     #     ),
     #     resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
     #     debug_vis=True
     # )
-    pose_2d_command = mdp.UniformPose2dCommandCfg(
-        asset_name="robot",
-        simple_heading=False,
-        stationary_prob = 0.05,
-        ranges=mdp.UniformPose2dCommandCfg.Ranges(
-            pos_x=(-5.0, 5.0),
-            pos_y=(-5.0, 5.0),
-            pos_z=(0.2, 0.4),
-            heading=(-math.pi, math.pi)
-        ),
-        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-        debug_vis=True
-    )
 
 @configclass
 class RewardsCfg:

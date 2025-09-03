@@ -267,6 +267,11 @@ class TerrainBasedPose2dCommandCfg(UniformPose2dCommandCfg):
     """Configuration for the terrain-based position command generator."""
 
     class_type = TerrainBasedPose2dCommand
+    
+    stationary_prob: float = 0.0
+    """Probability that the position command matches the robot's current position (making it stationary).
+    When stationary, the height is set to the default root height and the heading is still randomly sampled.
+    Defaults to 0.0."""
 
     @configclass
     class Ranges:
@@ -277,6 +282,9 @@ class TerrainBasedPose2dCommandCfg(UniformPose2dCommandCfg):
 
         Used only if :attr:`simple_heading` is False.
         """
+        
+        pos_z: tuple[float, float] | None = None
+        """Range for the z position (in m). If None, uses the default root height."""
 
     ranges: Ranges = MISSING
     """Distribution ranges for the sampled commands."""
