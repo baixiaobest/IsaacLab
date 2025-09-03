@@ -129,6 +129,68 @@ def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = Scen
     reward = torch.sum(body_vel.norm(dim=-1) * contacts, dim=1)
     return reward
 
+def feet_drag_penalty(
+    env: ManagerBasedRLEnv, 
+    contact_sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    force_threshold: float = 1.0,
+    use_horizontal_vel_only: bool = False
+) -> torch.Tensor:
+    """Penalize foot dragging when feet are in contact with the ground.
+    
+    This function detects dragging by checking when:
+    1. Foot is in contact (normal force above threshold)
+    2. Foot has tangential velocity relative to the contact surface
+    
+    Args:
+        env: The environment.
+        contact_sensor_cfg: Configuration for the contact sensor with body_ids indicating feet.
+        asset_cfg: Configuration for the robot asset.
+        force_threshold: Minimum contact force to consider the foot in contact.
+        use_horizontal_vel_only: If True, only penalize horizontal (XY) movement of feet.
+    
+    Returns:
+        Tensor with drag penalty for each environment instance.
+    """
+    # Get the contact sensor
+    contact_sensor: ContactSensor = env.scene.sensors[contact_sensor_cfg.name]
+    # Get the articulation
+    asset: Articulation = env.scene[asset_cfg.name]
+    
+    # Get the normal contact forces
+    contact_forces = contact_sensor.data.net_forces_w[:, contact_sensor_cfg.body_ids, :]
+    
+    # Check which feet are in contact with the ground
+    contact_norms = torch.norm(contact_forces, dim=-1)
+    is_in_contact = contact_norms > force_threshold
+    
+    # Get the normal direction of contact (normalized)
+    normal_dirs = torch.zeros_like(contact_forces)
+    # Avoid division by zero for non-contact points
+    mask = contact_norms > 1e-6
+    normal_dirs[mask] = contact_forces[mask] / contact_norms[mask].unsqueeze(-1)
+    
+    # Get the velocities of the contact bodies (feet)
+    body_velocities = asset.data.body_lin_vel_w[:, contact_sensor_cfg.body_ids]
+    
+    # Project velocity onto the tangential plane (perpendicular to normal)
+    vel_dot_normal = torch.sum(body_velocities * normal_dirs, dim=-1, keepdim=True)
+    tangential_vel = body_velocities - vel_dot_normal * normal_dirs
+    
+    # Option to only consider horizontal movement
+    if use_horizontal_vel_only:
+        tangential_vel = tangential_vel.clone()
+        tangential_vel[..., 2] = 0.0
+    
+    # Compute the magnitude of tangential velocity
+    tangential_vel_norm = torch.norm(tangential_vel, dim=-1)
+    
+    # Only penalize when in contact
+    drag_penalty = is_in_contact * tangential_vel_norm
+    
+    # Sum over all bodies (feet) for each environment
+    return torch.sum(drag_penalty, dim=1)
+
 
 def track_lin_vel_xy_yaw_frame_exp(
     env, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
