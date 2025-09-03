@@ -1,0 +1,33 @@
+import os
+import torch
+import matplotlib.pyplot as plt
+
+# 1. Point to your log directory
+log_dir = "/home/azureuser/Desktop/dataset/depth_height"
+
+# 2. List a few files
+files = sorted(f for f in os.listdir(log_dir) if f.endswith(".pt"))
+print("Found files:", files[:5])
+
+# 3. Load one payload
+sample_file = os.path.join(log_dir, files[0])
+payload = torch.load(sample_file, map_location="cpu")
+
+# 4. Inspect the dict
+print("Keys in payload:", payload.keys())
+depth = payload["depth"]    # Tensor of shape [H, W]
+height = payload["height"]  # Tensor of shape [N, ...]
+print("Depth shape:", depth.shape, "dtype:", depth.dtype)
+print("Height shape:", height.shape, "dtype:", height.dtype)
+
+# 5. View a depth map as an image
+depth_np = depth.numpy()
+plt.figure(figsize=(6,6))
+plt.title(f"Depth map: {files[0]}")
+plt.imshow(depth_np, cmap="gray")
+plt.colorbar(label="Distance")
+plt.show()
+
+# 6. (Optional) Inspect a few values of your ScanDot (height) data
+print("First 10 height points:\n", height.view(-1)[:10])
+print("First 10 depth values:\n", depth.view(-1)[:10])

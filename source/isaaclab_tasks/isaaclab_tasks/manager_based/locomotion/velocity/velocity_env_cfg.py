@@ -65,7 +65,7 @@ class MySceneCfg(InteractiveSceneCfg):
     # sensors
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 1.0)),
         attach_yaw_only=True,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
         debug_vis=False,
@@ -83,8 +83,9 @@ class MySceneCfg(InteractiveSceneCfg):
             data_types=["distance_to_image_plane"],  # Depth data type
             depth_clipping_behavior="max",  # Clip values to the maximum range
             pattern_cfg=patterns.PinholeCameraPatternCfg(
-                width=320,  # Image width
-                height=240,  # Image height
+                focal_length=10.0,  # Focal length of the camera
+                width=32,  # Image width
+                height=24,  # Image height
             ),
             debug_vis=True,  # Enable visualization for debugging
             mesh_prim_paths=["/World/ground"],

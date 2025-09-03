@@ -1,31 +1,36 @@
 # depth_logger.py
+import os
 import torch
 from isaaclab.managers.recorder_manager import RecorderTerm
 
 class DepthLogger(RecorderTerm):
     def record_post_step(self):
-        # Debug print available sensors
-        print("[DEBUG] Available sensors:", self._env.scene.sensors.keys())
-        
-        # Access depth camera data
-        depth_sensor = self._env.scene.sensors["depth_sensor"]
-        height_scanner = self._env.scene.sensors["height_scanner"]
-        
-        # Get depth data from the correct field (distance_to_image_plane)
-        depth_data = depth_sensor.data.output["distance_to_image_plane"]
-        
-        # For RayCaster, we need to access ray_hits_w
-        height_data = height_scanner.data.ray_hits_w
-        
-        # Debug print shapes
-        print(f"[DEBUG] Depth data shape: {depth_data.shape}")
-        print(f"[DEBUG] Height data shape: {height_data.shape}")
-        
-        # Ensure data is properly formatted for recording
-        depth_data = depth_data.squeeze(-1)  # Remove last dimension if it's [batch, H, W, 1]
-        
-        # Return data in correct format for recorder
+        # lazy-init a frame counter and save directory
+        if not hasattr(self, "frame"):
+            self.frame = 0
+            self.save_dir = "/home/azureuser/Desktop/dataset/depth_height"
+            os.makedirs(self.save_dir, exist_ok=True)
+
+        # pull tensors off the sim and move to CPU
+        depth_t  = self._env.scene.sensors["depth_sensor"].data.output["distance_to_image_plane"]
+        height_t = self._env.scene.sensors["height_scanner"].data.ray_hits_w
+
+        # squeeze any singleton dims, then CPU-ize
+        depth_t  = depth_t.squeeze(-1).cpu()    # [B, H, W]
+        height_t = height_t.cpu()               # [B, N, ...]
+
+        batch_size = depth_t.shape[0]
+        for env_id in range(batch_size):
+            payload = {
+                "depth": depth_t[env_id],
+                "height": height_t[env_id],
+            }
+            fn = f"env{env_id:02d}_frame{self.frame:06d}.pt"
+            # torch.save(payload, os.path.join(self.save_dir, fn))
+
+        self.frame += 1
+
         return "sensors", {
-            "depth": depth_data,
-            "height_scanner": height_data
+            "depth": depth_t,
+            "height_scanner": height_t
         }

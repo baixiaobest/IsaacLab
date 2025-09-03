@@ -80,7 +80,7 @@ class RoughTeacherDepthCamSceneCfg(MySceneCfg):
         # sensors
         self.height_scanner = RayCasterCfg(
             prim_path="{ENV_REGEX_NS}/Robot/base",
-            offset=RayCasterCfg.OffsetCfg(pos=(0.5, 0.0, 20.0)),
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 1.0)),
             attach_yaw_only=True,
             pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[2, 1.5]),
             debug_vis=True,
@@ -90,24 +90,6 @@ class RoughTeacherDepthCamSceneCfg(MySceneCfg):
         self.foot_contact_forces = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/.*foot", history_length=5, track_air_time=True, debug_vis=True)
         
-        
-        self.depth_sensor = RayCasterCameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",  # Attach to the robot's base
-            offset=RayCasterCameraCfg.OffsetCfg(
-                pos=(0.0, 0.0, 1.0),  # Position offset (x, y, z)
-                rot=(0.0, 1.0, 0.0, 0.0), # Quaternion rotation (w, x, y, z)
-                convention="ros",  # Use ROS convention for the camera frame
-            ),
-            attach_yaw_only=True,
-            data_types=["distance_to_image_plane"],  # Depth data type
-            depth_clipping_behavior="max",  # Clip values to the maximum range
-            pattern_cfg=patterns.PinholeCameraPatternCfg(
-                width=320,  # Image width
-                height=240,  # Image height
-            ),
-            debug_vis=True,  # Enable visualization for debugging
-            mesh_prim_paths=["/World/ground"],
-        )
 
 @configclass
 class RoughDepthCameraOnlySceneCfg(MySceneCfg):
