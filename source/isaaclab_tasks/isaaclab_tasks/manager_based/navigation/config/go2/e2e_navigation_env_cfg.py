@@ -491,22 +491,22 @@ class RegularizationRewardsCfg(RewardsCfg):
     #################################
     # Goal reached reward/penalty
     #################################
-    # goal_reached_action_penalty = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-0.05,
-    #     params={
-    #         "func": nav_mdp.pose_2d_goal_callback_reward,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-    #         "callback_params": {
-    #             'func': mdp.action_rate_l2,
-    #             'command_name': 'pose_2d_command',
-    #             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-    #             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-    #         }
-    #     }
-    # )
+    goal_reached_action_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.1,
+        params={
+            "func": nav_mdp.pose_2d_goal_callback_reward,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+            "callback_params": {
+                'func': mdp.action_rate_l2,
+                'command_name': 'pose_2d_command',
+                'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
+                'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
+            }
+        }
+    )
 
     # Better pose at goal
     # goal_joint_deviation_penalty = RewTerm(
@@ -531,17 +531,6 @@ class RegularizationRewardsCfg(RewardsCfg):
     #     weight=-0.2,
     #     params={
     #         'func': mdp.joint_vel_l2,
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-    #     }
-    # )
-
-    # goal_reached_movement_penalty = RewTerm(
-    #     func=nav_mdp.pose_2d_goal_callback_reward,
-    #     weight=-0.05,
-    #     params={
-    #         'func': mdp.lin_vel_l2,
     #         'command_name': 'pose_2d_command',
     #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
     #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
