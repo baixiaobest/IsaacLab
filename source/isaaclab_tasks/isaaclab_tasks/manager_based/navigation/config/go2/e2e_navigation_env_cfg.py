@@ -744,4 +744,4 @@ class NavigationEnd2End2ndStageEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = DISCRETE_OBSTACLES_ROUGH_ONLY
-        self.rewards.goal_reached_action_penalty.weight = -0.008
+        self.rewards.goal_reached_action_penalty.weight = -0.005
