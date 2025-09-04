@@ -211,7 +211,7 @@ DISCRETE_OBSTACLES_ONLY = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=20.0,
     num_rows=10,
-    num_cols=1,
+    num_cols=2,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
@@ -226,7 +226,7 @@ DISCRETE_OBSTACLES_ONLY = TerrainGeneratorCfg(
             max_num_high_obstacles=10,
             low_obstacle_max_height=0.3,
             high_obstacle_height_range=(1.0, 2.0),
-            obstacle_width_range=(0.5, 2.0),
+            obstacle_width_range=(0.3, 1.5),
             platform_width=1.1,
             flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG})
     },

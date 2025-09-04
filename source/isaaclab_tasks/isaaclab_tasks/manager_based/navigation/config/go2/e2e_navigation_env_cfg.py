@@ -355,7 +355,9 @@ class RewardsCfg:
             "terrain_names": ["discrete_obstacles"],
             "func": mdp.undesired_contacts,
             "callback_params": {
-                "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
+                "sensor_cfg": SceneEntityCfg(
+                    "contact_forces", 
+                    body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
                 "threshold": 0.2
             }
         })
