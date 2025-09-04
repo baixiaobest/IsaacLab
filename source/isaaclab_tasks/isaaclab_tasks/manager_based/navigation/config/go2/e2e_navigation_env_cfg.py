@@ -324,6 +324,7 @@ class RewardsCfg:
             'inactivate_after_time': GOAL_REACHED_ACTIVE_AFTER,
             'callback_params': {
                 'command_name': 'pose_2d_command',
+                'std': 0.2
             }
         })
     

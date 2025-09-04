@@ -702,7 +702,8 @@ def movement_reward(
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
         command_name: str = "pose_2d_command",
         velocity_threshold: float = 0.1,
-        distance_threshold: float = 0.5) -> torch.Tensor:
+        distance_threshold: float = 0.5,
+        std: float = 0.2) -> torch.Tensor:
     """Penalty for being stalled, i.e., not moving towards the goal."""
     asset: Articulation = env.scene[asset_cfg.name]
     robot_vel = asset.data.root_lin_vel_w
@@ -714,12 +715,15 @@ def movement_reward(
     out_of_goal_region = distance_to_goal > distance_threshold
     
     # robot not moving
-    robot_moving = torch.norm(robot_vel, dim=1) > velocity_threshold
+    robot_speed = torch.norm(robot_vel, dim=1)
+    robot_moving = robot_speed > velocity_threshold
 
     # reward is applied when robot is moving and is outside the goal region
-    reward = torch.logical_and(robot_moving, out_of_goal_region)
+    enable_reward = torch.logical_and(robot_moving, out_of_goal_region)
 
-    return reward.float()
+    reward = torch.tanh((robot_speed - velocity_threshold) / std)
+
+    return reward * enable_reward
 
 def speed_limit_penalty(
         env: ManagerBasedRLEnv,
