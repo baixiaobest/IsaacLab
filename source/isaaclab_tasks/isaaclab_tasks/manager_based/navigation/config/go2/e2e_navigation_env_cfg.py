@@ -231,21 +231,8 @@ class CurriculumCfg:
                                   "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
                                   "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
                               })
-    pyramid_stairs_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs"})
-    pyramid_stairs_inv_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs_inv"})
-    
-    cross_gap_level = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "mesh_gap"})
-    climb_down_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_box"})
-    climb_out_pit_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_pit"})
-    climb_rail_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "mesh_rail"})
-
-    pyramid_slope_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "hf_pyramid_slope"})
-    pyramid_slope_inv_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "hf_pyramid_slope_inv"})
-
-    repeat_objects = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "mesh_repeat_object"})
     
     random_rough_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "random_rough"})
-    box_terrain_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "boxes"})
 
     discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
 
@@ -382,7 +369,7 @@ class RewardsCfg:
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
             'robot_radius': 0.3,
-            'SOI': 0.8 # Sphere of influence
+            'SOI': 1.0 # Sphere of influence
         })
     
     feet_air_time_range = RewTerm(
@@ -687,8 +674,9 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
         self.scene.terrain.max_init_terrain_level = 10
 
         if USE_TEST_ENV:
+            self.episode_length_s = 16
             self.curriculum = None
-            self.rewards.undesired_contacts_discrete_obstacles = None
+            self.rewards = None
             self.terminations.base_contact = DoneTerm(
                 func=mdp.illegal_contact,
                 params={"sensor_cfg": SceneEntityCfg("contact_forces", 
@@ -736,7 +724,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
             #     debug_vis=True
             # )
 
-            goal_set_1 = [(2, 2), (8, 8)]
+            goal_set_1 = [(2, 2), (6, 6)]
 
             goal_set = goal_set_1
 
@@ -756,4 +744,4 @@ class NavigationEnd2End2ndStageEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = DISCRETE_OBSTACLES_ROUGH_ONLY
-        self.rewards.goal_reached_action_penalty.weight = -0.01
+        self.rewards.goal_reached_action_penalty.weight = -0.008
