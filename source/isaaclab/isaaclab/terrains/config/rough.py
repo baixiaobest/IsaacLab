@@ -236,7 +236,7 @@ DISCRETE_OBSTACLES_ROUGH_ONLY = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=20.0,
     num_rows=10,
-    num_cols=2,
+    num_cols=3,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
@@ -248,7 +248,7 @@ DISCRETE_OBSTACLES_ROUGH_ONLY = TerrainGeneratorCfg(
             flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG}
         ),
         "discrete_obstacles": terrain_gen.HfDiscretePositiveObstaclesTerrainCfg(
-            proportion=0.1,
+            proportion=0.2,
             min_num_low_obstacles=0,
             max_num_low_obstacles=4,
             min_num_high_obstacles=2,
