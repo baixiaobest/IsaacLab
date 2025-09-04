@@ -47,6 +47,7 @@ def feet_air_time_range(
     env: ManagerBasedRLEnv, 
     command_name: str, 
     sensor_cfg: SceneEntityCfg, 
+    zero_command_distance: float = 0.1,
     range: tuple[float, float] = (0.5, 1.0),
     T: float = 0.3
 ) -> torch.Tensor:
@@ -86,7 +87,7 @@ def feet_air_time_range(
     reward_dim1 = reward.size(dim=1)
     reward = torch.sum(reward, dim=1) / reward_dim1
     # no reward for zero command
-    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > zero_command_distance
     # return the reward
     return reward
 

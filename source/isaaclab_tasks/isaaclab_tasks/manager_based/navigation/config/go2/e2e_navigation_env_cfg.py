@@ -54,7 +54,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=DISCRETE_OBSTACLES_ONLY,
+            terrain_generator=DISCRETE_OBSTACLES_ROUGH_ONLY,
             max_init_terrain_level=5,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -381,7 +381,7 @@ class RewardsCfg:
             'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
             'sensor_spacing': OBSTACLE_SCANNER_SPACING,
             'robot_radius': 0.3,
-            'SOI': 1.2 # Sphere of influence
+            'SOI': 0.8 # Sphere of influence
         })
     
     feet_air_time_range = RewTerm(
@@ -390,6 +390,7 @@ class RewardsCfg:
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
+            "zero_command_distance": 0.2,
             "range": (0.4, 1.0),
             "T": 0.5
         },
