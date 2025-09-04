@@ -54,7 +54,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=DISCRETE_OBSTACLES_ROUGH_ONLY,
+            terrain_generator=ROUGH_ONLY,
             max_init_terrain_level=5,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -390,7 +390,7 @@ class RewardsCfg:
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
-            "zero_command_distance": 0.2,
+            "zero_command_distance": 0.1,
             "range": (0.4, 1.0),
             "T": 0.5
         },
@@ -751,3 +751,8 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 debug_vis=True
             )
 
+class NavigationEnd2End2ndStageEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.terrain_generator = DISCRETE_OBSTACLES_ROUGH_ONLY
+        self.rewards.goal_reached_action_penalty.weight = -0.004
