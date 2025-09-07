@@ -319,7 +319,7 @@ class RewardsCfg:
         func=nav_mdp.speed_limit_penalty,
         weight=-1.0,
         params={
-            "speed_limit": 1.5,
+            "speed_limit": 1.7,
             "std": 0.2
         }
     )
@@ -458,7 +458,7 @@ class RegularizationRewardsCfg(RewardsCfg):
 
     joint_vel_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.0005,
+        weight=-0.0002,
         params={
             "func": mdp.joint_vel_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
