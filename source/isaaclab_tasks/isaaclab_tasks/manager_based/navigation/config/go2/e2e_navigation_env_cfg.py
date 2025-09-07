@@ -42,7 +42,7 @@ STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
-REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 5
+REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 10
 TERRAIN_LEVEL_NAMES =  ['discrete_obstacles', "random_rough"]
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
@@ -400,7 +400,7 @@ class RewardsCfg:
     #################################
     # Flying penalty
     flying_penalty = RewTerm(func=mdp.flying_penalty, 
-                             weight=-0.1,
+                             weight=-0.01,
                              params={
                                  "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
                              })
