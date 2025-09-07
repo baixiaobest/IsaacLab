@@ -460,7 +460,7 @@ class RegularizationRewardsCfg(RewardsCfg):
         func=nav_mdp.activate_reward_terrain_level_reached,
         weight=-0.01,
         params={
-            "func": mdp.joint_vel_l2
+            "func": mdp.joint_vel_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
             "operator": "max",
             "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
