@@ -28,7 +28,7 @@ from isaaclab.actuators import DCMotorCfg
 # Pre-defined configs
 ##
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, \
-    DISCRETE_OBSTACLES_ROUGH_ONLY, ROUGH_ONLY, DISCRETE_OBSTACLES_ONLY # isort: skip
+    DISCRETE_OBSTACLES_ROUGH_ONLY, ROUGH_ONLY, DISCRETE_OBSTACLES_ONLY, STAIRS_ONLY # isort: skip
 from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
@@ -43,7 +43,7 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
-TERRAIN_LEVEL_NAMES =  ['discrete_obstacles'] #["random_rough"]
+TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv'] #['discrete_obstacles'] #["random_rough"]
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
@@ -81,42 +81,42 @@ class MySceneCfg(InteractiveSceneCfg):
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    obstacle_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"]
-    )
-    obstacle_scanner_dx = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"]
-    )
-    obstacle_scanner_dy = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"]
-    )
+    # obstacle_scanner = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
+    #     attach_yaw_only=True,
+    #     pattern_cfg=patterns.LidarPatternCfg(
+    #         channels=1, 
+    #         vertical_fov_range=(0.0, 0.0),
+    #         horizontal_fov_range=(0.0, 360),
+    #         horizontal_res=360/NUM_RAYS-1e-3),
+    #     debug_vis=True,
+    #     mesh_prim_paths=["/World/ground"]
+    # )
+    # obstacle_scanner_dx = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
+    #     attach_yaw_only=True,
+    #     pattern_cfg=patterns.LidarPatternCfg(
+    #         channels=1, 
+    #         vertical_fov_range=(0.0, 0.0),
+    #         horizontal_fov_range=(0.0, 360),
+    #         horizontal_res=360/NUM_RAYS-1e-3),
+    #     debug_vis=False,
+    #     mesh_prim_paths=["/World/ground"]
+    # )
+    # obstacle_scanner_dy = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
+    #     attach_yaw_only=True,
+    #     pattern_cfg=patterns.LidarPatternCfg(
+    #         channels=1, 
+    #         vertical_fov_range=(0.0, 0.0),
+    #         horizontal_fov_range=(0.0, 360),
+    #         horizontal_res=360/NUM_RAYS-1e-3),
+    #     debug_vis=False,
+    #     mesh_prim_paths=["/World/ground"]
+    # )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
     sky_light = AssetBaseCfg(
@@ -236,6 +236,8 @@ class CurriculumCfg:
 
     discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
 
+    discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
+
 @configclass
 class CommandsCfg:
     pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
@@ -348,31 +350,31 @@ class RewardsCfg:
     )
 
     # Additional undesired contacts for discrete obstacle terrain types
-    undesired_contacts_discrete_obstacles = RewTerm(
-        func=nav_mdp.terrain_specific_callback,
-        weight=-8.0,
-        params={
-            "terrain_names": ["discrete_obstacles"],
-            "func": mdp.undesired_contacts,
-            "callback_params": {
-                "sensor_cfg": SceneEntityCfg(
-                    "contact_forces", 
-                    body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
-                "threshold": 0.2
-            }
-        })
+    # undesired_contacts_discrete_obstacles = RewTerm(
+    #     func=nav_mdp.terrain_specific_callback,
+    #     weight=-8.0,
+    #     params={
+    #         "terrain_names": ["discrete_obstacles"],
+    #         "func": mdp.undesired_contacts,
+    #         "callback_params": {
+    #             "sensor_cfg": SceneEntityCfg(
+    #                 "contact_forces", 
+    #                 body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
+    #             "threshold": 0.2
+    #         }
+    #     })
     
-    obstacle_gradient_penalty = RewTerm(
-        func=nav_mdp.obstacle_gradient_penalty,
-        weight=-0.5,
-        params={
-            'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
-            'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
-            'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
-            'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-            'robot_radius': 0.3,
-            'SOI': 1.0 # Sphere of influence
-        })
+    # obstacle_gradient_penalty = RewTerm(
+    #     func=nav_mdp.obstacle_gradient_penalty,
+    #     weight=-0.5,
+    #     params={
+    #         'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
+    #         'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
+    #         'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
+    #         'sensor_spacing': OBSTACLE_SCANNER_SPACING,
+    #         'robot_radius': 0.3,
+    #         'SOI': 1.0 # Sphere of influence
+    #     })
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
@@ -560,11 +562,11 @@ class ObservationsCfg:
             func=mdp.count_down,
             params={"episode_length": EPISDOE_LENGTH}
         )
-        osbtacles_scan = ObsTerm(
-            func=mdp.lidar_scan,
-            params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
-                    "max": 10.0},
-            noise=Unoise(n_min=-0.1, n_max=0.1))
+        # osbtacles_scan = ObsTerm(
+        #     func=mdp.lidar_scan,
+        #     params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
+        #             "max": 10.0},
+        #     noise=Unoise(n_min=-0.1, n_max=0.1))
         
         # height_scan = ObsTerm(
         #     func=mdp.height_scan,
@@ -741,6 +743,22 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                 resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
                 debug_vis=True
             )
+
+@configclass
+class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.terrain_generator = STAIRS_ONLY
+        self.rewards.goal_reached_action_penalty.weight = -0.005
+
+@configclass
+class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY(NavigationEnd2EndNoEncoderStairsOnlyEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.episode_length_s = 16
+        self.curriculum = None
+        self.rewards = None
+        
 
 class NavigationEnd2End2ndStageEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
     def __post_init__(self):

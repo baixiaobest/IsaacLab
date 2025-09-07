@@ -326,3 +326,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
     algorithm = NavE2EObstacleScanNoEncoderPPOConfig
     logger="wandb"
     wandb_project="e2e_navigation"
+
+@configclass
+class UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0):
+    wandb_project="stairs_climbing"
