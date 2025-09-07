@@ -113,6 +113,19 @@ def feet_air_time_positive_biped(env, command_name: str, threshold: float, senso
     reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
     return reward
 
+def flying_penalty(env, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize the robot for being in the air (not in contact with the ground).
+
+    This function penalizes the agent for being in the air. 
+    This encourages the agent to keep at least one foot on the ground.
+    """
+    # Penalize flying
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    in_air = contact_sensor.data.current_air_time[:, sensor_cfg.body_ids] > 0.0
+    all_in_air = torch.all(in_air, dim=1).float()
+
+    return all_in_air
+
 
 def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize feet sliding.

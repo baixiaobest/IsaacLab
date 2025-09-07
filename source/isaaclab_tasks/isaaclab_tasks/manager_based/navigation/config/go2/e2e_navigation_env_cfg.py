@@ -398,6 +398,13 @@ class RewardsCfg:
     #################################
     # Regularization terms
     #################################
+    # Flying penalty
+    flying_penalty = RewTerm(func=mdp.flying_penalty, 
+                             weight=-0.1,
+                             params={
+                                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
+                             })
+
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
 
@@ -526,7 +533,7 @@ class RegularizationRewardsCfg(RewardsCfg):
     # Better pose at goal
     goal_joint_deviation_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.05,
+        weight=-0.2,
         params={
             "func": nav_mdp.pose_2d_goal_callback_reward,
             "terrain_names": TERRAIN_LEVEL_NAMES,
