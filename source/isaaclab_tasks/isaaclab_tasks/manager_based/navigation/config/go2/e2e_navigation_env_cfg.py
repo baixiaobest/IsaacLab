@@ -319,7 +319,7 @@ class RewardsCfg:
         func=nav_mdp.speed_limit_penalty,
         weight=-1.0,
         params={
-            "speed_limit": 1.7,
+            "speed_limit": 1.5,
             "std": 0.2
         }
     )
@@ -376,7 +376,7 @@ class RewardsCfg:
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
-        weight=0.5,
+        weight=0.2,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
@@ -458,7 +458,7 @@ class RegularizationRewardsCfg(RewardsCfg):
 
     joint_vel_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.0002,
+        weight=-0.0004,
         params={
             "func": mdp.joint_vel_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
