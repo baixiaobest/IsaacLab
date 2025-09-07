@@ -43,7 +43,7 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
-TERRAIN_LEVEL_NAMES =  ['discrete_obstacles'] #["random_rough"]
+TERRAIN_LEVEL_NAMES =  ['discrete_obstacles', "random_rough"]
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
@@ -453,6 +453,28 @@ class RegularizationRewardsCfg(RewardsCfg):
             "callback_params": {
                 'soft_ratio': 0.9,
             }
+        }
+    )
+
+    joint_vel_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.01,
+        params={
+            "func": mdp.joint_vel_l2
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+        }
+    )
+
+    joint_acc_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.001,
+        params={
+            "func": mdp.joint_acc_l2,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
         }
     )
 
