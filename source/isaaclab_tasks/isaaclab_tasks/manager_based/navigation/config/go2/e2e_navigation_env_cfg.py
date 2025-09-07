@@ -319,7 +319,7 @@ class RewardsCfg:
         func=nav_mdp.speed_limit_penalty,
         weight=-1.0,
         params={
-            "speed_limit": 1.7,
+            "speed_limit": 1.5,
             "std": 0.2
         }
     )
