@@ -489,16 +489,16 @@ class RegularizationRewardsCfg(RewardsCfg):
         }
     )
 
-    # joint_acc_penalty = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=0,
-    #     params={
-    #         "func": mdp.joint_acc_l2,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-    #     }
-    # )
+    joint_acc_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-1e-5,
+        params={
+            "func": mdp.joint_acc_l2,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+        }
+    )
 
     # reduce x y angular velocity
     # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
