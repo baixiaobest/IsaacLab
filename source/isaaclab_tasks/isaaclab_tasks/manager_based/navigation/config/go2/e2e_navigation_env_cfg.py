@@ -137,8 +137,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.6, 1.2),
-            "dynamic_friction_range": (0.6, 1.0),
+            "static_friction_range": (0.8, 1.5),
+            "dynamic_friction_range": (0.6, 1.3),
             "restitution_range": (0.0, 0.3),
             "num_buckets": 64,
             "make_consistent": True
@@ -200,16 +200,31 @@ class EventCfg:
         },
     )
 
-    # joint_torque_offset_curriculum = EventTerm(
-    #     func=mdp.apply_external_joint_torque_curriculum,
-    #     mode="reset",
-    #     params={
-    #         "base_torque_range": (-0.0, 0.0),
-    #         "max_torque_range": (-5.0, 5.0),
-    #         "start_terrain_level": int(NAVIGATION_TERRAINS_CFG.num_rows/2),
-    #         "max_terrain_level": NAVIGATION_TERRAINS_CFG.num_rows,
-    #         "joint_names": [".*"],
-    #     })
+    push_robot = EventTerm(
+        func=nav_mdp.activate_event_terrain_level_reached,
+        interval_range_s=(5.0, 12.0),
+        mode="interval",
+        params={
+            "func": mdp.push_by_setting_velocity,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+            "callback_params": {
+                "velocity_range": {"x": (-1.0, 1.0), "y": (-1.0, 1.0)}
+            }
+        }
+    )
+
+    joint_torque_offset_curriculum = EventTerm(
+        func=mdp.apply_external_joint_torque_curriculum,
+        mode="reset",
+        params={
+            "base_torque_range": (-0.0, 0.0),
+            "max_torque_range": (-10.0, 10.0),
+            "start_terrain_level": 5,
+            "max_terrain_level": 10,
+            "joint_names": [".*"],
+        })
     
     # randomize_actuator_gains = EventTerm(
     #     func=mdp.randomize_actuator_gains,
