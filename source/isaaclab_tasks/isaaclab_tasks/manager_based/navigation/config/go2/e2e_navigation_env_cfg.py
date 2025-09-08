@@ -491,7 +491,7 @@ class RegularizationRewardsCfg(RewardsCfg):
 
     joint_acc_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-1e-5,
+        weight=-1e-7,
         params={
             "func": mdp.joint_acc_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
