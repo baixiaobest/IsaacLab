@@ -530,6 +530,20 @@ class RegularizationRewardsCfg(RewardsCfg):
         }
     )
 
+    goal_reached_flat_penalty = RewTerm(
+        func=nav_mdp.activate_reward_terrain_level_reached,
+        weight=-0.05,
+        params={
+            "func": mdp.flat_orientation_exp,
+            "terrain_names": TERRAIN_LEVEL_NAMES,
+            "operator": "max",
+            "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
+            "callback_params": {
+                "threshold_deg": 5.0
+            }
+        }
+    )
+
     # Better pose at goal
     # goal_joint_deviation_penalty = RewTerm(
     #     func=nav_mdp.activate_reward_terrain_level_reached,
