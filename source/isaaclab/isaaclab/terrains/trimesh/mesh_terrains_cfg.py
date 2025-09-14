@@ -49,7 +49,60 @@ class MeshPyramidStairsTerrainCfg(SubTerrainBaseCfg):
     :obj:`platform_width` (depending on the direction) with no steps in the remaining area. Additionally,
     no border will be added.
     """
+    
+@configclass
+class MeshWalledLinearStairsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a linear stair mesh terrain with vertical walls."""
 
+    # bind to your generator
+    function = mesh_terrains.walled_linear_stairs_terrain
+
+    # --- base ground plane ---
+    size: tuple[float, float] = (6.0, 6.0)
+    """The size of the flat base plane (x, y) in meters."""
+
+    # --- stairs geometry ---
+    stairs_length: float = 3.0
+    """Total length of the stair corridor (y direction) in meters."""
+
+    stairs_width: float = 1.0
+    """Nominal stairs width (used if no width range/min is set)."""
+
+    step_width: float = MISSING
+    """The depth of each step (y direction shrink per side) in meters."""
+
+    num_steps: int = MISSING
+    """The number of risers (steps)."""
+
+    step_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum riser height in meters (difficulty interpolates between them)."""
+
+    # --- difficulty-driven width shrink options ---
+    stairs_width_range: tuple[float, float] | None = None
+    """Optional. (start_width, end_width) for difficulty interpolation."""
+
+    min_stairs_width: float | None = None
+    """Optional. If provided, width shrinks to this value at difficulty=1.0."""
+
+    width_shrink_ratio: float | None = None
+    """Optional. Fractional shrink (e.g., 0.5 → shrink to 50%) at difficulty=1.0."""
+
+    # --- placement offsets ---
+    stairs_center_y_offset: float = 0.0
+    """Offset along +y to shift stairs center from terrain center."""
+
+    origin_offset_y: float = 0.0
+    """Origin y-offset relative to terrain center (used to place robot spawn)."""
+
+    # --- walls ---
+    wall_thickness: float = 0.06
+    """Thickness of the side walls in meters."""
+
+    wall_clearance: float = 0.02
+    """Gap between stair usable edge and inside of wall."""
+
+    wall_height_extra: float = 0.05
+    """Extra wall height beyond total stairs height."""
 
 @configclass
 class MeshInvertedPyramidStairsTerrainCfg(MeshPyramidStairsTerrainCfg):

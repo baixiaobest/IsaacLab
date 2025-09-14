@@ -81,7 +81,7 @@ ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
 STAIRS_ONLY = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
-    num_rows=10,
+    num_rows=5,
     num_cols=4,
     horizontal_scale=0.1,
     vertical_scale=0.005,
@@ -90,7 +90,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
     curriculum=True,
     sub_terrains={
         "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
-            proportion=0.5,
+            proportion=1.0,
             step_height_range=(0, 0.23),
             step_width=0.3,
             platform_width=3.0,
@@ -99,13 +99,34 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
         "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
-            proportion=0.5,
+            proportion=1.0,
             step_height_range=(0, 0.23),
             step_width=0.3,
             platform_width=3.0,
             border_width=1.0,
             holes=False,
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width=2.0,
+            stairs_length=6.0,
+            origin_offset_y=4.5
+        ),
+        "linear_stairs_walled": terrain_gen.MeshWalledLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.05, 0.15),
+            num_steps=10,
+            step_width=0.2,
+            stairs_width_range=(2.0, 0.8),   # easy→hard width shrink
+            stairs_length=6.0,
+            origin_offset_y=4.5,
+            wall_thickness=0.08,
+            wall_clearance=0.03,
+            wall_height_extra=0.5,
         ),
     },
 )

@@ -276,6 +276,93 @@ def linear_stairs_terrain(
     return mesh_list, origin
 
 
+def walled_linear_stairs_terrain(
+    difficulty: float,
+    cfg: mesh_terrains_cfg.MeshWalledLinearStairsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """
+    Linear stairs with vertical walls on both sides and stair width that decreases with difficulty.
+
+    Behavior:
+    - Stair usable width is interpolated from either cfg.stairs_width_range (preferred) or
+      by shrinking cfg.stairs_width down to cfg.min_stairs_width (if present) or to 50% at max difficulty.
+    - Two vertical walls run along the stair edges. Wall height follows total stair height.
+    - Optional cfg.wall_thickness, cfg.wall_clearance, cfg.wall_height_extra supported.
+    """
+    # reuse most of linear_stairs_terrain logic (ground + step boxes), but compute dynamic width
+    terrain_center = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    mesh_list = [ground_mesh]
+
+    # resolve step height
+    step_height = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+
+    # compute current stairs width (several fallback options)
+    if hasattr(cfg, "stairs_width_range"):
+        sw0, sw1 = cfg.stairs_width_range
+        stairs_width = sw0 + difficulty * (sw1 - sw0)
+    elif hasattr(cfg, "min_stairs_width"):
+        stairs_width = cfg.stairs_width - difficulty * (cfg.stairs_width - cfg.min_stairs_width)
+    elif hasattr(cfg, "width_shrink_ratio"):
+        stairs_width = cfg.stairs_width * (1.0 - difficulty * cfg.width_shrink_ratio)
+    else:
+        # default: shrink to 50% at max difficulty
+        stairs_width = cfg.stairs_width * (1.0 - 0.5 * difficulty)
+
+    # clamp to positive
+    stairs_width = max(0.01, float(stairs_width))
+
+    # origin and initial box center
+    box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
+    box_length = cfg.stairs_length
+
+    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
+        distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
+        origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
+        origin[2] = origin_height
+
+    # build stair boxes (each step is a box with current stairs_width)
+    for i in range(cfg.num_steps):
+        box_dim = (stairs_width, box_length, step_height)
+        box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(box_center))
+        mesh_list.append(box)
+        box_length -= 2 * cfg.step_width
+        box_center[2] += step_height
+
+    # walls parameters (optional cfg fields supported)
+    wall_thickness = float(getattr(cfg, "wall_thickness", 0.06))
+    wall_clearance = float(getattr(cfg, "wall_clearance", 0.02))
+    wall_height_extra = float(getattr(cfg, "wall_height_extra", 0.05))
+
+    # total stair height (approx)
+    total_stair_height = cfg.num_steps * step_height
+    wall_height = max(0.01, total_stair_height + wall_height_extra)
+
+    # compute wall positions: walls run along stair length, placed left/right of stair usable width
+    stairs_half = stairs_width * 0.5
+    # determine center x for stairs (terrain_center[0]) and y covers box_length initial position:
+    stairs_center_x = terrain_center[0]
+    stairs_center_y = terrain_center[1] - cfg.stairs_center_y_offset
+
+    # left wall center
+    left_x = stairs_center_x - (stairs_half + wall_clearance + wall_thickness * 0.5)
+    left_pos = (left_x, stairs_center_y, wall_height * 0.5)
+    # right wall center
+    right_x = stairs_center_x + (stairs_half + wall_clearance + wall_thickness * 0.5)
+    right_pos = (right_x, stairs_center_y, wall_height * 0.5)
+
+    # wall length should cover the original stairs_length
+    wall_length = cfg.stairs_length + 0.0  # keep same length as stairs; adjust if needed
+
+    left_wall = trimesh.creation.box((wall_thickness, wall_length, wall_height), trimesh.transformations.translation_matrix(left_pos))
+    right_wall = trimesh.creation.box((wall_thickness, wall_length, wall_height), trimesh.transformations.translation_matrix(right_pos))
+    mesh_list.append(left_wall)
+    mesh_list.append(right_wall)
+
+    return mesh_list, origin
+
+
 def random_grid_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshRandomGridTerrainCfg
 ) -> tuple[list[trimesh.Trimesh], np.ndarray]:
