@@ -49,7 +49,7 @@ class MeshPyramidStairsTerrainCfg(SubTerrainBaseCfg):
     :obj:`platform_width` (depending on the direction) with no steps in the remaining area. Additionally,
     no border will be added.
     """
-    
+
 @configclass
 class MeshWalledLinearStairsTerrainCfg(SubTerrainBaseCfg):
     """Configuration for a linear stair mesh terrain with vertical walls."""
@@ -143,6 +143,85 @@ class MeshLinearStairsTerrainCfg(SubTerrainBaseCfg):
     origin_offset_y: float = 0.0
     """The offset of the origin of the terrain (in m). """
     origin_offset_z: float = 0.0
+
+@configclass
+class MeshTurningStairs90TerrainCfg(SubTerrainBaseCfg):
+    """L-shaped stairs: run-1 along +y, landing, run-2 along +x (or -x)."""
+    function = mesh_terrains.turning_stairs_90_terrain
+
+    # base plane
+    size: tuple[float, float] = (8.0, 8.0)
+
+    # steps
+    num_steps_run1: int = MISSING
+    num_steps_run2: int = MISSING
+    step_width: float = MISSING                 # tread depth
+    step_height_range: tuple[float, float] = MISSING
+
+    # width controls
+    stairs_width: float = 1.2
+    stairs_width_range: tuple[float, float] | None = None
+    min_stairs_width: float | None = None
+    width_shrink_ratio: float | None = None
+
+    # lengths (centerline run lengths, without landing)
+    run1_length: float = 3.0
+    run2_length: float = 3.0
+
+    # landing
+    landing_length: float = 1.2                 # y length of landing after run1
+    landing_width: float | None = None          # defaults to stairs_width at runtime
+
+    # orientation & offsets
+    turn_right: bool = True                     # True: run2 along +x; False: along -x
+    stairs_center_y_offset: float = 0.0
+    stairs_center_x_offset: float = 0.0
+    origin_offset_y: float = 0.0
+
+    # walls
+    wall_thickness: float = 0.06
+    wall_clearance: float = 0.02
+    wall_height_extra: float = 0.05
+
+
+@configclass
+class MeshTurningStairs180TerrainCfg(SubTerrainBaseCfg):
+    """U-shaped stairs: run-1 (+y), landing, run-2 (-y) offset in +x or -x."""
+    function = mesh_terrains.turning_stairs_180_terrain
+
+    size: tuple[float, float] = (8.0, 8.0)
+
+    # steps
+    num_steps_run1: int = MISSING
+    num_steps_run2: int = MISSING
+    step_width: float = MISSING
+    step_height_range: tuple[float, float] = MISSING
+
+    # width controls
+    stairs_width: float = 1.2
+    stairs_width_range: tuple[float, float] | None = None
+    min_stairs_width: float | None = None
+    width_shrink_ratio: float | None = None
+
+    # lengths (centerline run lengths, without landing)
+    run1_length: float = 3.0
+    run2_length: float = 3.0
+
+    # landing
+    landing_length: float = 1.2                 # y length of landing between runs
+    landing_offset_x: float = 1.4               # corridor offset to place run2 parallel to run1
+    landing_width: float | None = None
+
+    # orientation & offsets
+    run2_on_positive_x: bool = True             # True: run2 shifted +x; False: -x
+    stairs_center_y_offset: float = 0.0
+    stairs_center_x_offset: float = 0.0
+    origin_offset_y: float = 0.0
+
+    # walls
+    wall_thickness: float = 0.06
+    wall_clearance: float = 0.02
+    wall_height_extra: float = 0.05
 
 
 @configclass
