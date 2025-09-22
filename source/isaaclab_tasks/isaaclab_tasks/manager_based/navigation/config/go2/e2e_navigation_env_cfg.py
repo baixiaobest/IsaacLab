@@ -43,7 +43,7 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
-TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90', 'turning_stairs_180'] #['discrete_obstacles'] #["random_rough"]
+TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left'] #['discrete_obstacles'] #["random_rough"]
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass

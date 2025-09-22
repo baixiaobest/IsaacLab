@@ -480,7 +480,10 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
     ))
 
     # RUN 2: ±x starting on top of the landing
-    run2_start = (landing_center[0]+0.5*width, landing_center[1])
+    if cfg.turn_right:
+        run2_start = (landing_center[0]+0.5*width, landing_center[1])
+    else:
+        run2_start = (landing_center[0]-0.5*width, landing_center[1])
     dir2 = "x+" if cfg.turn_right else "x-"
     z2, run2_far, run2_len = _build_run_steps(
         meshes, start_xy=run2_start, direction=dir2,
@@ -488,43 +491,24 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
         step_h=step_h, tread=tread,
     )
 
-    # Walls spanning each run length (use run*_len, not a fixed length)
-    # wall_h = max(0.01, (cfg.num_steps_run1 + cfg.num_steps_run2) * step_h + landing_th + cfg.wall_height_extra)
+    # SECOND LANDING after run-2 (oriented along x)
+    exit_len = float(getattr(cfg, "second_landing_length", cfg.landing_length))
+    exit_w   = float(getattr(cfg, "second_landing_width",  landing_w))
 
-    # --- run-1 walls (walls run along +y) ---
-    # run1_center_for_walls = (run1_start[0], run1_start[1] + 0.5 * run1_len)
-    # if dir2 == "x+":
-    #     # extend left wall to landing end
-    #     right_ext = 0.0
-    #     left_ext  = width
-    # else:
-    #     right_ext = width
-    #     left_ext  = 0.0
+    # top of run-2 (z)
+    z_top2 = z1 + landing_th + cfg.num_steps_run2 * step_h
 
-    # _add_wall_pair(
-    #     meshes,
-    #     center_xy=run1_center_for_walls,
-    #     stairs_width=width,
-    #     length=run1_len,
-    #     wall_t=cfg.wall_thickness,
-    #     wall_clear=cfg.wall_clearance,
-    #     wall_h=wall_h,
-    #     along_axis="y",
-    # )
+    if dir2 == "x+":
+        # landing spans [run2_far.x, run2_far.x + exit_len] along +x
+        landing2_center = (run2_far[0] + 0.5 * exit_len, run2_start[1])
+    else:  # dir2 == "x-"
+        # landing spans [run2_far.x - exit_len, run2_far.x] along -x
+        landing2_center = (run2_far[0] - 0.5 * exit_len, run2_start[1])
 
-    # # --- run-2 walls (walls run along ±x) ---
-    # sgn = 1.0 if dir2 == "x+" else -1.0
-    # run2_center_for_walls = (run2_start[0] + 0.5 * run2_len * sgn, run2_start[1])
-    # _add_wall_pair(
-    #     meshes,
-    #     center_xy=run2_center_for_walls,
-    #     stairs_width=width,
-    #     length=run2_len,
-    #     wall_t=cfg.wall_thickness,
-    #     wall_clear=cfg.wall_clearance,
-    #     wall_h=wall_h,
-    #     along_axis="x",
-    # )
+    landing2_dim = (exit_len, exit_w, landing_th)
+    meshes.append(trimesh.creation.box(
+        landing2_dim, trimesh.transformations.translation_matrix((landing2_center[0], landing2_center[1], z_top2 + 0.5 * landing_th))
+    ))
 
     return meshes, origin
 
@@ -572,6 +556,18 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
         base_z=z1 + landing_th, stairs_width=width, num_steps=cfg.num_steps_run2,
         step_h=step_h, tread=tread,
     )
+    z_top2 = z1 + landing_th + cfg.num_steps_run2 * step_h
+    # LANDING 2 (exit landing) after run-2 toward -y
+    exit_len = getattr(cfg, "second_landing_length", cfg.landing_length)
+    exit_w   = float(getattr(cfg, "second_landing_width", landing_w))
+    # run2_far is the far edge of run2 along -y; exit landing spans [run2_far - exit_len, run2_far]
+    landing2_center = (run2_start[0], run2_far[1] - 0.5 * exit_len)
+    landing2_dim    = (exit_w, exit_len, landing_th)
+    meshes.append(trimesh.creation.box(
+        landing2_dim, trimesh.transformations.translation_matrix(
+            (landing2_center[0], landing2_center[1], z_top2 + 0.5 * landing_th)
+        )
+    ))
 
     return meshes, origin
 
