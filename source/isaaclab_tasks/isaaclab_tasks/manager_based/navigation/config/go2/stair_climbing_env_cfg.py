@@ -330,7 +330,7 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.05,
+        weight=-0.1,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
@@ -370,7 +370,7 @@ class RewardsCfg:
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
-        weight=0.2,
+        weight=0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
@@ -382,7 +382,7 @@ class RewardsCfg:
 
     flying_penalty = RewTerm(
         func=mdp.flying_penalty,
-        weight=-0.2,
+        weight=-0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
         },
