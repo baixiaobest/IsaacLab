@@ -35,6 +35,8 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 5
+FOOT_SCANNER_RAIDUS = 0.1
+FOOT_SCANNER_NUM_POINTS = 8
 TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left']
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
@@ -77,7 +79,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.CirclePatternCfg(radius=0.15, num_points=8),
+        pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -86,7 +88,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/FR_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.CirclePatternCfg(radius=0.15, num_points=8),
+        pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -95,7 +97,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/RL_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.CirclePatternCfg(radius=0.15, num_points=8),
+        pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -104,7 +106,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/RR_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
-        pattern_cfg=patterns.CirclePatternCfg(radius=0.15, num_points=8),
+        pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
     )
@@ -511,34 +513,34 @@ class ObservationsCfg:
             params={"episode_length": EPISDOE_LENGTH}
         )
 
-        fl_foot_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={
-                "sensor_cfg": SceneEntityCfg("fl_foot_scanner"), 
-                'offset': 0.0},
-            clip=(-1.0, 1.0),
-        )
-        fr_foot_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={
-                "sensor_cfg": SceneEntityCfg("fr_foot_scanner"), 
-                'offset': 0.0},
-            clip=(-1.0, 1.0),
-        )
-        rl_foot_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={
-                "sensor_cfg": SceneEntityCfg("rl_foot_scanner"), 
-                'offset': 0.0},
-            clip=(-1.0, 1.0),
-        )
-        rr_foot_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={
-                "sensor_cfg": SceneEntityCfg("rr_foot_scanner"), 
-                'offset': 0.0},
-            clip=(-1.0, 1.0),
-        )
+        # fl_foot_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("fl_foot_scanner"), 
+        #         'offset': 0.0},
+        #     clip=(-1.0, 1.0),
+        # )
+        # fr_foot_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("fr_foot_scanner"), 
+        #         'offset': 0.0},
+        #     clip=(-1.0, 1.0),
+        # )
+        # rl_foot_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("rl_foot_scanner"), 
+        #         'offset': 0.0},
+        #     clip=(-1.0, 1.0),
+        # )
+        # rr_foot_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("rr_foot_scanner"), 
+        #         'offset': 0.0},
+        #     clip=(-1.0, 1.0),
+        # )
         
         height_scan = ObsTerm(
             func=mdp.height_scan,
