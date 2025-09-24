@@ -19,12 +19,12 @@ FLAT_PATCH_PYRAMIDS = FlatPatchSamplingCfg(
     x_range=(-8, 8.0),
     y_range=(-8.0, 8.0),
     z_range=(-5.0, 5.0), # setpoint can only be set on stairs
-    max_height_diff=0.2,
+    max_height_diff=0.1,
     min_distance=0.0
 )
 
 PYRAMIDS_ONLY = TerrainGeneratorCfg(
-    size=(8.0, 8.0),
+    size=(10.0, 10.0),
     border_width=20.0,
     num_rows=10,
     num_cols=2,
@@ -39,7 +39,7 @@ PYRAMIDS_ONLY = TerrainGeneratorCfg(
             step_height_range=(0, 0.15),
             step_width=0.3,
             platform_width=3.0,
-            border_width=1.0,
+            border_width=1.5,
             holes=False,
             flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
         ),
@@ -48,7 +48,7 @@ PYRAMIDS_ONLY = TerrainGeneratorCfg(
             step_height_range=(0, 0.15),        
             step_width=0.3,
             platform_width=3.0,
-            border_width=1.0,
+            border_width=1.5,
             holes=False,
             flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
         ),

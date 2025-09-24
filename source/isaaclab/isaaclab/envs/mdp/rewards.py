@@ -376,6 +376,62 @@ def contact_forces(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEn
     # compute the penalty
     return torch.sum(violation.clip(min=0.0), dim=1)
 
+def wall_contact_penalty(env, sensor_cfg: SceneEntityCfg, threshold: float=0.7) -> torch.Tensor:
+    """Penalize contacts with walls.
+    
+    Args:
+        env: The environment.
+        sensor_cfg: Configuration for the contact sensor.
+        penalty: Penalty value for wall contacts.
+        
+    Returns:
+        Penalty for wall contacts for each environment.
+    """
+    normals = _get_contact_normals(env, sensor_cfg)
+    
+    # Check if horizontal component dominates (wall contact)
+    # For wall contacts, the z component should be close to 0
+    horizontal_component = torch.norm(normals[:, :, :2], dim=-1)
+    
+    # Force must be present for contact to be detected
+    has_contact = torch.norm(normals, dim=-1) > 1e-6
+    
+    # Wall contact: horizontal component is significant
+    wall_contacts = (horizontal_component > threshold) & has_contact
+    
+    # Sum over all bodies
+    total_wall_contacts = torch.sum(wall_contacts.float(), dim=1)
+    
+    return total_wall_contacts
+
+def _get_contact_normals(env, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Get the normal directions of contacts.
+    
+    Args:
+        env: The environment.
+        sensor_cfg: Configuration for the contact sensor with body_ids.
+        
+    Returns:
+        Contact normal directions for each body in world frame. Shape: (N, B, 3)
+        Where N is the number of environments and B is the number of bodies.
+    """
+    # Get the contact sensor
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    
+    # Get the contact forces
+    contact_forces = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
+    
+    # Calculate the magnitude of forces (without keeping dimensions to match shapes)
+    contact_norms = torch.norm(contact_forces, dim=-1, keepdim=True)
+    
+    # Compute normal directions (avoiding division by zero using a safer approach)
+    # Use broadcasting instead of boolean indexing with mismatched shapes
+    mask = (contact_norms > 1e-6).float()
+    normal_dirs = torch.zeros_like(contact_forces)
+    normal_dirs = contact_forces / (contact_norms + 1e-10) * mask
+    
+    return normal_dirs
+
 
 """
 Velocity-tracking rewards.
