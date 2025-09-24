@@ -74,6 +74,33 @@ gym.register(
     })
 
 gym.register(
+    id="Isaac-End2End-Navigation-No-Encoder-Unitree-Go2-Stairs-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.e2e_navigation_env_cfg:NavigationEnd2EndNoEncoderStairsOnlyEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0"
+    })
+
+gym.register(
+    id="Isaac-End2End-Navigation-No-Encoder-Unitree-Go2-Stairs-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.e2e_navigation_env_cfg:NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0"
+    })
+
+# gym.register(
+#     id="Isaac-End2End-Navigation-No-Encoder-Unitree-Go2-Stairs-Play-v0",
+#     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+#     disable_env_checker=True,
+#     kwargs={
+#         "env_cfg_entry_point": f"{__name__}.e2e_navigation_env_cfg:NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY",
+#         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0"
+#     })
+
+gym.register(
     id="Isaac-End2End-Navigation-Unitree-Go2-2nd-Stage-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,

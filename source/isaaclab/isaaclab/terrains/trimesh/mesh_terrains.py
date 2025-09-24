@@ -276,6 +276,302 @@ def linear_stairs_terrain(
     return mesh_list, origin
 
 
+def walled_linear_stairs_terrain(
+    difficulty: float,
+    cfg: mesh_terrains_cfg.MeshWalledLinearStairsTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """
+    Linear stairs with vertical walls on both sides and stair width that decreases with difficulty.
+
+    Behavior:
+    - Stair usable width is interpolated from either cfg.stairs_width_range (preferred) or
+      by shrinking cfg.stairs_width down to cfg.min_stairs_width (if present) or to 50% at max difficulty.
+    - Two vertical walls run along the stair edges. Wall height follows total stair height.
+    - Optional cfg.wall_thickness, cfg.wall_clearance, cfg.wall_height_extra supported.
+    """
+    # reuse most of linear_stairs_terrain logic (ground + step boxes), but compute dynamic width
+    terrain_center = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    mesh_list = [ground_mesh]
+
+    # resolve step height
+    step_height = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+
+    # compute current stairs width (several fallback options)
+    if hasattr(cfg, "stairs_width_range"):
+        sw0, sw1 = cfg.stairs_width_range
+        stairs_width = sw0 + difficulty * (sw1 - sw0)
+    elif hasattr(cfg, "min_stairs_width"):
+        stairs_width = cfg.stairs_width - difficulty * (cfg.stairs_width - cfg.min_stairs_width)
+    elif hasattr(cfg, "width_shrink_ratio"):
+        stairs_width = cfg.stairs_width * (1.0 - difficulty * cfg.width_shrink_ratio)
+    else:
+        # default: shrink to 50% at max difficulty
+        stairs_width = cfg.stairs_width * (1.0 - 0.5 * difficulty)
+
+    # clamp to positive
+    stairs_width = max(0.01, float(stairs_width))
+
+    # origin and initial box center
+    box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
+    box_length = cfg.stairs_length
+
+    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
+        distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
+        origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
+        origin[2] = origin_height
+
+    # build stair boxes (each step is a box with current stairs_width)
+    for i in range(cfg.num_steps):
+        box_dim = (stairs_width, box_length, step_height)
+        box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix(box_center))
+        mesh_list.append(box)
+        box_length -= 2 * cfg.step_width
+        box_center[2] += step_height
+
+    # walls parameters (optional cfg fields supported)
+    wall_thickness = float(getattr(cfg, "wall_thickness", 0.06))
+    wall_clearance = float(getattr(cfg, "wall_clearance", 0.02))
+    wall_height_extra = float(getattr(cfg, "wall_height_extra", 0.05))
+
+    # total stair height (approx)
+    total_stair_height = cfg.num_steps * step_height
+    wall_height = max(0.01, total_stair_height + wall_height_extra)
+
+    # compute wall positions: walls run along stair length, placed left/right of stair usable width
+    stairs_half = stairs_width * 0.5
+    # determine center x for stairs (terrain_center[0]) and y covers box_length initial position:
+    stairs_center_x = terrain_center[0]
+    stairs_center_y = terrain_center[1] - cfg.stairs_center_y_offset
+
+    # left wall center
+    left_x = stairs_center_x - (stairs_half + wall_clearance + wall_thickness * 0.5)
+    left_pos = (left_x, stairs_center_y, wall_height * 0.5)
+    # right wall center
+    right_x = stairs_center_x + (stairs_half + wall_clearance + wall_thickness * 0.5)
+    right_pos = (right_x, stairs_center_y, wall_height * 0.5)
+
+    # wall length should cover the original stairs_length
+    wall_length = cfg.stairs_length + 0.0  # keep same length as stairs; adjust if needed
+
+    left_wall = trimesh.creation.box((wall_thickness, wall_length, wall_height), trimesh.transformations.translation_matrix(left_pos))
+    right_wall = trimesh.creation.box((wall_thickness, wall_length, wall_height), trimesh.transformations.translation_matrix(right_pos))
+    mesh_list.append(left_wall)
+    mesh_list.append(right_wall)
+
+    return mesh_list, origin
+
+
+def _resolve_width(difficulty: float, cfg) -> float:
+    if getattr(cfg, "stairs_width_range", None) is not None:
+        w0, w1 = cfg.stairs_width_range
+        w = w0 + difficulty * (w1 - w0)
+    elif getattr(cfg, "min_stairs_width", None) is not None:
+        w = cfg.stairs_width - difficulty * (cfg.stairs_width - cfg.min_stairs_width)
+    elif getattr(cfg, "width_shrink_ratio", None) is not None:
+        w = cfg.stairs_width * (1.0 - difficulty * cfg.width_shrink_ratio)
+    else:
+        w = cfg.stairs_width * (1.0 - 0.5 * difficulty)
+    return max(0.01, float(w))
+
+def _build_run_steps(
+    mesh_list,
+    start_xy,          # (x_start, y_start) = entry edge (low end)
+    direction,         # "y+" | "y-" | "x+" | "x-"
+    base_z,            # z at entry edge (low end)
+    stairs_width,
+    num_steps,
+    step_h,
+    tread,             # usually cfg.step_width
+):
+    """
+    Place num_steps identical treads of length=tread that advance along 'direction'.
+    Step i (0-based) sits at horizontal offset i*tread from start and rises by i*step_h.
+    Returns:
+      z_gain: num_steps * step_h
+      far_edge_xy: the far edge after the last tread
+      run_length: num_steps * tread (use for landings/walls)
+    """
+    x0, y0 = start_xy
+
+    if direction == "y+":
+        ux, uy, along_x = 0.0, 1.0, False
+    elif direction == "y-":
+        ux, uy, along_x = 0.0, -1.0, False
+    elif direction == "x+":
+        ux, uy, along_x = 1.0, 0.0, True
+    elif direction == "x-":
+        ux, uy, along_x = -1.0, 0.0, True
+    else:
+        raise ValueError(f"Unknown direction: {direction}")
+
+    for i in range(num_steps):
+        # center of step i is at start + (i + 0.5)*tread along the run
+        cx = x0 + (i + 0.5) * tread * ux
+        cy = y0 + (i + 0.5) * tread * uy
+        cz = base_z + (i + 0.5) * step_h
+
+        if along_x:
+            box_dim = (tread, stairs_width, step_h)
+        else:
+            box_dim = (stairs_width, tread, step_h)
+
+        box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix((cx, cy, cz)))
+        mesh_list.append(box)
+
+    run_length = num_steps * tread
+    far_x = x0 + run_length * ux
+    far_y = y0 + run_length * uy
+    return num_steps * step_h, (far_x, far_y), run_length
+
+
+def _add_wall_pair(mesh_list, center_xy, stairs_width, length, wall_t, wall_clear, wall_h, along_axis="y"):
+    """
+    Places two vertical walls flanking the usable width.
+    If along_axis=='y', walls run along y; else along x.
+    """
+    cx, cy = center_xy
+    half = 0.5 * stairs_width
+    if along_axis == "y":
+        # walls at x = cx ± (half + clearance + t/2), length along y
+        xL = cx - (half + wall_clear + wall_t * 0.5)
+        xR = cx + (half + wall_clear + wall_t * 0.5)
+        posL = (xL, cy, wall_h * 0.5)
+        posR = (xR, cy, wall_h * 0.5)
+        dim  = (wall_t, length, wall_h)
+    else:
+        yB = cy - (half + wall_clear + wall_t * 0.5)
+        yT = cy + (half + wall_clear + wall_t * 0.5)
+        posB = (cx, yB, wall_h * 0.5)
+        posT = (cx, yT, wall_h * 0.5)
+        dim  = (length, wall_t, wall_h)
+        posL, posR = posB, posT
+    mesh_list.append(trimesh.creation.box(dim, trimesh.transformations.translation_matrix(posL)))
+    mesh_list.append(trimesh.creation.box(dim, trimesh.transformations.translation_matrix(posR)))
+
+
+def turning_stairs_90_terrain(difficulty: float, cfg):
+    terrain_center = np.array([0.5 * cfg.size[0] + cfg.stairs_center_x_offset,
+                               0.5 * cfg.size[1] - cfg.stairs_center_y_offset, 0.0])
+    meshes = [make_plane(cfg.size, 0.0, center_zero=False)]
+
+    step_h = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+    width  = _resolve_width(difficulty, cfg)
+    tread  = cfg.step_width                              # constant tread depth
+    landing_th = max(step_h * 0.5, 0.02)
+    landing_w  = float(cfg.landing_width if cfg.landing_width is not None else width)
+
+    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+
+    # RUN 1: +y from entry edge
+    run1_start = (terrain_center[0], terrain_center[1])
+    z1, run1_far, run1_len = _build_run_steps(
+        meshes, start_xy=run1_start, direction="y+",
+        base_z=0.0, stairs_width=width, num_steps=cfg.num_steps_run1,
+        step_h=step_h, tread=tread,
+    )
+
+    # Landing beyond run1 end
+    landing_center = (run1_far[0], run1_far[1] + 0.5 * cfg.landing_length)
+    landing_dim    = (landing_w, cfg.landing_length, landing_th)
+    meshes.append(trimesh.creation.box(
+        landing_dim, trimesh.transformations.translation_matrix((landing_center[0], landing_center[1], z1 + 0.5 * landing_th))
+    ))
+
+    # RUN 2: ±x starting on top of the landing
+    if cfg.turn_right:
+        run2_start = (landing_center[0]+0.5*width, landing_center[1])
+    else:
+        run2_start = (landing_center[0]-0.5*width, landing_center[1])
+    dir2 = "x+" if cfg.turn_right else "x-"
+    z2, run2_far, run2_len = _build_run_steps(
+        meshes, start_xy=run2_start, direction=dir2,
+        base_z=z1 + landing_th, stairs_width=width, num_steps=cfg.num_steps_run2,
+        step_h=step_h, tread=tread,
+    )
+
+    # SECOND LANDING after run-2 (oriented along x)
+    exit_len = float(getattr(cfg, "second_landing_length", cfg.landing_length))
+    exit_w   = float(getattr(cfg, "second_landing_width",  landing_w))
+
+    # top of run-2 (z)
+    z_top2 = z1 + landing_th + cfg.num_steps_run2 * step_h
+
+    if dir2 == "x+":
+        # landing spans [run2_far.x, run2_far.x + exit_len] along +x
+        landing2_center = (run2_far[0] + 0.5 * exit_len, run2_start[1])
+    else:  # dir2 == "x-"
+        # landing spans [run2_far.x - exit_len, run2_far.x] along -x
+        landing2_center = (run2_far[0] - 0.5 * exit_len, run2_start[1])
+
+    landing2_dim = (exit_len, exit_w, landing_th)
+    meshes.append(trimesh.creation.box(
+        landing2_dim, trimesh.transformations.translation_matrix((landing2_center[0], landing2_center[1], z_top2 + 0.5 * landing_th))
+    ))
+
+    return meshes, origin
+
+
+def turning_stairs_180_terrain(difficulty: float, cfg):
+    terrain_center = np.array([0.5 * cfg.size[0] + cfg.stairs_center_x_offset,
+                               0.5 * cfg.size[1] - cfg.stairs_center_y_offset, 0.0])
+    meshes = [make_plane(cfg.size, 0.0, center_zero=False)]
+
+    # geometry params
+    step_h = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+    width  = _resolve_width(difficulty, cfg)
+    tread  = cfg.step_width  # constant tread depth per riser
+    landing_th = max(step_h * 0.5, 0.02)
+    landing_w  = float(cfg.landing_width if getattr(cfg, "landing_width", None) is not None else width)
+
+    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+
+    # RUN 1: along +y from entry edge at terrain_center
+    run1_start = (terrain_center[0], terrain_center[1])
+    z1, run1_far, run1_len = _build_run_steps(
+        meshes, start_xy=run1_start, direction="y+",
+        base_z=0.0, stairs_width=width, num_steps=cfg.num_steps_run1,
+        step_h=step_h, tread=tread,
+    )
+
+    # compute x shift for second corridor (+x or -x)
+    x_shift = cfg.landing_offset_x if cfg.run2_on_positive_x else -cfg.landing_offset_x
+
+    # LANDING: centered halfway between the two corridor centerlines in x,
+    # and between run1_far and run1_far + landing_length in y
+    landing_center = (run1_start[0] + 0.5 * x_shift, run1_far[1] + 0.5 * cfg.landing_length)
+    # widen landing in x so it spans both corridor widths (landing_w) plus the gap (abs(x_shift))
+    landing_dim    = (landing_w + abs(x_shift), cfg.landing_length, landing_th)
+    meshes.append(trimesh.creation.box(
+        landing_dim, trimesh.transformations.translation_matrix(
+            (landing_center[0], landing_center[1], z1 + 0.5 * landing_th)
+        )
+    ))
+
+    # RUN 2: along -y, starting at the far edge of the landing (in y), centered on the shifted corridor (in x)
+    run2_start = (run1_start[0] + x_shift, landing_center[1] - 0.5 * cfg.landing_length)
+    z2, run2_far, run2_len = _build_run_steps(
+        meshes, start_xy=run2_start, direction="y-",
+        base_z=z1 + landing_th, stairs_width=width, num_steps=cfg.num_steps_run2,
+        step_h=step_h, tread=tread,
+    )
+    z_top2 = z1 + landing_th + cfg.num_steps_run2 * step_h
+    # LANDING 2 (exit landing) after run-2 toward -y
+    exit_len = getattr(cfg, "second_landing_length", cfg.landing_length)
+    exit_w   = float(getattr(cfg, "second_landing_width", landing_w))
+    # run2_far is the far edge of run2 along -y; exit landing spans [run2_far - exit_len, run2_far]
+    landing2_center = (run2_start[0], run2_far[1] - 0.5 * exit_len)
+    landing2_dim    = (exit_w, exit_len, landing_th)
+    meshes.append(trimesh.creation.box(
+        landing2_dim, trimesh.transformations.translation_matrix(
+            (landing2_center[0], landing2_center[1], z_top2 + 0.5 * landing_th)
+        )
+    ))
+
+    return meshes, origin
+
+
 def random_grid_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshRandomGridTerrainCfg
 ) -> tuple[list[trimesh.Trimesh], np.ndarray]:
