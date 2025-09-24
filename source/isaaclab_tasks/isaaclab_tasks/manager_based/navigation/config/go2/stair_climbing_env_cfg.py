@@ -211,7 +211,7 @@ class RewardsCfg:
     # Task reward
     goal_tracking_xy_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=0.5,
+        weight=1.0,
         params={
             "func": nav_mdp.position_command_xy_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
@@ -223,7 +223,7 @@ class RewardsCfg:
     
     goal_tracking_z_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=1.0,
+        weight=1.5,
         params={
             "func": nav_mdp.position_command_z_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
