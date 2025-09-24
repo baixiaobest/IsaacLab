@@ -176,6 +176,19 @@ UNITREE_GO2_CFG = ArticulationCfg(
         ),
     },
 )
+
+UNITREE_GO2_STIFF_CFG = UNITREE_GO2_CFG.replace(
+    actuators={
+        "base_legs": DCMotorCfg(
+            joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
+            effort_limit=23.5,
+            saturation_effort=23.5,
+            velocity_limit=30.0,
+            stiffness=35.0,
+            damping=1.0,
+            friction=0.0,
+        ),
+    })
 """Configuration of Unitree Go2 using DC-Motor actuator model."""
 
 

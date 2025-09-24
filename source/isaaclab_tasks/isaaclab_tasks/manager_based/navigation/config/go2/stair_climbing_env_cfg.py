@@ -21,7 +21,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
 from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, PYRAMIDS_ONLY # isort: skip
-from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG 
+from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
 EPISDOE_LENGTH = 10.0
@@ -65,7 +65,7 @@ class MySceneCfg(InteractiveSceneCfg):
             debug_vis=False,
         )
     # robots
-    robot: ArticulationCfg = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = UNITREE_GO2_STIFF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # sensors
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
