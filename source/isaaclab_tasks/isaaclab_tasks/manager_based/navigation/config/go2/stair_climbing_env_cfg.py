@@ -467,6 +467,8 @@ class RegularizationRewardsCfg(RewardsCfg):
             "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
         }
     )
+
+    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.1)
     
     #################################
     # Goal reached reward/penalty
