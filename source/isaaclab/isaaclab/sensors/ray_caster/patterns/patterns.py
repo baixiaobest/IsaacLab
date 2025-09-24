@@ -177,3 +177,45 @@ def lidar_pattern(cfg: patterns_cfg.LidarPatternCfg, device: str) -> tuple[torch
     ray_starts = torch.zeros_like(ray_directions).to(device)
 
     return ray_starts, ray_directions
+
+
+def circle_pattern(cfg: patterns_cfg.CirclePatternCfg, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    """A circular pattern for ray casting.
+
+    The circle pattern consists of rays originating from points evenly distributed around a circle
+    in the sensor's local xy-plane. The circle is centered at the origin with a configurable radius.
+
+    Args:
+        cfg: The configuration instance for the pattern.
+        device: The device to create the pattern on.
+
+    Returns:
+        The starting positions and directions of the rays.
+
+    Raises:
+        ValueError: If the number of points is less than or equal to 0.
+        ValueError: If the radius is less than or equal to 0.
+    """
+    # check valid arguments
+    if cfg.num_points <= 0:
+        raise ValueError(f"Number of points must be greater than 0. Received: '{cfg.num_points}'.")
+    if cfg.radius <= 0:
+        raise ValueError(f"Radius must be greater than 0. Received: '{cfg.radius}'.")
+
+    # generate angles evenly distributed on a circle
+    angles = torch.linspace(0.0, 2.0 * math.pi * (1.0 - 1.0/cfg.num_points), cfg.num_points, device=device)
+
+    # compute x and y coordinates on the circle
+    x = cfg.radius * torch.cos(angles)
+    y = cfg.radius * torch.sin(angles)
+
+    # store into ray starts
+    ray_starts = torch.zeros(cfg.num_points, 3, device=device)
+    ray_starts[:, 0] = x
+    ray_starts[:, 1] = y
+
+    # define ray-cast directions
+    ray_directions = torch.zeros_like(ray_starts)
+    ray_directions[..., :] = torch.tensor(list(cfg.direction), device=device)
+
+    return ray_starts, ray_directions

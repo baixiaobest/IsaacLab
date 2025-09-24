@@ -216,3 +216,22 @@ class LidarPatternCfg(PatternBaseCfg):
 
     horizontal_res: float = MISSING
     """Horizontal resolution (in degrees)."""
+
+
+@configclass
+class CirclePatternCfg(PatternBaseCfg):
+    """Configuration for the circle pattern for ray-casting.
+
+    Defines a circle of rays in the coordinates of the sensor.
+    """
+
+    func: Callable = patterns.circle_pattern
+
+    num_points: int = MISSING
+    """Number of points evenly distributed around the circle."""
+
+    radius: float = MISSING
+    """Radius of the circle (in meters)."""
+
+    direction: tuple[float, float, float] = (0.0, 0.0, -1.0)
+    """Ray direction. Defaults to (0.0, 0.0, -1.0)."""
