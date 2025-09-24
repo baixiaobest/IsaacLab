@@ -20,7 +20,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
-from isaaclab.terrains.config.stairs import STAIRS_ONLY, PYRAMIDS_ONLY # isort: skip
+from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, PYRAMIDS_ONLY # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG 
 from isaaclab.utils import configclass
 
@@ -34,7 +34,7 @@ STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
-REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
+REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 5
 TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left']
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
@@ -46,7 +46,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=STAIRS_ONLY,
+            terrain_generator=DIVERSE_STAIRS,
             max_init_terrain_level=0,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -191,6 +191,15 @@ class CurriculumCfg:
                                   "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
                                   "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
                               })
+    
+    pyramids_stairs = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs"})
+    pyramid_stairs_inv = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs_inv"})
+    linear_stairs_ground = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "linear_stairs_ground"})
+    linear_stairs_walled = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "linear_stairs_walled"})
+    turning_stairs_90_right = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_90_right"})
+    turning_stairs_90_left = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_90_left"})
+    turning_stairs_180_right = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_180_right"})
+    turning_stairs_180_left = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_180_left"})
 
 @configclass
 class CommandsCfg:
@@ -384,7 +393,7 @@ class RegularizationRewardsCfg(RewardsCfg):
 
     joint_vel_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-2e-4,
+        weight=-5e-5,
         params={
             "func": mdp.joint_vel_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -395,7 +404,7 @@ class RegularizationRewardsCfg(RewardsCfg):
 
     joint_acc_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-1e-7,
+        weight=-2e-8,
         params={
             "func": mdp.joint_acc_l2,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -565,7 +574,7 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = STAIRS_ONLY
+        self.scene.terrain.terrain_generator = DIVERSE_STAIRS
         self.rewards.goal_tracking_z_conditioned_coarse.weight = 1.0
 
 @configclass

@@ -55,7 +55,7 @@ PYRAMIDS_ONLY = TerrainGeneratorCfg(
     },
 )
 
-STAIRS_ONLY = TerrainGeneratorCfg(
+DIVERSE_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
     num_rows=5,
@@ -66,24 +66,6 @@ STAIRS_ONLY = TerrainGeneratorCfg(
     use_cache=False,
     curriculum=True,
     sub_terrains={
-        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
-            proportion=1.0,
-            step_height_range=(0, 0.15),
-            step_width=0.3,
-            platform_width=3.0,
-            border_width=1.0,
-            holes=False,
-            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
-        ),
-        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
-            proportion=1.0,
-            step_height_range=(0, 0.15),
-            step_width=0.3,
-            platform_width=3.0,
-            border_width=1.0,
-            holes=False,
-            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
-        ),
         "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
             proportion=1.0,
             step_height_range=(0.05, 0.15),
