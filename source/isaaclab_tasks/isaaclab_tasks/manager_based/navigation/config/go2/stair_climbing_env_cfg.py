@@ -380,6 +380,14 @@ class RewardsCfg:
         },
     )
 
+    flying_penalty = RewTerm(
+        func=mdp.flying_penalty,
+        weight=-0.2,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
+        },
+    )
+
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
 
