@@ -278,7 +278,7 @@ class RewardsCfg:
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 5.0,
-                "z_std": 1.0
+                "z_std": 3.0
             }
         })
     
@@ -662,6 +662,7 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
 
         self.scene.terrain.terrain_generator = DIVERSE_STAIRS
         self.rewards.goal_tracking_z_conditioned_coarse.weight = 1.0
+        self.rewards.goal_tracking_coarse.weight = 0.0
 
 @configclass
 class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY(NavigationEnd2EndNoEncoderStairsOnlyEnvCfg):
