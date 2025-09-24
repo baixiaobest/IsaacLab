@@ -18,9 +18,9 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+from isaaclab.envs import ManagerBasedRLEnvCfg
 
-from .e2e_navigation_env_cfg import NavigationEnd2EndNoEncoderEnvCfg
-from isaaclab.terrains.config.stairs import STAIRS_ONLY # isort: skip
+from isaaclab.terrains.config.stairs import STAIRS_ONLY, PYRAMIDS_ONLY # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG 
 from isaaclab.utils import configclass
 
@@ -209,27 +209,29 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     # Task reward
-    goal_tracking_xy_coarse = RewTerm(
+    goal_tracking_coarse = RewTerm(
         func=nav_mdp.active_after_time,
         weight=1.0,
         params={
-            "func": nav_mdp.position_command_xy_error_tanh,
+            "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 5.0
             }
         })
-    
-    goal_tracking_z_coarse = RewTerm(
+
+    # Reserved for second stage training
+    goal_tracking_z_conditioned_coarse = RewTerm(
         func=nav_mdp.active_after_time,
-        weight=1.5,
+        weight=0.0,
         params={
-            "func": nav_mdp.position_command_z_error_tanh,
+            "func": nav_mdp.position_command_z_conditioned_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
-                "std": 5.0
+                "std": 5.0,
+                "z_std": 1.0
             }
         })
     
@@ -518,7 +520,7 @@ class TerminationsCfg:
     )
 
 @configclass
-class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
+class NavigationStairsEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
@@ -553,6 +555,18 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationEnd2EndNoEncoderEnvCf
         else:
             self.sim.physx.gpu_collision_stack_size = 600_000
             self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
+
+class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.terrain_generator = PYRAMIDS_ONLY
+
+class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.scene.terrain.terrain_generator = STAIRS_ONLY
+        self.rewards.goal_tracking_z_conditioned_coarse.weight = 1.0
 
 @configclass
 class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY(NavigationEnd2EndNoEncoderStairsOnlyEnvCfg):

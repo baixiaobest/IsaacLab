@@ -6,8 +6,8 @@ from ..terrain_generator_cfg import TerrainGeneratorCfg, FlatPatchSamplingCfg
 FLAT_PATCH_STAIRS = FlatPatchSamplingCfg(
     num_patches=1000,
     patch_radius=0.35,
-    x_range=(-10, 10.0),
-    y_range=(-10.0, 10.0),
+    x_range=(-8.0, 8.0),
+    y_range=(-8.0, 8.0),
     z_range=(0.5, 5.0), # setpoint can only be set on stairs
     max_height_diff=0.2,
     min_distance=0.0
@@ -16,11 +16,43 @@ FLAT_PATCH_STAIRS = FlatPatchSamplingCfg(
 FLAT_PATCH_PYRAMIDS = FlatPatchSamplingCfg(
     num_patches=1000,
     patch_radius=0.4,
-    x_range=(-10, 10.0),
-    y_range=(-10.0, 10.0),
+    x_range=(-8, 8.0),
+    y_range=(-8.0, 8.0),
     z_range=(-5.0, 5.0), # setpoint can only be set on stairs
     max_height_diff=0.2,
     min_distance=0.0
+)
+
+PYRAMIDS_ONLY = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0, 0.15),
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
+        ),
+        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0, 0.15),        
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
+        ),
+    },
 )
 
 STAIRS_ONLY = TerrainGeneratorCfg(
@@ -36,7 +68,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
     sub_terrains={
         "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0, 0.23),
+            step_height_range=(0, 0.15),
             step_width=0.3,
             platform_width=3.0,
             border_width=1.0,
@@ -45,7 +77,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
         ),
         "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0, 0.23),
+            step_height_range=(0, 0.15),
             step_width=0.3,
             platform_width=3.0,
             border_width=1.0,
