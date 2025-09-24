@@ -79,6 +79,15 @@ def root_velocity_out_of_limit(
     # compute any violations
     return torch.norm(asset.data.root_vel_w[:, :3], dim=1) > max_velocity
 
+def root_z_velocity_out_of_limit(
+    env: ManagerBasedRLEnv, max_z_velocity: float, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Terminate when the asset's root z-velocity is outside the provided limits."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # compute any violations
+    return torch.abs(asset.data.root_vel_w[:, 2]) > max_z_velocity
+
 
 """
 Joint terminations.

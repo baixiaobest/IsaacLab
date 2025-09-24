@@ -3,7 +3,6 @@ from dataclasses import MISSING
 import math
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -17,14 +16,11 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
-from ....locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v2
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
-from isaaclab.sim.simulation_cfg import SimulationCfg
 
 from .e2e_navigation_env_cfg import NavigationEnd2EndNoEncoderEnvCfg
-from isaaclab.terrains.config.rough import STAIRS_ONLY # isort: skip
+from isaaclab.terrains.config.stairs import STAIRS_ONLY # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG 
 from isaaclab.utils import configclass
 
@@ -139,7 +135,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.0, 0.0), "y": (-0.0, 0.0), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
@@ -206,7 +202,7 @@ class CommandsCfg:
             heading=(-math.pi, math.pi),
             pos_z=(0.2, 0.4)
         ),
-        resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
+        resampling_time_range=(EPISDOE_LENGTH, EPISDOE_LENGTH),
         debug_vis=True
     )
 
@@ -294,32 +290,13 @@ class RewardsCfg:
                 "threshold": 0.6},
     )
 
-    # Additional undesired contacts for discrete obstacle terrain types
-    # undesired_contacts_discrete_obstacles = RewTerm(
-    #     func=nav_mdp.terrain_specific_callback,
-    #     weight=-8.0,
-    #     params={
-    #         "terrain_names": ["discrete_obstacles"],
-    #         "func": mdp.undesired_contacts,
-    #         "callback_params": {
-    #             "sensor_cfg": SceneEntityCfg(
-    #                 "contact_forces", 
-    #                 body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
-    #             "threshold": 0.2
-    #         }
-    #     })
-    
-    # obstacle_gradient_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_gradient_penalty,
-    #     weight=-0.5,
-    #     params={
-    #         'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
-    #         'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
-    #         'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
-    #         'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-    #         'robot_radius': 0.3,
-    #         'SOI': 1.0 # Sphere of influence
-    #     })
+    fall_penalty = RewTerm(
+        func=mdp.fall_penalty,
+        weight=-1.0,
+        params={
+            "velocity_threshold": 5.0,
+        }
+    )
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
@@ -332,25 +309,6 @@ class RewardsCfg:
             "T": 0.5
         },
     )
-
-    # feet_drag_penalty = RewTerm(
-    #     func=mdp.feet_drag_penalty,
-    #     weight=-0.02,
-    #     params={
-    #         "contact_sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
-    #         "force_threshold": 0.2
-    #     }
-    # )
-    
-    #################################
-    # Regularization terms
-    #################################
-    # Flying penalty
-    flying_penalty = RewTerm(func=mdp.flying_penalty, 
-                             weight=-0.05,
-                             params={
-                                 "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
-                             })
 
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
@@ -431,31 +389,6 @@ class RegularizationRewardsCfg(RewardsCfg):
             "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
         }
     )
-
-    # reduce x y angular velocity
-    # ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)
-
-    # Reduce vertical movement
-    # lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
-
-    # Reduce pitch roll
-    # pitch_roll_penalty = RewTerm(
-    #     func=mdp.flat_orientation_exp,
-    #     weight=-0.05,
-    #     params=
-    #     {
-    #         "threshold_deg": 10.0
-    #     }
-    # )
-
-    # Hip joint deviation penalty
-    # hip_joint_deviation_penalty = RewTerm(
-    #     func=mdp.joint_deviation_l2,
-    #     weight=-0.1,
-    #     params={
-    #         'asset_cfg': SceneEntityCfg("robot", joint_names=[".*hip.*"])
-    #     }
-    # )
     
     #################################
     # Goal reached reward/penalty
@@ -490,35 +423,6 @@ class RegularizationRewardsCfg(RewardsCfg):
             }
         }
     )
-
-    # Better pose at goal
-    # goal_joint_deviation_penalty = RewTerm(
-    #     func=nav_mdp.activate_reward_terrain_level_reached,
-    #     weight=-0.01,
-    #     params={
-    #         "func": nav_mdp.pose_2d_goal_callback_reward,
-    #         "terrain_names": TERRAIN_LEVEL_NAMES,
-    #         "operator": "max",
-    #         "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
-    #         "callback_params": {
-    #             'func': mdp.joint_deviation_l2,
-    #             'command_name': 'pose_2d_command',
-    #             'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-    #             'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-    #         }
-    #     }
-    # )
-    
-    # goal_reached_joint_movement_penalty = RewTerm(
-    #     func=nav_mdp.pose_2d_goal_callback_reward,
-    #     weight=-0.2,
-    #     params={
-    #         'func': mdp.joint_vel_l2,
-    #         'command_name': 'pose_2d_command',
-    #         'distance_threshold': STRICT_GOAL_REACHED_DISTANCE_THRESHOLD,
-    #         'angular_threshold': STRICT_GOAL_REACHED_ANGULAR_THRESHOLD,
-    #     }
-    # )
     
 
 @configclass
@@ -594,10 +498,10 @@ class TerminationsCfg:
     )
 
     base_vel_out_of_limit = DoneTerm(
-        func=mdp.root_velocity_out_of_limit,
+        func=mdp.root_z_velocity_out_of_limit,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),  
-            "max_velocity": 10.0
+            "max_z_velocity": 8.0
         }
     )
 

@@ -103,6 +103,15 @@ class UniformPose2dCommand(CommandTerm):
                 self.pos_command_w[non_stationary_env_ids, 0] += r.uniform_(*self.cfg.ranges.pos_x)
                 self.pos_command_w[non_stationary_env_ids, 1] += r.uniform_(*self.cfg.ranges.pos_y)
 
+            # Handle z position (height)
+            if hasattr(self.cfg.ranges, 'pos_z') and self.cfg.ranges.pos_z is not None:
+                # Sample height from the provided range
+                r = torch.empty(len(non_stationary_env_ids), device=self.device)
+                self.pos_command_w[non_stationary_env_ids, 2] += r.uniform_(*self.cfg.ranges.pos_z)
+            else:
+                # Use default root height
+                self.pos_command_w[non_stationary_env_ids, 2] += self.robot.data.default_root_state[non_stationary_env_ids, 2]
+
         # For stationary environments, use robot's current position (x,y)
         if torch.any(stationary_mask):
             # Get indices of stationary environments
@@ -113,15 +122,7 @@ class UniformPose2dCommand(CommandTerm):
             if len(stationary_env_ids) > 0:
                 self.pos_command_w[stationary_env_ids, 0] = self.robot.data.root_pos_w[stationary_env_ids, 0]
                 self.pos_command_w[stationary_env_ids, 1] = self.robot.data.root_pos_w[stationary_env_ids, 1]
-
-        # Handle z position (height)
-        if hasattr(self.cfg.ranges, 'pos_z') and self.cfg.ranges.pos_z is not None:
-            # Sample height from the provided range
-            r = torch.empty(len(env_ids), device=self.device)
-            self.pos_command_w[env_ids, 2] += r.uniform_(*self.cfg.ranges.pos_z)
-        else:
-            # Use default root height
-            self.pos_command_w[env_ids, 2] += self.robot.data.default_root_state[env_ids, 2]
+                self.pos_command_w[stationary_env_ids, 2] = self.robot.data.root_pos_w[stationary_env_ids, 2]
 
         if self.cfg.simple_heading:
             # set heading command to point towards target
@@ -220,6 +221,15 @@ class TerrainBasedPose2dCommand(UniformPose2dCommand):
                 
                 self.pos_command_w[non_stationary_env_ids] = self.valid_targets[levels, types, ids]
 
+                # Handle z position (height)
+                if hasattr(self.cfg.ranges, 'pos_z') and self.cfg.ranges.pos_z is not None:
+                    # Sample height from the provided range
+                    r = torch.empty(len(non_stationary_env_ids), device=self.device)
+                    self.pos_command_w[non_stationary_env_ids, 2] += r.uniform_(*self.cfg.ranges.pos_z)
+                else:
+                    # Use default root height
+                    self.pos_command_w[non_stationary_env_ids, 2] += self.robot.data.default_root_state[non_stationary_env_ids, 2]
+
         # For stationary environments, use robot's current position
         if torch.any(stationary_mask):
             # Get indices of stationary environments
@@ -230,15 +240,8 @@ class TerrainBasedPose2dCommand(UniformPose2dCommand):
                 # Set position to current robot position
                 self.pos_command_w[stationary_env_ids, 0] = self.robot.data.root_pos_w[stationary_env_ids, 0]
                 self.pos_command_w[stationary_env_ids, 1] = self.robot.data.root_pos_w[stationary_env_ids, 1]
-        
-        # Handle z position (height)
-        if hasattr(self.cfg.ranges, 'pos_z') and self.cfg.ranges.pos_z is not None:
-            # Sample height from the provided range
-            r = torch.empty(len(env_ids), device=self.device)
-            self.pos_command_w[env_ids, 2] += r.uniform_(*self.cfg.ranges.pos_z)
-        else:
-            # Use default root height
-            self.pos_command_w[env_ids, 2] += self.robot.data.default_root_state[env_ids, 2]
+                self.pos_command_w[stationary_env_ids, 2] = self.robot.data.root_pos_w[stationary_env_ids, 2]
+    
 
         if self.cfg.simple_heading:
             # set heading command to point towards target

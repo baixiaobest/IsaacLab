@@ -314,10 +314,6 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
         noise_clip=1.0,
         encoder_dims=None,
         encoder_obs_normalize=False,
-        # actor_hidden_dims=[128, 128, 64, 64],
-        # critic_hidden_dims=[128, 128, 64, 64],
-        # actor_hidden_dims=[128, 128, 64],
-        # critic_hidden_dims=[128, 128, 64],
         actor_hidden_dims=[128, 128, 64],
         critic_hidden_dims=[128, 128],
         activation="elu",
@@ -329,4 +325,21 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
 
 @configclass
 class UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    save_jit = True
+    experiment_name = "unitree_go2_navigation_stairs_v0"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=0.8,
+        noise_clip=1.0,
+        encoder_dims=None,
+        encoder_obs_normalize=False,
+        actor_hidden_dims=[128, 128, 64],
+        critic_hidden_dims=[128, 128, 64],
+        activation="elu",
+        tanh_output=True,
+    )
+    algorithm = NavE2EObstacleScanNoEncoderPPOConfig
     wandb_project="stairs_climbing"

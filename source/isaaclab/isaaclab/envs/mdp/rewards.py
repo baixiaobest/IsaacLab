@@ -406,6 +406,16 @@ def track_ang_vel_z_exp(
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_b[:, 2])
     return torch.exp(-ang_vel_error / std**2)
 
+def fall_penalty(
+        env: ManagerBasedRLEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        velocity_threshold: float = 5.0
+) -> torch.Tensor:
+    """Penalize the robot if it falls. A fall is detected if the z velocity of the base is above a threshold."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    fall_detected = torch.abs(asset.data.root_lin_vel_w[:, 2]) > velocity_threshold
+
+    return fall_detected.float()
 
 """
 Distance rewards.
