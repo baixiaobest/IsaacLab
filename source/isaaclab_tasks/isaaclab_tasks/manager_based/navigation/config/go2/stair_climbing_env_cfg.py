@@ -330,7 +330,7 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.1,
+        weight=-0.05,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
@@ -370,7 +370,7 @@ class RewardsCfg:
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
-        weight=0.1,
+        weight=0.2,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
@@ -467,8 +467,6 @@ class RegularizationRewardsCfg(RewardsCfg):
             "terrain_level_threshold": REGULARIZATION_TERRAIN_LEVEL_THRESHOLD,
         }
     )
-
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.1)
     
     #################################
     # Goal reached reward/penalty

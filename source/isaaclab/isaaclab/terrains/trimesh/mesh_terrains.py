@@ -410,12 +410,17 @@ def _build_run_steps(
         # center of step i is at start + (i + 0.5)*tread along the run
         cx = x0 + (i + 0.5) * tread * ux
         cy = y0 + (i + 0.5) * tread * uy
-        cz = base_z + (i + 0.5) * step_h
-
+        
+        # Calculate full height for this step (from ground to top of step)
+        step_full_height = base_z + (i + 1) * step_h
+        
+        # Position center at half the full height
+        cz = step_full_height / 2
+        
         if along_x:
-            box_dim = (tread, stairs_width, step_h)
+            box_dim = (tread, stairs_width, step_full_height)
         else:
-            box_dim = (stairs_width, tread, step_h)
+            box_dim = (stairs_width, tread, step_full_height)
 
         box = trimesh.creation.box(box_dim, trimesh.transformations.translation_matrix((cx, cy, cz)))
         mesh_list.append(box)
@@ -474,9 +479,10 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
 
     # Landing beyond run1 end
     landing_center = (run1_far[0], run1_far[1] + 0.5 * cfg.landing_length)
-    landing_dim    = (landing_w, cfg.landing_length, landing_th)
+    landing_full_height = z1 + landing_th  # Total height from ground to top of landing
+    landing_dim    = (landing_w, cfg.landing_length, landing_full_height)
     meshes.append(trimesh.creation.box(
-        landing_dim, trimesh.transformations.translation_matrix((landing_center[0], landing_center[1], z1 + 0.5 * landing_th))
+        landing_dim, trimesh.transformations.translation_matrix((landing_center[0], landing_center[1], landing_full_height / 2.0))
     ))
 
     # RUN 2: ±x starting on top of the landing
@@ -505,9 +511,10 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
         # landing spans [run2_far.x - exit_len, run2_far.x] along -x
         landing2_center = (run2_far[0] - 0.5 * exit_len, run2_start[1])
 
-    landing2_dim = (exit_len, exit_w, landing_th)
+    landing2_full_height = z_top2 + landing_th  # Total height from ground to top of landing
+    landing2_dim = (exit_len, exit_w, landing2_full_height)
     meshes.append(trimesh.creation.box(
-        landing2_dim, trimesh.transformations.translation_matrix((landing2_center[0], landing2_center[1], z_top2 + 0.5 * landing_th))
+        landing2_dim, trimesh.transformations.translation_matrix((landing2_center[0], landing2_center[1], landing2_full_height / 2.0))
     ))
 
     return meshes, origin
@@ -542,10 +549,11 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     # and between run1_far and run1_far + landing_length in y
     landing_center = (run1_start[0] + 0.5 * x_shift, run1_far[1] + 0.5 * cfg.landing_length)
     # widen landing in x so it spans both corridor widths (landing_w) plus the gap (abs(x_shift))
-    landing_dim    = (landing_w + abs(x_shift), cfg.landing_length, landing_th)
+    landing_full_height = z1 + landing_th  # Total height from ground to top of landing
+    landing_dim    = (landing_w + abs(x_shift), cfg.landing_length, landing_full_height)
     meshes.append(trimesh.creation.box(
         landing_dim, trimesh.transformations.translation_matrix(
-            (landing_center[0], landing_center[1], z1 + 0.5 * landing_th)
+            (landing_center[0], landing_center[1], landing_full_height/2.0)
         )
     ))
 
@@ -561,11 +569,12 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     exit_len = getattr(cfg, "second_landing_length", cfg.landing_length)
     exit_w   = float(getattr(cfg, "second_landing_width", landing_w))
     # run2_far is the far edge of run2 along -y; exit landing spans [run2_far - exit_len, run2_far]
+    landing2_full_height = z_top2 + landing_th  # Total height from ground to top of landing
     landing2_center = (run2_start[0], run2_far[1] - 0.5 * exit_len)
-    landing2_dim    = (exit_w, exit_len, landing_th)
+    landing2_dim    = (exit_w, exit_len, landing2_full_height)
     meshes.append(trimesh.creation.box(
         landing2_dim, trimesh.transformations.translation_matrix(
-            (landing2_center[0], landing2_center[1], z_top2 + 0.5 * landing_th)
+            (landing2_center[0], landing2_center[1], landing2_full_height / 2.0)
         )
     ))
 
