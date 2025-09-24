@@ -30,6 +30,28 @@ FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+FLAT_PATCH_STAIRS = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(-10, 10.0),
+    y_range=(-10.0, 10.0),
+    z_range=(0.5, 5.0), # setpoint can only be set on stairs
+    max_height_diff=0.2,
+    min_distance=0.0
+)
+
+FLAT_PATCH_PYRAMIDS = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(-10, 10.0),
+    y_range=(-10.0, 10.0),
+    z_range=(-5.0, 5.0), # setpoint can only be set on stairs
+    max_height_diff=0.2,
+    min_distance=0.0
+)
+
+
+
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
@@ -96,7 +118,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             platform_width=3.0,
             border_width=1.0,
             holes=False,
-            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
         ),
         "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
             proportion=1.0,
@@ -105,7 +127,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             platform_width=3.0,
             border_width=1.0,
             holes=False,
-            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
         ),
         "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
             proportion=1.0,
@@ -114,7 +136,8 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             step_width=0.2,
             stairs_width=2.0,
             stairs_length=6.0,
-            origin_offset_y=4.5
+            origin_offset_y=4.5,
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
         ),
         "linear_stairs_walled": terrain_gen.MeshWalledLinearStairsTerrainCfg(
             proportion=1.0,
@@ -127,6 +150,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.5,
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
         ),
         "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
@@ -145,6 +169,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
         ),
 
         "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
@@ -164,6 +189,7 @@ STAIRS_ONLY = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
         ),
 
         "turning_stairs_180_right": terrain_gen.MeshTurningStairs180TerrainCfg(

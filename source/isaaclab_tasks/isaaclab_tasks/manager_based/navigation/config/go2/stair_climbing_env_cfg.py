@@ -23,12 +23,10 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
 from isaaclab.sim.simulation_cfg import SimulationCfg
 
-##
-# Pre-defined configs
-##
-from isaaclab.terrains.config.rough import ROUGH_ONLY, DISCRETE_OBSTACLES_ONLY # isort: skip
-from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
-from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
+from .e2e_navigation_env_cfg import NavigationEnd2EndNoEncoderEnvCfg
+from isaaclab.terrains.config.rough import STAIRS_ONLY # isort: skip
+from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG 
+from isaaclab.utils import configclass
 
 EPISDOE_LENGTH = 10.0
 GOAL_REACHED_ACTIVE_AFTER = 6.0
@@ -41,7 +39,7 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
-TERRAIN_LEVEL_NAMES = ['discrete_obstacles', 'random_rough']
+TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left']
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
@@ -52,7 +50,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=ROUGH_ONLY,
+            terrain_generator=STAIRS_ONLY,
             max_init_terrain_level=0,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -78,42 +76,6 @@ class MySceneCfg(InteractiveSceneCfg):
         pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=(4.0, 4.0)),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
-    )
-    obstacle_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"]
-    )
-    obstacle_scanner_dx = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(OBSTACLE_SCANNER_SPACING, 0.0, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"]
-    )
-    obstacle_scanner_dy = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, OBSTACLE_SCANNER_SPACING, 0.0)),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, 
-            vertical_fov_range=(0.0, 0.0),
-            horizontal_fov_range=(0.0, 360),
-            horizontal_res=360/NUM_RAYS-1e-3),
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"]
     )
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
@@ -224,17 +186,6 @@ class EventCfg:
             "joint_names": [".*"],
         })
     
-    # randomize_actuator_gains = EventTerm(
-    #     func=mdp.randomize_actuator_gains,
-    #     mode="reset",
-    #     params={
-    #         'asset_cfg': SceneEntityCfg("robot"),
-    #         'stiffness_distribution_params': (20.0, 30.0),
-    #         'damping_distribution_params': (0.5, 3.0),
-    #         'operation': 'abs'
-    #     }
-    # )
-
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
@@ -244,12 +195,6 @@ class CurriculumCfg:
                                   "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
                                   "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
                               })
-    
-    random_rough_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "random_rough"})
-
-    discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
-
-    discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
 
 @configclass
 class CommandsCfg:
@@ -264,19 +209,6 @@ class CommandsCfg:
         resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
         debug_vis=True
     )
-    # pose_2d_command = mdp.UniformPose2dCommandCfg(
-    #     asset_name="robot",
-    #     simple_heading=False,
-    #     stationary_prob = 0.05,
-    #     ranges=mdp.UniformPose2dCommandCfg.Ranges(
-    #         pos_x=(-5.0, 5.0),
-    #         pos_y=(-5.0, 5.0),
-    #         pos_z=(0.2, 0.4),
-    #         heading=(-math.pi, math.pi)
-    #     ),
-    #     resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-    #     debug_vis=True
-    # )
 
 @configclass
 class RewardsCfg:
@@ -530,7 +462,7 @@ class RegularizationRewardsCfg(RewardsCfg):
     #################################
     goal_reached_action_penalty = RewTerm(
         func=nav_mdp.activate_reward_terrain_level_reached,
-        weight=-0.001,
+        weight=-0.005,
         params={
             "func": nav_mdp.pose_2d_goal_callback_reward,
             "terrain_names": TERRAIN_LEVEL_NAMES,
@@ -608,9 +540,6 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
-        # scalar_velocity_command = ObsTerm(
-        #     func=mdp.generated_commands, params={"command_name": "scalar_velocity_command"}
-        # )
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
@@ -618,11 +547,6 @@ class ObservationsCfg:
             func=mdp.count_down,
             params={"episode_length": EPISDOE_LENGTH}
         )
-        # osbtacles_scan = ObsTerm(
-        #     func=mdp.lidar_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
-        #             "max": 10.0},
-        #     noise=Unoise(n_min=-0.1, n_max=0.1))
         
         height_scan = ObsTerm(
             func=mdp.height_scan,
@@ -678,7 +602,7 @@ class TerminationsCfg:
     )
 
 @configclass
-class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
+class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
     commands: CommandsCfg = CommandsCfg()
@@ -715,93 +639,10 @@ class NavigationEnd2EndEnvCfg(ManagerBasedRLEnvCfg):
             self.sim.physx.gpu_max_rigid_patch_count = 1_000_000
 
 @configclass
-class NavigationEnd2EndNoEncoderEnvCfg(NavigationEnd2EndEnvCfg):
+class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY(NavigationEnd2EndNoEncoderStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.height_scanner = None
-        self.observations.policy.height_scan = None
-
-@configclass
-class NavigationEnd2EndEnvCfg_PLAY(NavigationEnd2EndEnvCfg):
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.terrain.max_init_terrain_level = 10
-
-@configclass
-class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.terrain.max_init_terrain_level = 10
-
-        if USE_TEST_ENV:
-            self.episode_length_s = 16
-            self.curriculum = None
-            self.rewards = None
-            self.terminations.base_contact = DoneTerm(
-                func=mdp.illegal_contact,
-                params={"sensor_cfg": SceneEntityCfg("contact_forces", 
-                                                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]), 
-                        "threshold": 0.2})
-            
-            self.terminations.base_contact_discrete_obstacles = None
-
-            self.scene.terrain = TerrainImporterCfg(
-                prim_path="/World/ground",
-                terrain_type="test_generator",
-                test_terrain_generator=TEST_TERRAIN_CFG,
-                max_init_terrain_level=10,
-                collision_group=-1,
-                physics_material=sim_utils.RigidBodyMaterialCfg(
-                    friction_combine_mode="multiply",
-                    restitution_combine_mode="multiply",
-                    static_friction=1.0,
-                    dynamic_friction=1.0,
-                ),
-                visual_material=sim_utils.MdlFileCfg(
-                    mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
-                    project_uvw=True,
-                    texture_scale=(0.25, 0.25),
-                ),
-                debug_vis=False,
-            )
-
-            # goal_set_1 = [(-7, -5), (-7, -5)]
-            # goal_set_2 = [(5, 7), (-7, -5)]
-            # goal_set_3 = [(5, 7), (5, 7)]
-            # goal_set_4 = [(-7, -5), (5, 7)]
-
-            # goal_set = goal_set_2
-
-            # self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
-            #     asset_name="robot",
-            #     simple_heading=False,
-            #     ranges=mdp.UniformPose2dCommandCfg.Ranges(
-            #         heading=(-math.pi, math.pi),
-            #         pos_x=goal_set[0],
-            #         pos_y=goal_set[1]
-            #     ),
-            #     resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-            #     debug_vis=True
-            # )
-
-            goal_set_1 = [(2, 2), (6, 6)]
-
-            goal_set = goal_set_1
-
-            self.commands.pose_2d_command = mdp.UniformPose2dCommandCfg(
-                asset_name="robot",
-                simple_heading=False,
-                ranges=mdp.UniformPose2dCommandCfg.Ranges(
-                    heading=(-math.pi, math.pi),
-                    pos_x=goal_set[0],
-                    pos_y=goal_set[1]
-                ),
-                resampling_time_range=(1.5*EPISDOE_LENGTH, 1.5*EPISDOE_LENGTH),
-                debug_vis=True
-            )
-
-class NavigationEnd2End2ndStageEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.terrain.terrain_generator = DISCRETE_OBSTACLES_ONLY
-        self.rewards.goal_reached_action_penalty.weight = -0.005
+        self.episode_length_s = 16
+        self.curriculum = None
+        self.rewards = None
+        
