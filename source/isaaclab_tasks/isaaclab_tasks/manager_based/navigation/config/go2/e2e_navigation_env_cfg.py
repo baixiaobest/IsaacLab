@@ -22,11 +22,13 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.go2.rough_teacher_env_cfg import UnitreeGo2RoughTeacherEnvCfg_v3
 from isaaclab.sim.simulation_cfg import SimulationCfg
+from isaaclab.actuators import DCMotorCfg
 
 ##
 # Pre-defined configs
 ##
-from isaaclab.terrains.config.rough import ROUGH_ONLY, DISCRETE_OBSTACLES_ONLY # isort: skip
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG, DIVERSE_TERRAINS_CFG, NAVIGATION_TERRAINS_CFG, \
+    DISCRETE_OBSTACLES_ROUGH_ONLY, ROUGH_ONLY, DISCRETE_OBSTACLES_ONLY # isort: skip
 from isaaclab.terrains.config.test_terrain import TEST_TERRAIN_CFG
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG  # isort: skip
 
@@ -41,7 +43,7 @@ OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
-TERRAIN_LEVEL_NAMES = ['discrete_obstacles', 'random_rough']
+TERRAIN_LEVEL_NAMES =  ['discrete_obstacles', "random_rough"]
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
@@ -249,8 +251,6 @@ class CurriculumCfg:
 
     discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
 
-    discrete_obstacles_level = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
-
 @configclass
 class CommandsCfg:
     pose_2d_command = mdp.TerrainBasedPose2dCommandCfg(
@@ -363,31 +363,31 @@ class RewardsCfg:
     )
 
     # Additional undesired contacts for discrete obstacle terrain types
-    # undesired_contacts_discrete_obstacles = RewTerm(
-    #     func=nav_mdp.terrain_specific_callback,
-    #     weight=-8.0,
-    #     params={
-    #         "terrain_names": ["discrete_obstacles"],
-    #         "func": mdp.undesired_contacts,
-    #         "callback_params": {
-    #             "sensor_cfg": SceneEntityCfg(
-    #                 "contact_forces", 
-    #                 body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
-    #             "threshold": 0.2
-    #         }
-    #     })
+    undesired_contacts_discrete_obstacles = RewTerm(
+        func=nav_mdp.terrain_specific_callback,
+        weight=-8.0,
+        params={
+            "terrain_names": ["discrete_obstacles"],
+            "func": mdp.undesired_contacts,
+            "callback_params": {
+                "sensor_cfg": SceneEntityCfg(
+                    "contact_forces", 
+                    body_names=["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]),
+                "threshold": 0.2
+            }
+        })
     
-    # obstacle_gradient_penalty = RewTerm(
-    #     func=nav_mdp.obstacle_gradient_penalty,
-    #     weight=-0.5,
-    #     params={
-    #         'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
-    #         'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
-    #         'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
-    #         'sensor_spacing': OBSTACLE_SCANNER_SPACING,
-    #         'robot_radius': 0.3,
-    #         'SOI': 1.0 # Sphere of influence
-    #     })
+    obstacle_gradient_penalty = RewTerm(
+        func=nav_mdp.obstacle_gradient_penalty,
+        weight=-0.5,
+        params={
+            'sensor_center_cfg': SceneEntityCfg("obstacle_scanner"),
+            'sensor_dx_cfg': SceneEntityCfg("obstacle_scanner_dx"),
+            'sensor_dy_cfg': SceneEntityCfg("obstacle_scanner_dy"),
+            'sensor_spacing': OBSTACLE_SCANNER_SPACING,
+            'robot_radius': 0.3,
+            'SOI': 1.0 # Sphere of influence
+        })
     
     feet_air_time_range = RewTerm(
         func=mdp.feet_air_time_range,
@@ -618,18 +618,18 @@ class ObservationsCfg:
             func=mdp.count_down,
             params={"episode_length": EPISDOE_LENGTH}
         )
-        # osbtacles_scan = ObsTerm(
-        #     func=mdp.lidar_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
-        #             "max": 10.0},
-        #     noise=Unoise(n_min=-0.1, n_max=0.1))
+        osbtacles_scan = ObsTerm(
+            func=mdp.lidar_scan,
+            params={"sensor_cfg": SceneEntityCfg("obstacle_scanner"), 
+                    "max": 10.0},
+            noise=Unoise(n_min=-0.1, n_max=0.1))
         
-        height_scan = ObsTerm(
-            func=mdp.height_scan,
-            params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
-            noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-1.0, 1.0),
-        )
+        # height_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
+        #     noise=Unoise(n_min=-0.1, n_max=0.1),
+        #     clip=(-1.0, 1.0),
+        # )
 
         def __post_init__(self):
             self.enable_corruption = True
