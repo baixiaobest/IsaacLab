@@ -353,10 +353,10 @@ class RewardsCfg:
 
     foot_wall_contacts = RewTerm(
         func=mdp.wall_contact_penalty,
-        weight=-1.0,
+        weight=-0.5,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
-            "threshold": 0.6
+            "threshold": 0.8
         }
     )
 
