@@ -209,11 +209,23 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     # Task reward
-    goal_tracking_coarse = RewTerm(
+    goal_tracking_xy_coarse = RewTerm(
         func=nav_mdp.active_after_time,
         weight=1.0,
         params={
-            "func": nav_mdp.position_command_error_tanh,
+            "func": nav_mdp.position_command_xy_error_tanh,
+            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "callback_params": {
+                "command_name":"pose_2d_command",
+                "std": 5.0
+            }
+        })
+    
+    goal_tracking_z_coarse = RewTerm(
+        func=nav_mdp.active_after_time,
+        weight=2.0,
+        params={
+            "func": nav_mdp.position_command_z_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",

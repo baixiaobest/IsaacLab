@@ -27,6 +27,20 @@ def position_command_error_tanh(env: ManagerBasedRLEnv, std: float, command_name
     distance = torch.norm(des_pos_b, dim=1)
     return 1 - torch.tanh(distance / std)
 
+def position_command_xy_error_tanh(env: ManagerBasedRLEnv, std: float, command_name: str) -> torch.Tensor:
+    """Reward position tracking in the xy plane with tanh kernel."""
+    command = env.command_manager.get_command(command_name)
+    des_pos_b = command[:, :3]
+    distance = torch.norm(des_pos_b[:, :2], dim=1)
+    return 1 - torch.tanh(distance / std)
+
+def position_command_z_error_tanh(env: ManagerBasedRLEnv, std: float, command_name: str) -> torch.Tensor:
+    """Reward position tracking in the z direction with tanh kernel."""
+    command = env.command_manager.get_command(command_name)
+    des_pos_b = command[:, :3]
+    distance = torch.abs(des_pos_b[:, 2])
+    return 1 - torch.tanh(distance / std)
+
 def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     """Penalize tracking orientation error."""
     command = env.command_manager.get_command(command_name)
