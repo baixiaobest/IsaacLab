@@ -273,8 +273,11 @@ def linear_stairs_terrain(
         box_length -= 2*cfg.step_width
         box_center[2] += step_height
 
-    guide_lines = np.array([np.array([box_center[0], box_center[1] + box_length/2, 0]),
-                   np.array([box_center[0], box_center[1], cfg.num_steps * step_height])])
+    guide_lines = np.array([np.array([box_center[0], box_center[1] - cfg.stairs_length/2, 0]),
+                            np.array([box_center[0], 
+                                      box_center[1] - (cfg.stairs_length - 2*cfg.step_width * cfg.num_steps)/2, 
+                                      cfg.num_steps * step_height]),
+                            np.array([box_center[0], box_center[1], cfg.num_steps * step_height])])
 
     if cfg.has_guide_lines:
         return mesh_list, origin, guide_lines
@@ -366,8 +369,11 @@ def walled_linear_stairs_terrain(
     mesh_list.append(left_wall)
     mesh_list.append(right_wall)
 
-    guide_lines = np.array([np.array([box_center[0], box_center[1] + box_length/2, 0]),
-                   np.array([box_center[0], box_center[1], cfg.num_steps * step_height])])
+    guide_lines = np.array([np.array([box_center[0], box_center[1] - cfg.stairs_length/2, 0]),
+                            np.array([box_center[0], 
+                                      box_center[1] - (cfg.stairs_length - 2*cfg.step_width * cfg.num_steps)/2, 
+                                      cfg.num_steps * step_height]),
+                            np.array([box_center[0], box_center[1], cfg.num_steps * step_height])])
 
     if cfg.has_guide_lines:
         return mesh_list, origin, guide_lines
