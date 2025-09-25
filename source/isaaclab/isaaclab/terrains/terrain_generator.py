@@ -399,7 +399,8 @@ class TerrainGenerator:
 
         # Add guide lines if available
         if guide_lines is not None:
-            self.guide_lines_list[row][col] = torch.from_numpy(guide_lines + transform[:3, -1]).to(device=self.device)
+            self.guide_lines_list[row][col] = torch.from_numpy(guide_lines + transform[:3, -1])\
+                .to(device=self.device, dtype=torch.float32)
 
     def _get_terrain_mesh(self, difficulty: float, cfg: SubTerrainBaseCfg) \
         -> tuple[trimesh.Trimesh, np.ndarray, np.ndarray | None]:

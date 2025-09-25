@@ -143,6 +143,7 @@ def _compute_path_distance(
     batch_size = guide_lines.shape[0]
     max_points = guide_lines.shape[1]
     device = guide_lines.device
+    dtype = guide_lines.dtype  # Get the data type from input tensor
     
     # Calculate segment lengths (distance between consecutive guide points)
     segment_lengths = torch.norm(guide_lines[:, 1:] - guide_lines[:, :-1], dim=-1)  # (batch_size, max_points-1)
@@ -157,7 +158,7 @@ def _compute_path_distance(
     backward_mask = (start_indices > end_indices) & ~same_segment_mask
     
     # Initialize path distances
-    path_distances = torch.full((batch_size,), float('inf'), device=device)
+    path_distances = torch.full((batch_size,), float('inf'), device=device, dtype=dtype)
     
     # CASE 1: Same segment - direct distance between points
     if same_segment_mask.any():
@@ -166,8 +167,10 @@ def _compute_path_distance(
     
     # CASE 2: Forward direction (start_idx < end_idx)
     if forward_mask.any():
+        # Create a tensor to store forward distances for all environments
+        all_forward_distances = torch.zeros_like(path_distances)
+        
         # Create a mask to identify which segments are between start and end for each env
-        # We'll use this to compute the sum of intermediate segment lengths
         segment_indices = torch.arange(max_points-1, device=device).unsqueeze(0).expand(batch_size, -1)
         
         # For each environment, mark segments that are between start and end indices
@@ -175,25 +178,40 @@ def _compute_path_distance(
                                (segment_indices < end_indices.unsqueeze(1))
         between_segments_mask = between_segments_mask & forward_mask.unsqueeze(1)
         
-        # Compute partial length of start segment (from projection to end)
-        start_segment_contrib = segment_lengths[forward_mask, start_indices[forward_mask]] * \
-                               (1.0 - start_t[forward_mask])
+        # Get the indices of environments with forward paths
+        forward_indices = forward_mask.nonzero(as_tuple=True)[0]
         
-        # Compute partial length of end segment (from start to projection)
-        end_segment_contrib = segment_lengths[forward_mask, end_indices[forward_mask]] * \
-                             end_t[forward_mask]
-        
-        # Sum all intermediate segment lengths
-        intermediate_segments_sum = torch.sum(segment_lengths * between_segments_mask.float(), dim=1)
-        
-        # Compute total path distance for forward case
-        forward_distances = start_segment_contrib + intermediate_segments_sum[forward_mask] + end_segment_contrib
-        
-        # Update path distances for forward case
-        path_distances = torch.where(forward_mask, forward_distances, path_distances)
+        if len(forward_indices) > 0:
+            # Compute partial length of start segment (from projection to end)
+            start_segment_contrib = torch.zeros_like(path_distances)
+            
+            # Ensure consistent data types with explicit casting
+            start_segment_values = (segment_lengths[forward_indices, start_indices[forward_indices]] * \
+                                  (1.0 - start_t[forward_indices])).to(dtype=dtype)
+            start_segment_contrib.index_put_((forward_indices,), start_segment_values)
+            
+            # Compute partial length of end segment (from start to projection)
+            end_segment_contrib = torch.zeros_like(path_distances)
+            
+            # Ensure consistent data types with explicit casting
+            end_segment_values = (segment_lengths[forward_indices, end_indices[forward_indices]] * \
+                                end_t[forward_indices]).to(dtype=dtype)
+            end_segment_contrib.index_put_((forward_indices,), end_segment_values)
+            
+            # Sum all intermediate segment lengths
+            intermediate_segments_sum = torch.sum(segment_lengths * between_segments_mask.float(), dim=1)
+            
+            # Compute total path distance for forward case
+            all_forward_distances = start_segment_contrib + intermediate_segments_sum + end_segment_contrib
+            
+            # Update path distances for forward case
+            path_distances = torch.where(forward_mask, all_forward_distances, path_distances)
     
     # CASE 3: Backward direction (start_idx > end_idx)
     if backward_mask.any():
+        # Create a tensor to store backward distances for all environments
+        all_backward_distances = torch.zeros_like(path_distances)
+        
         # Create a mask for segments between end and start (going backward)
         segment_indices = torch.arange(max_points-1, device=device).unsqueeze(0).expand(batch_size, -1)
         
@@ -202,26 +220,38 @@ def _compute_path_distance(
                                (segment_indices > end_indices.unsqueeze(1))
         between_segments_mask = between_segments_mask & backward_mask.unsqueeze(1)
         
-        # Compute partial length of start segment (from projection to start)
-        start_segment_contrib = segment_lengths[backward_mask, start_indices[backward_mask]] * \
-                               start_t[backward_mask]
+        # Get the indices of environments with backward paths
+        backward_indices = backward_mask.nonzero(as_tuple=True)[0]
         
-        # Compute partial length of end segment (from end to projection)
-        end_segment_contrib = segment_lengths[backward_mask, end_indices[backward_mask]] * \
-                             (1.0 - end_t[backward_mask])
-        
-        # Sum all intermediate segment lengths
-        intermediate_segments_sum = torch.sum(segment_lengths * between_segments_mask.float(), dim=1)
-        
-        # Compute total path distance for backward case
-        backward_distances = start_segment_contrib + intermediate_segments_sum[backward_mask] + end_segment_contrib
-        
-        # Update path distances for backward case
-        path_distances = torch.where(backward_mask, backward_distances, path_distances)
+        if len(backward_indices) > 0:
+            # Compute partial length of start segment (from projection to start)
+            start_segment_contrib = torch.zeros_like(path_distances)
+            
+            # Ensure consistent data types with explicit casting
+            start_segment_values = (segment_lengths[backward_indices, start_indices[backward_indices]] * \
+                                  start_t[backward_indices]).to(dtype=dtype)
+            start_segment_contrib.index_put_((backward_indices,), start_segment_values)
+            
+            # Compute partial length of end segment (from end to projection)
+            end_segment_contrib = torch.zeros_like(path_distances)
+            
+            # Ensure consistent data types with explicit casting
+            end_segment_values = (segment_lengths[backward_indices, end_indices[backward_indices]] * \
+                                (1.0 - end_t[backward_indices])).to(dtype=dtype)
+            end_segment_contrib.index_put_((backward_indices,), end_segment_values)
+            
+            # Sum all intermediate segment lengths
+            intermediate_segments_sum = torch.sum(segment_lengths * between_segments_mask.float(), dim=1)
+            
+            # Compute total path distance for backward case
+            all_backward_distances = start_segment_contrib + intermediate_segments_sum + end_segment_contrib
+            
+            # Update path distances for backward case
+            path_distances = torch.where(backward_mask, all_backward_distances, path_distances)
     
     # Handle invalid cases
     invalid_mask = (start_indices < 0) | (end_indices < 0)
-    path_distances = torch.where(invalid_mask, torch.tensor(float('inf'), device=device), path_distances)
+    path_distances = torch.where(invalid_mask, torch.tensor(float('inf'), device=device, dtype=dtype), path_distances)
     
     return path_distances
 
