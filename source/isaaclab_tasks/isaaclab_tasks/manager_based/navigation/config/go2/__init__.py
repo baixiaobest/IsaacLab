@@ -123,6 +123,15 @@ gym.register(
     })
 
 gym.register(
+    id="Isaac-Navigation-Pyramids-CNN-Unitree-Go2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationEnd2EndCNNPyramidsEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0"
+    })
+
+gym.register(
     id="Isaac-End2End-Navigation-No-Encoder-Unitree-Go2-Stairs-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,

@@ -286,12 +286,11 @@ class RewardsCfg:
         func=nav_mdp.active_after_time,
         weight=1.0,
         params={
-            "func": nav_mdp.position_command_z_conditioned_error_tanh,
+            "func": nav_mdp.position_command_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 1.0,
-                "z_std": 0.2
             }
         })
 
@@ -662,6 +661,12 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.scene.terrain.terrain_generator = DIVERSE_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
+
+class NavigationEnd2EndCNNPyramidsEnvCfg(NavigationStairsEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.scene.terrain.terrain_generator = PYRAMIDS_ONLY
 
 @configclass
 class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY(NavigationEnd2EndNoEncoderStairsOnlyEnvCfg):
