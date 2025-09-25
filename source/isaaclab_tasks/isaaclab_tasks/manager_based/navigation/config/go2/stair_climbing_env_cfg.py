@@ -268,19 +268,15 @@ class RewardsCfg:
             }
         })
 
-    # Reserved for second stage training
-    goal_tracking_z_conditioned_coarse = RewTerm(
-        func=nav_mdp.active_after_time,
+    guidelines_reward = RewTerm(
+        func=nav_mdp.guidelines_progress_reward,
         weight=0.0,
         params={
-            "func": nav_mdp.position_command_z_conditioned_error_tanh,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
-            "callback_params": {
-                "command_name":"pose_2d_command",
-                "std": 5.0,
-                "z_std": 3.0
-            }
-        })
+            "command_name": "pose_2d_command",
+            "distance_std": 5.0,
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
@@ -659,7 +655,7 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         super().__post_init__()
 
         self.scene.terrain.terrain_generator = DIVERSE_STAIRS
-        self.rewards.goal_tracking_z_conditioned_coarse.weight = 1.0
+        self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
 
 @configclass
@@ -667,8 +663,6 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg_PLAY(NavigationEnd2EndNoEncoder
     def __post_init__(self):
         super().__post_init__()
         self.episode_length_s = 16
-        self.curriculum = None
-        self.rewards = None
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):

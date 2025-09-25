@@ -94,7 +94,7 @@ class TerrainGenerator:
     For instance, the key "root_spawn" maps to a tensor containing the flat patches for spawning an asset.
     Similarly, the key "target_spawn" maps to a tensor containing the flat patches for setting targets.
     """
-    guide_lines: list[list[torch.Tensor]]
+    guide_lines: torch.Tensor
     """List of guide lines for the terrain. Guide lines are lines that help guide the robot to navigate the terrain.
     The shape is (num_rows, num_cols, N, 3), where N is the number of guide line points for the sub-terrain.
     These are only generated if the sub-terrain supports guide lines.
@@ -147,7 +147,7 @@ class TerrainGenerator:
         # create a list of all sub-terrains
         self.terrain_meshes = list()
         self.terrain_origins = np.zeros((self.cfg.num_rows, self.cfg.num_cols, 3))
-        self.guide_lines = [[None for _ in range(self.cfg.num_cols)] for _ in range(self.cfg.num_rows)]
+        self.guide_lines_list = [[None for _ in range(self.cfg.num_cols)] for _ in range(self.cfg.num_rows)]
 
         # Terrain names, only used for curriculum-based terrains.
         # The index corresponds to the column index of the terrain.
@@ -187,10 +187,47 @@ class TerrainGenerator:
         self.terrain_origins += transform[:3, -1]
 
         # -- Transform guide lines
+        max_points = max(
+            self.guide_lines_list[row][col].shape[0] if self.guide_lines_list[row][col] is not None else 0
+            for col in range(self.cfg.num_cols) for row in range(self.cfg.num_rows))
+        
         for row in range(self.cfg.num_rows):
             for col in range(self.cfg.num_cols):
-                if self.guide_lines[row][col] is not None:
-                    self.guide_lines[row][col] += torch.tensor(transform[:3, -1], device=device)
+                if self.guide_lines_list[row][col] is not None:
+                    to_be_padded = self.guide_lines_list[row][col]
+                    current_points = to_be_padded.shape[0]
+                    pad_amount = max_points - current_points
+                    
+                    if pad_amount > 0:
+                        # Pad along the first dimension (N) with infinity values
+                        padded_guide_lines = torch.nn.functional.pad(
+                            to_be_padded, 
+                            (0, 0, 0, pad_amount),  # pad only the first dimension (N)
+                            mode='constant', 
+                            value=float('inf')
+                        )
+                    else:
+                        padded_guide_lines = to_be_padded
+                    
+                    # Transform the padded guide lines
+                    padded_guide_lines[:current_points] += torch.tensor(transform[:3, -1], device=self.device)
+                    self.guide_lines_list[row][col] = padded_guide_lines
+                else:
+                    # Handle None case - create a tensor filled entirely with infinity
+                    padded_guide_lines = torch.full(
+                        (max_points, 3), 
+                        float('inf'), 
+                        device=self.device, 
+                        dtype=torch.float32
+                    )
+                    # No need to transform since these are all infinity values
+                    self.guide_lines_list[row][col] = padded_guide_lines
+            
+        self.guide_lines = torch.stack([
+            torch.stack([self.guide_lines_list[row][col] for col in range(self.cfg.num_cols)], dim=0)
+            for row in range(self.cfg.num_rows)
+        ], dim=0)
+                    
 
         # -- valid patches
         terrain_origins_torch = torch.tensor(self.terrain_origins, dtype=torch.float, device=self.device).unsqueeze(2)
@@ -362,7 +399,7 @@ class TerrainGenerator:
 
         # Add guide lines if available
         if guide_lines is not None:
-            self.guide_lines[row][col] = torch.from_numpy(guide_lines + transform[:3, -1]).to(device=self.device)
+            self.guide_lines_list[row][col] = torch.from_numpy(guide_lines + transform[:3, -1]).to(device=self.device)
 
     def _get_terrain_mesh(self, difficulty: float, cfg: SubTerrainBaseCfg) \
         -> tuple[trimesh.Trimesh, np.ndarray, np.ndarray | None]:
@@ -433,12 +470,12 @@ class TerrainGenerator:
     def _visualize_guide_lines(self):
         self.goal_markers = []
 
-        for row in range(len(self.guide_lines)):
-            for col in range(len(self.guide_lines[row])):
-                if self.guide_lines[row][col].shape[0] == 1:
-                    continue
-                for idx in range(self.guide_lines[row][col].shape[0]):
-                    point = self.guide_lines[row][col][idx]
+        for row in range(len(self.guide_lines_list)):
+            for col in range(len(self.guide_lines_list[row])):
+                for idx in range(self.guide_lines_list[row][col].shape[0]):
+                    point = self.guide_lines_list[row][col][idx]
+                    if torch.isinf(point).any():
+                        continue
                     guide_marker_cfg = VisualizationMarkersCfg(
                         prim_path=f"/Visuals/Guidelines/row_{row}_col_{col}_point_{idx}",
                         markers={
