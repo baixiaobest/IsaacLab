@@ -130,31 +130,18 @@ def _find_closest_points_on_segments(
 
 
 def _compute_path_distance(
-    guide_lines: torch.Tensor,  # Shape: (batch_size, max_points, 3)
-    valid_guide_mask: torch.Tensor,  # Shape: (batch_size, max_points)
-    start_indices: torch.Tensor,  # Shape: (batch_size)
-    start_t: torch.Tensor,  # Shape: (batch_size)
-    end_indices: torch.Tensor,  # Shape: (batch_size)
-    end_t: torch.Tensor,  # Shape: (batch_size)
-    robot_closest_points: torch.Tensor,  # Shape: (batch_size, 3)
-    command_closest_points: torch.Tensor,  # Shape: (batch_size, 3)
+    guide_lines: torch.Tensor,
+    valid_guide_mask: torch.Tensor,
+    start_indices: torch.Tensor,
+    start_t: torch.Tensor,
+    end_indices: torch.Tensor,
+    end_t: torch.Tensor,
+    robot_pos: torch.Tensor,
+    command_pos: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute path distance along guide lines between two points on segments.
-    
-    Args:
-        guide_lines: Guide line points. Shape: (batch_size, max_points, 3)
-        valid_guide_mask: Mask for valid guide points. Shape: (batch_size, max_points)
-        start_indices: Segment indices for start points. Shape: (batch_size)
-        start_t: Parametric values along start segments. Shape: (batch_size)
-        end_indices: Segment indices for end points. Shape: (batch_size)
-        end_t: Parametric values along end segments. Shape: (batch_size)
-        robot_closest_points: Points on segments closest to robot. Shape: (batch_size, 3)
-        command_closest_points: Points on segments closest to command. Shape: (batch_size, 3)
-        
-    Returns:
-        Path distances along guide lines. Shape: (batch_size)
-    """
+    """GPU-optimized path distance calculation along guide lines."""
     batch_size = guide_lines.shape[0]
+    max_points = guide_lines.shape[1]
     device = guide_lines.device
     
     # Calculate segment lengths (distance between consecutive guide points)
@@ -164,48 +151,77 @@ def _compute_path_distance(
     valid_segment_mask = valid_guide_mask[:, :-1] & valid_guide_mask[:, 1:]
     segment_lengths = torch.where(valid_segment_mask, segment_lengths, torch.zeros_like(segment_lengths))
     
-    # Initialize path distances
-    path_distances = torch.zeros(batch_size, device=device)
+    # Create case masks
+    same_segment_mask = (start_indices == end_indices)
+    forward_mask = (start_indices < end_indices) & ~same_segment_mask
+    backward_mask = (start_indices > end_indices) & ~same_segment_mask
     
-    # Process each batch element separately
-    for i in range(batch_size):
-        start_idx = start_indices[i].item()
-        end_idx = end_indices[i].item()
+    # Initialize path distances
+    path_distances = torch.full((batch_size,), float('inf'), device=device)
+    
+    # CASE 1: Same segment - direct distance between points
+    if same_segment_mask.any():
+        direct_distances = torch.norm(command_pos - robot_pos, dim=1)
+        path_distances = torch.where(same_segment_mask, direct_distances, path_distances)
+    
+    # CASE 2: Forward direction (start_idx < end_idx)
+    if forward_mask.any():
+        # Create a mask to identify which segments are between start and end for each env
+        # We'll use this to compute the sum of intermediate segment lengths
+        segment_indices = torch.arange(max_points-1, device=device).unsqueeze(0).expand(batch_size, -1)
         
-        # Skip computation if we don't have valid indices
-        if start_idx == -1 or end_idx == -1:
-            path_distances[i] = float('inf')
-            continue
+        # For each environment, mark segments that are between start and end indices
+        between_segments_mask = (segment_indices > start_indices.unsqueeze(1)) & \
+                               (segment_indices < end_indices.unsqueeze(1))
+        between_segments_mask = between_segments_mask & forward_mask.unsqueeze(1)
         
-        # Handle different cases based on segment ordering
-        if start_idx == end_idx:
-            # Both on same segment - use direct Euclidean distance between closest points
-            path_distances[i] = torch.norm(command_closest_points[i] - robot_closest_points[i])
-            
-        elif start_idx < end_idx:
-            # Forward direction - start segment to end segment
-            # Add partial length of start segment (from projection to end)
-            path_distances[i] += segment_lengths[i, start_idx] * (1.0 - start_t[i])
-            
-            # Add lengths of full segments between start and end
-            for idx in range(start_idx + 1, end_idx):
-                path_distances[i] += segment_lengths[i, idx]
-            
-            # Add partial length of end segment (from start to projection)
-            path_distances[i] += segment_lengths[i, end_idx] * end_t[i]
-            
-        else:
-            # Backward direction - end segment is before start segment
-            # For this case, we invert the path direction to ensure positive distance
-            # Add partial length of start segment (from projection to start)
-            path_distances[i] += segment_lengths[i, start_idx] * start_t[i]
-            
-            # Add lengths of full segments between end and start (in reverse)
-            for idx in range(start_idx - 1, end_idx - 1, -1):
-                path_distances[i] += segment_lengths[i, idx]
-            
-            # Add partial length of end segment (from end to projection)
-            path_distances[i] += segment_lengths[i, end_idx] * (1.0 - end_t[i])
+        # Compute partial length of start segment (from projection to end)
+        start_segment_contrib = segment_lengths[forward_mask, start_indices[forward_mask]] * \
+                               (1.0 - start_t[forward_mask])
+        
+        # Compute partial length of end segment (from start to projection)
+        end_segment_contrib = segment_lengths[forward_mask, end_indices[forward_mask]] * \
+                             end_t[forward_mask]
+        
+        # Sum all intermediate segment lengths
+        intermediate_segments_sum = torch.sum(segment_lengths * between_segments_mask.float(), dim=1)
+        
+        # Compute total path distance for forward case
+        forward_distances = start_segment_contrib + intermediate_segments_sum[forward_mask] + end_segment_contrib
+        
+        # Update path distances for forward case
+        path_distances = torch.where(forward_mask, forward_distances, path_distances)
+    
+    # CASE 3: Backward direction (start_idx > end_idx)
+    if backward_mask.any():
+        # Create a mask for segments between end and start (going backward)
+        segment_indices = torch.arange(max_points-1, device=device).unsqueeze(0).expand(batch_size, -1)
+        
+        # For each environment, mark segments that are between end and start indices (reversed)
+        between_segments_mask = (segment_indices < start_indices.unsqueeze(1)) & \
+                               (segment_indices > end_indices.unsqueeze(1))
+        between_segments_mask = between_segments_mask & backward_mask.unsqueeze(1)
+        
+        # Compute partial length of start segment (from projection to start)
+        start_segment_contrib = segment_lengths[backward_mask, start_indices[backward_mask]] * \
+                               start_t[backward_mask]
+        
+        # Compute partial length of end segment (from end to projection)
+        end_segment_contrib = segment_lengths[backward_mask, end_indices[backward_mask]] * \
+                             (1.0 - end_t[backward_mask])
+        
+        # Sum all intermediate segment lengths
+        intermediate_segments_sum = torch.sum(segment_lengths * between_segments_mask.float(), dim=1)
+        
+        # Compute total path distance for backward case
+        backward_distances = start_segment_contrib + intermediate_segments_sum[backward_mask] + end_segment_contrib
+        
+        # Update path distances for backward case
+        path_distances = torch.where(backward_mask, backward_distances, path_distances)
+    
+    # Handle invalid cases
+    invalid_mask = (start_indices < 0) | (end_indices < 0)
+    path_distances = torch.where(invalid_mask, torch.tensor(float('inf'), device=device), path_distances)
     
     return path_distances
 
@@ -269,8 +285,8 @@ def guidelines_progress_reward(
         robot_t,
         command_segment_indices, 
         command_t,
-        robot_closest_points,
-        command_closest_points
+        robot_pos,
+        command_world_pos
     )
     
     # Check which environments have valid guide segments
