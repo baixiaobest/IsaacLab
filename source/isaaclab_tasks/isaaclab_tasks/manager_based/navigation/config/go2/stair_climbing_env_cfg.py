@@ -286,11 +286,12 @@ class RewardsCfg:
         func=nav_mdp.active_after_time,
         weight=1.0,
         params={
-            "func": nav_mdp.position_command_error_tanh,
+            "func": nav_mdp.position_command_z_conditioned_error_tanh,
             "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
             "callback_params": {
                 "command_name":"pose_2d_command",
-                "std": 1.0
+                "std": 1.0,
+                "z_std": 0.2
             }
         })
 
