@@ -11,7 +11,7 @@ import numpy as np
 import scipy.spatial.transform as tf
 import torch
 import trimesh
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from .utils import *  # noqa: F401, F403
 from .utils import make_border, make_plane
@@ -250,7 +250,7 @@ def inverted_pyramid_stairs_terrain(
 def linear_stairs_terrain(
     difficulty: float,
     cfg: mesh_terrains_cfg.MeshLinearStairsTerrainCfg
-) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+) -> Union[tuple[list[trimesh.Trimesh], np.ndarray], tuple[list[trimesh.Trimesh], np.ndarray, np.ndarray]]:
     
     terrain_center = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
     # compute the vertices of the terrain
@@ -273,13 +273,19 @@ def linear_stairs_terrain(
         box_length -= 2*cfg.step_width
         box_center[2] += step_height
 
-    return mesh_list, origin
+    guide_lines = np.array([np.array([box_center[0], box_center[1] + box_length/2, 0]),
+                   np.array([box_center[0], box_center[1], cfg.num_steps * step_height])])
+
+    if cfg.has_guide_lines:
+        return mesh_list, origin, guide_lines
+    else:
+        return mesh_list, origin
 
 
 def walled_linear_stairs_terrain(
     difficulty: float,
     cfg: mesh_terrains_cfg.MeshWalledLinearStairsTerrainCfg
-) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+) -> Union[tuple[list[trimesh.Trimesh], np.ndarray], tuple[list[trimesh.Trimesh], np.ndarray, np.ndarray]]:
     """
     Linear stairs with vertical walls on both sides and stair width that decreases with difficulty.
 
@@ -360,7 +366,13 @@ def walled_linear_stairs_terrain(
     mesh_list.append(left_wall)
     mesh_list.append(right_wall)
 
-    return mesh_list, origin
+    guide_lines = np.array([np.array([box_center[0], box_center[1] + box_length/2, 0]),
+                   np.array([box_center[0], box_center[1], cfg.num_steps * step_height])])
+
+    if cfg.has_guide_lines:
+        return mesh_list, origin, guide_lines
+    else:
+        return mesh_list, origin
 
 
 def _resolve_width(difficulty: float, cfg) -> float:
@@ -456,7 +468,9 @@ def _add_wall_pair(mesh_list, center_xy, stairs_width, length, wall_t, wall_clea
     mesh_list.append(trimesh.creation.box(dim, trimesh.transformations.translation_matrix(posR)))
 
 
-def turning_stairs_90_terrain(difficulty: float, cfg):
+def turning_stairs_90_terrain(difficulty: float, cfg) \
+    -> Union[tuple[list[trimesh.Trimesh], np.ndarray], tuple[list[trimesh.Trimesh], np.ndarray, np.ndarray]]:
+
     terrain_center = np.array([0.5 * cfg.size[0] + cfg.stairs_center_x_offset,
                                0.5 * cfg.size[1] - cfg.stairs_center_y_offset, 0.0])
     meshes = [make_plane(cfg.size, 0.0, center_zero=False)]
@@ -493,7 +507,7 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
     dir2 = "x+" if cfg.turn_right else "x-"
     z2, run2_far, run2_len = _build_run_steps(
         meshes, start_xy=run2_start, direction=dir2,
-        base_z=z1 + landing_th, stairs_width=width, num_steps=cfg.num_steps_run2,
+        base_z=landing_full_height, stairs_width=width, num_steps=cfg.num_steps_run2,
         step_h=step_h, tread=tread,
     )
 
@@ -502,7 +516,7 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
     exit_w   = float(getattr(cfg, "second_landing_width",  landing_w))
 
     # top of run-2 (z)
-    z_top2 = z1 + landing_th + cfg.num_steps_run2 * step_h
+    z_top2 = landing_full_height + z2
 
     if dir2 == "x+":
         # landing spans [run2_far.x, run2_far.x + exit_len] along +x
@@ -517,8 +531,17 @@ def turning_stairs_90_terrain(difficulty: float, cfg):
         landing2_dim, trimesh.transformations.translation_matrix((landing2_center[0], landing2_center[1], landing2_full_height / 2.0))
     ))
 
-    return meshes, origin
+    guide_lines = np.array([np.array([run1_start[0], run1_start[1], 0]),
+                            np.array([run1_far[0], run1_far[1], landing_full_height]),
+                            np.array([landing_center[0], landing_center[1], landing_full_height]),
+                            np.array([run2_start[0], run2_start[1], landing_full_height]),
+                            np.array([run2_far[0], run2_far[1], landing2_full_height]),
+                            np.array([landing2_center[0], landing2_center[1], landing2_full_height])])
 
+    if cfg.has_guide_lines:
+        return meshes, origin, guide_lines
+    else:
+        return meshes, origin
 
 def turning_stairs_180_terrain(difficulty: float, cfg):
     terrain_center = np.array([0.5 * cfg.size[0] + cfg.stairs_center_x_offset,
@@ -578,7 +601,18 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
         )
     ))
 
-    return meshes, origin
+    guide_lines = np.array([np.array([run1_start[0], run1_start[1], 0]),
+                            np.array([run1_far[0], run1_far[1], z1]),
+                            np.array([run1_start[0], landing_center[1], landing_full_height]),
+                            np.array([run2_start[0], landing_center[1], landing_full_height]),
+                            np.array([run2_start[0], run2_start[1], landing_full_height]),
+                            np.array([run2_far[0], run2_far[1], landing2_full_height]),
+                            np.array([landing2_center[0], landing2_center[1], landing2_full_height])])
+
+    if cfg.has_guide_lines:
+        return meshes, origin, guide_lines
+    else:
+        return meshes, origin
 
 
 def random_grid_terrain(

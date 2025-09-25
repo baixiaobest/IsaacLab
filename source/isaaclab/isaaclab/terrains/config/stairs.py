@@ -74,7 +74,8 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             stairs_width=2.0,
             stairs_length=6.0,
             origin_offset_y=4.0,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
         ),
         "linear_stairs_walled": terrain_gen.MeshWalledLinearStairsTerrainCfg(
             proportion=1.0,
@@ -87,7 +88,8 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.5,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
         ),
         "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
@@ -106,7 +108,8 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
         ),
 
         "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
@@ -126,7 +129,8 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
         ),
 
         "turning_stairs_180_right": terrain_gen.MeshTurningStairs180TerrainCfg(
@@ -147,7 +151,8 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
         ),
 
         "turning_stairs_180_left": terrain_gen.MeshTurningStairs180TerrainCfg(
@@ -168,7 +173,8 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS}
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
         ),
     },
 )

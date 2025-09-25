@@ -18,7 +18,7 @@ import numpy as np
 import trimesh
 from collections.abc import Callable
 from dataclasses import MISSING
-from typing import Literal
+from typing import Literal, Union
 
 from isaaclab.utils import configclass
 
@@ -75,7 +75,11 @@ class SubTerrainBaseCfg:
     extend from :math:`(0, 0)` to :math:`(size[0], size[1])`.
     """
 
-    function: Callable[[float, SubTerrainBaseCfg], tuple[list[trimesh.Trimesh], np.ndarray]] = MISSING
+    function: Callable[[float, SubTerrainBaseCfg], 
+      Union[
+        tuple[list[trimesh.Trimesh], np.ndarray],
+        tuple[list[trimesh.Trimesh], np.ndarray, np.ndarray]
+      ]] = MISSING
     """Function to generate the terrain.
 
     This function must take as input the terrain difficulty and the configuration parameters and
@@ -104,6 +108,11 @@ class SubTerrainBaseCfg:
 
     The keys correspond to the name of the flat patch sampling configuration and the values are the
     corresponding configurations.
+    """
+
+    has_guide_lines: bool = False
+    """"Guide lines are lines that help guide the robot to navigate the terrain. Only a certain subterrain has
+    guide lines. Defaults to False.
     """
 
 

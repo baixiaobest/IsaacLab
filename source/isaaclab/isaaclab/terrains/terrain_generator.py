@@ -17,8 +17,10 @@ from isaaclab.utils.warp import convert_to_warp_mesh
 
 from .height_field import HfTerrainBaseCfg
 from .terrain_generator_cfg import FlatPatchSamplingCfg, SubTerrainBaseCfg, TerrainGeneratorCfg
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from .trimesh.utils import make_border
 from .utils import color_meshes_by_height, find_flat_patches
+import isaaclab.sim as sim_utils
 
 
 class TerrainGenerator:
@@ -92,6 +94,11 @@ class TerrainGenerator:
     For instance, the key "root_spawn" maps to a tensor containing the flat patches for spawning an asset.
     Similarly, the key "target_spawn" maps to a tensor containing the flat patches for setting targets.
     """
+    guide_lines: list[list[torch.Tensor]]
+    """List of guide lines for the terrain. Guide lines are lines that help guide the robot to navigate the terrain.
+    The shape is (num_rows, num_cols, N, 3), where N is the number of guide line points for the sub-terrain.
+    These are only generated if the sub-terrain supports guide lines.
+    """
 
     def __init__(self, cfg: TerrainGeneratorCfg, device: str = "cpu"):
         """Initialize the terrain generator.
@@ -140,6 +147,7 @@ class TerrainGenerator:
         # create a list of all sub-terrains
         self.terrain_meshes = list()
         self.terrain_origins = np.zeros((self.cfg.num_rows, self.cfg.num_cols, 3))
+        self.guide_lines = [[None for _ in range(self.cfg.num_cols)] for _ in range(self.cfg.num_rows)]
 
         # Terrain names, only used for curriculum-based terrains.
         # The index corresponds to the column index of the terrain.
@@ -177,10 +185,19 @@ class TerrainGenerator:
         self.terrain_mesh.apply_transform(transform)
         # -- terrain origins
         self.terrain_origins += transform[:3, -1]
+
+        # -- Transform guide lines
+        for row in range(self.cfg.num_rows):
+            for col in range(self.cfg.num_cols):
+                if self.guide_lines[row][col] is not None:
+                    self.guide_lines[row][col] += torch.tensor(transform[:3, -1], device=device)
+
         # -- valid patches
         terrain_origins_torch = torch.tensor(self.terrain_origins, dtype=torch.float, device=self.device).unsqueeze(2)
         for name, value in self.flat_patches.items():
             self.flat_patches[name] = value + terrain_origins_torch
+
+        self._visualize_guide_lines()
 
     def get_terrain_names(self) -> list[str]:
         """Get the names of the sub-terrains.
@@ -228,9 +245,9 @@ class TerrainGenerator:
             # randomly sample difficulty parameter
             difficulty = self.np_rng.uniform(*self.cfg.difficulty_range)
             # generate terrain
-            mesh, origin = self._get_terrain_mesh(difficulty, sub_terrains_cfgs[sub_index])
+            mesh, origin, guide_lines = self._get_terrain_mesh(difficulty, sub_terrains_cfgs[sub_index])
             # add to sub-terrains
-            self._add_sub_terrain(mesh, origin, sub_row, sub_col, sub_terrains_cfgs[sub_index])
+            self._add_sub_terrain(mesh, origin, guide_lines, sub_row, sub_col, sub_terrains_cfgs[sub_index])
 
     def _generate_curriculum_terrains(self):
         """Add terrains based on the difficulty parameter."""
@@ -262,9 +279,9 @@ class TerrainGenerator:
                 difficulty = (sub_row + self.np_rng.uniform()) / self.cfg.num_rows
                 difficulty = lower + (upper - lower) * difficulty
                 # generate terrain
-                mesh, origin = self._get_terrain_mesh(difficulty, sub_terrains_cfgs[sub_indices[sub_col]])
+                mesh, origin, guide_lines = self._get_terrain_mesh(difficulty, sub_terrains_cfgs[sub_indices[sub_col]])
                 # add to sub-terrains
-                self._add_sub_terrain(mesh, origin, sub_row, sub_col, sub_terrains_cfgs[sub_indices[sub_col]])
+                self._add_sub_terrain(mesh, origin, guide_lines, sub_row, sub_col, sub_terrains_cfgs[sub_indices[sub_col]])
                 # Store the names
                 self.terrain_names[sub_col] = sub_terrains_names[sub_indices[sub_col]]
 
@@ -295,7 +312,7 @@ class TerrainGenerator:
         self.terrain_meshes.append(border)
 
     def _add_sub_terrain(
-        self, mesh: trimesh.Trimesh, origin: np.ndarray, row: int, col: int, sub_terrain_cfg: SubTerrainBaseCfg
+        self, mesh: trimesh.Trimesh, origin: np.ndarray, guide_lines: np.ndarray | None, row: int, col: int, sub_terrain_cfg: SubTerrainBaseCfg
     ):
         """Add input sub-terrain to the list of sub-terrains.
 
@@ -343,7 +360,12 @@ class TerrainGenerator:
         # add origin to the list
         self.terrain_origins[row, col] = origin + transform[:3, -1]
 
-    def _get_terrain_mesh(self, difficulty: float, cfg: SubTerrainBaseCfg) -> tuple[trimesh.Trimesh, np.ndarray]:
+        # Add guide lines if available
+        if guide_lines is not None:
+            self.guide_lines[row][col] = torch.from_numpy(guide_lines + transform[:3, -1]).to(device=self.device)
+
+    def _get_terrain_mesh(self, difficulty: float, cfg: SubTerrainBaseCfg) \
+        -> tuple[trimesh.Trimesh, np.ndarray, np.ndarray | None]:
         """Generate a sub-terrain mesh based on the input difficulty parameter.
 
         If caching is enabled, the sub-terrain is cached and loaded from the cache if it exists.
@@ -379,10 +401,14 @@ class TerrainGenerator:
             mesh = trimesh.load_mesh(sub_terrain_obj_filename, process=False)
             origin = np.loadtxt(sub_terrain_csv_filename, delimiter=",")
             # return the generated mesh
-            return mesh, origin
+            return mesh, origin, None
 
         # generate the terrain
-        meshes, origin = cfg.function(difficulty, cfg)
+        guide_lines = None
+        if cfg.has_guide_lines:
+            meshes, origin, guide_lines = cfg.function(difficulty, cfg)
+        else:
+            meshes, origin = cfg.function(difficulty, cfg)
         mesh = trimesh.util.concatenate(meshes)
         # offset mesh such that they are in their center
         transform = np.eye(4)
@@ -390,6 +416,8 @@ class TerrainGenerator:
         mesh.apply_transform(transform)
         # change origin to be in the center of the sub-terrain
         origin += transform[0:3, -1]
+        if guide_lines is not None:
+            guide_lines += transform[0:3, -1]
 
         # if caching is enabled, save the mesh and origin
         if self.cfg.use_cache:
@@ -400,4 +428,26 @@ class TerrainGenerator:
             np.savetxt(sub_terrain_csv_filename, origin, delimiter=",", header="x,y,z")
             dump_yaml(sub_terrain_meta_filename, cfg)
         # return the generated mesh
-        return mesh, origin
+        return mesh, origin, guide_lines
+    
+    def _visualize_guide_lines(self):
+        self.goal_markers = []
+
+        for row in range(len(self.guide_lines)):
+            for col in range(len(self.guide_lines[row])):
+                if self.guide_lines[row][col].shape[0] == 1:
+                    continue
+                for idx in range(self.guide_lines[row][col].shape[0]):
+                    point = self.guide_lines[row][col][idx]
+                    guide_marker_cfg = VisualizationMarkersCfg(
+                        prim_path=f"/Visuals/Guidelines/row_{row}_col_{col}_point_{idx}",
+                        markers={
+                            "target": sim_utils.SphereCfg(
+                                        radius=0.05,
+                                        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=tuple(np.random.rand(3))))
+                        }
+                    )
+                    guide_marker= VisualizationMarkers(guide_marker_cfg)
+                    guide_marker.set_visibility(True)
+                    guide_marker.visualize(translations=point.unsqueeze(dim=0), scales=np.array([[1, 1, 1]]))
+                    self.goal_markers.append(guide_marker)
