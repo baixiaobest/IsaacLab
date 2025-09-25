@@ -273,8 +273,9 @@ class RewardsCfg:
         weight=0.0,
         params={
             "command_name": "pose_2d_command",
-            "distance_std": 8.0,
-            "centering_std": 3.0,
+            "path_std": 8.0,
+            "path_centering_std": 0.6,
+            "centering_std": 0.4,
             "distance_scale": 0.95,
             "centering_scale": 0.05,
             "asset_cfg": SceneEntityCfg("robot"),

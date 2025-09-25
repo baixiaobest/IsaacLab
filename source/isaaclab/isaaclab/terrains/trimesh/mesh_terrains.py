@@ -273,7 +273,8 @@ def linear_stairs_terrain(
         box_length -= 2*cfg.step_width
         box_center[2] += step_height
 
-    guide_lines = np.array([np.array([box_center[0], box_center[1] - cfg.stairs_length/2, 0]),
+    guide_lines = np.array([origin,
+                            np.array([box_center[0], box_center[1] - cfg.stairs_length/2, 0]),
                             np.array([box_center[0], 
                                       box_center[1] - (cfg.stairs_length - 2*cfg.step_width * cfg.num_steps)/2, 
                                       cfg.num_steps * step_height]),
@@ -369,7 +370,8 @@ def walled_linear_stairs_terrain(
     mesh_list.append(left_wall)
     mesh_list.append(right_wall)
 
-    guide_lines = np.array([np.array([box_center[0], box_center[1] - cfg.stairs_length/2, 0]),
+    guide_lines = np.array([origin,
+                            np.array([box_center[0], box_center[1] - cfg.stairs_length/2, 0]),
                             np.array([box_center[0], 
                                       box_center[1] - (cfg.stairs_length - 2*cfg.step_width * cfg.num_steps)/2, 
                                       cfg.num_steps * step_height]),
@@ -537,7 +539,8 @@ def turning_stairs_90_terrain(difficulty: float, cfg) \
         landing2_dim, trimesh.transformations.translation_matrix((landing2_center[0], landing2_center[1], landing2_full_height / 2.0))
     ))
 
-    guide_lines = np.array([np.array([run1_start[0], run1_start[1], 0]),
+    guide_lines = np.array([origin,
+                            np.array([run1_start[0], run1_start[1], 0]),
                             np.array([run1_far[0], run1_far[1], landing_full_height]),
                             np.array([landing_center[0], landing_center[1], landing_full_height]),
                             np.array([run2_start[0], run2_start[1], landing_full_height]),
@@ -607,7 +610,8 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
         )
     ))
 
-    guide_lines = np.array([np.array([run1_start[0], run1_start[1], 0]),
+    guide_lines = np.array([origin,
+                            np.array([run1_start[0], run1_start[1], 0]),
                             np.array([run1_far[0], run1_far[1], z1]),
                             np.array([run1_start[0], landing_center[1], landing_full_height]),
                             np.array([run2_start[0], landing_center[1], landing_full_height]),

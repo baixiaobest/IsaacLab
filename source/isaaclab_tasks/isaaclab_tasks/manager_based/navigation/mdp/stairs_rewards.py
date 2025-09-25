@@ -294,10 +294,11 @@ def guidelines_progress_reward(
     env: ManagerBasedRLEnv,
     command_name: str,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    distance_std: float = 1.0,
-    centering_std: float = 1.0,
+    path_std: float = 8.0,
+    path_centering_std: float = 0.6,
+    centering_std: float = 0.3,
     distance_scale: float = 1.0,
-    centering_scale: float = 1.0,
+    centering_scale: float = 0.05,
     z_threshold: float = 1.0,  # Maximum z-distance for guide line association
 ) -> torch.Tensor:
     """Reward for progress along guide lines.
@@ -311,7 +312,7 @@ def guidelines_progress_reward(
         env: The environment instance
         command_name: Name of the command to follow
         asset_cfg: Asset configuration for the robot
-        distance_std: Standard deviation for the distance-based reward
+        path_std: Standard deviation for the distance-based reward
         centering_std: Standard deviation for the centering-based reward
         distance_scale: Scaling factor for the distance-based reward
         centering_scale: Scaling factor for the centering-based reward
@@ -366,9 +367,12 @@ def guidelines_progress_reward(
     has_valid_segments = (robot_distances < float('inf')) & (command_distances < float('inf'))
     
     total_distances = robot_distances + command_distances + path_distances
-    total_distance_reward = 1.0 - torch.tanh(total_distances / distance_std)
     
     centering_reward = 1.0 - torch.tanh(robot_distances / centering_std)
+
+    # Total distance reward is conditioned on centering
+    total_distance_reward = (1.0 - torch.tanh(total_distances / path_std)) \
+        * (1.0 - torch.tanh(robot_distances / path_centering_std))
 
     # Combine distance and progress rewards
     total_reward = distance_scale * total_distance_reward + centering_scale * centering_reward
