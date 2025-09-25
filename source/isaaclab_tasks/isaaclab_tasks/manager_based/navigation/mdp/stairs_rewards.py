@@ -78,18 +78,6 @@ def _find_closest_points_on_segments(
     # Create mask for valid segments (both points must be valid)
     valid_segment_mask = valid_guide_mask[:, :-1] & valid_guide_mask[:, 1:]  # Shape: (batch_size, max_points-1)
     
-    # Add z-threshold filtering for segments
-    # Check if both p1 and p2 are within z_threshold of the position
-    position_z = positions[:, 2:3].unsqueeze(1)  # Shape: (batch_size, 1, 1)
-    p1_z_valid = torch.abs(p1[:, :, 2:3] - position_z) <= z_threshold  # Shape: (batch_size, max_points-1, 1)
-    p2_z_valid = torch.abs(p2[:, :, 2:3] - position_z) <= z_threshold  # Shape: (batch_size, max_points-1, 1)
-    
-    # Both endpoints of segment must be within z_threshold
-    z_valid_mask = (p1_z_valid & p2_z_valid).squeeze(-1)  # Shape: (batch_size, max_points-1)
-    
-    # Combine with existing valid segment mask
-    valid_segment_mask = valid_segment_mask & z_valid_mask
-    
     # Calculate segment vectors and position-to-p1 vectors
     segment_vec = p2 - p1  # Shape: (batch_size, max_points-1, 3)
     pos_to_p1 = positions.unsqueeze(1) - p1  # Shape: (batch_size, max_points-1, 3)
@@ -114,20 +102,32 @@ def _find_closest_points_on_segments(
     # Calculate closest points on segments
     closest_points_per_segment = p1 + t_clamped.unsqueeze(-1) * segment_vec  # Shape: (batch_size, max_points-1, 3)
     
-    # Additional z-threshold check for the actual closest points
-    # This ensures the projected point is also within z_threshold
+    # NOW apply z-threshold filtering based on the computed closest points
+    # This ensures the projected point is within z_threshold
     closest_point_z_valid = torch.abs(closest_points_per_segment[:, :, 2] - positions[:, 2].unsqueeze(1)) <= z_threshold
+    
+    # Combine with existing valid segment mask
     valid_segment_mask = valid_segment_mask & closest_point_z_valid
     
     # Calculate distances from positions to closest points on segments
     segment_distances = torch.norm(positions.unsqueeze(1) - closest_points_per_segment, dim=-1)  # Shape: (batch_size, max_points-1)
     
-    # Handle degenerate cases: use distance to p1
+    # Handle degenerate cases: use distance to p1, but also apply z-threshold check
     degenerate_distances = torch.norm(pos_to_p1, dim=-1)
+    # For degenerate segments, check z-threshold against p1
+    degenerate_z_valid = torch.abs(p1[:, :, 2] - positions[:, 2].unsqueeze(1)) <= z_threshold
+    
     segment_distances = torch.where(
         degenerate_mask,
         degenerate_distances,
         segment_distances
+    )
+    
+    # Update valid mask for degenerate segments
+    valid_segment_mask = torch.where(
+        degenerate_mask,
+        valid_segment_mask & degenerate_z_valid,
+        valid_segment_mask
     )
     
     # Mask invalid segments with infinity
