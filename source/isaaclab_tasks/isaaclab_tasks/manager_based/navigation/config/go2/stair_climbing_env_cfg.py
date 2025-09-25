@@ -20,7 +20,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
-from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, PYRAMIDS_ONLY # isort: skip
+from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, PYRAMIDS_ONLY # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -279,7 +279,7 @@ class RewardsCfg:
             "distance_scale": 0.95,
             "centering_scale": 0.05,
             "asset_cfg": SceneEntityCfg("robot"),
-            'z_threshold': 0.8
+            'z_threshold': 0.5
         }
     )
     
@@ -659,7 +659,7 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = DIVERSE_STAIRS
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
 
