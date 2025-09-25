@@ -274,7 +274,8 @@ class RewardsCfg:
         params={
             "command_name": "pose_2d_command",
             "distance_std": 5.0,
-            "asset_cfg": SceneEntityCfg("robot")
+            "asset_cfg": SceneEntityCfg("robot"),
+            'z_threshold': 0.8
         }
     )
     

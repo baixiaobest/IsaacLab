@@ -53,7 +53,8 @@ def _transform_command_to_world(
 def _find_closest_points_on_segments(
     positions: torch.Tensor,  # Shape: (batch_size, 3)
     guide_lines: torch.Tensor,  # Shape: (batch_size, max_points, 3)
-    valid_guide_mask: torch.Tensor  # Shape: (batch_size, max_points)
+    valid_guide_mask: torch.Tensor,  # Shape: (batch_size, max_points)
+    z_threshold: float = 1.0  # Maximum allowed z-distance from position
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Find closest points on line segments defined by guide lines.
     
@@ -61,6 +62,7 @@ def _find_closest_points_on_segments(
         positions: Positions to find closest points for. Shape: (batch_size, 3)
         guide_lines: Guide line points. Shape: (batch_size, max_points, 3)
         valid_guide_mask: Mask for valid guide points. Shape: (batch_size, max_points)
+        z_threshold: Maximum allowed z-distance from position
         
     Returns:
         tuple containing:
@@ -75,6 +77,18 @@ def _find_closest_points_on_segments(
     
     # Create mask for valid segments (both points must be valid)
     valid_segment_mask = valid_guide_mask[:, :-1] & valid_guide_mask[:, 1:]  # Shape: (batch_size, max_points-1)
+    
+    # Add z-threshold filtering for segments
+    # Check if both p1 and p2 are within z_threshold of the position
+    position_z = positions[:, 2:3].unsqueeze(1)  # Shape: (batch_size, 1, 1)
+    p1_z_valid = torch.abs(p1[:, :, 2:3] - position_z) <= z_threshold  # Shape: (batch_size, max_points-1, 1)
+    p2_z_valid = torch.abs(p2[:, :, 2:3] - position_z) <= z_threshold  # Shape: (batch_size, max_points-1, 1)
+    
+    # Both endpoints of segment must be within z_threshold
+    z_valid_mask = (p1_z_valid & p2_z_valid).squeeze(-1)  # Shape: (batch_size, max_points-1)
+    
+    # Combine with existing valid segment mask
+    valid_segment_mask = valid_segment_mask & z_valid_mask
     
     # Calculate segment vectors and position-to-p1 vectors
     segment_vec = p2 - p1  # Shape: (batch_size, max_points-1, 3)
@@ -100,6 +114,11 @@ def _find_closest_points_on_segments(
     # Calculate closest points on segments
     closest_points_per_segment = p1 + t_clamped.unsqueeze(-1) * segment_vec  # Shape: (batch_size, max_points-1, 3)
     
+    # Additional z-threshold check for the actual closest points
+    # This ensures the projected point is also within z_threshold
+    closest_point_z_valid = torch.abs(closest_points_per_segment[:, :, 2] - positions[:, 2].unsqueeze(1)) <= z_threshold
+    valid_segment_mask = valid_segment_mask & closest_point_z_valid
+    
     # Calculate distances from positions to closest points on segments
     segment_distances = torch.norm(positions.unsqueeze(1) - closest_points_per_segment, dim=-1)  # Shape: (batch_size, max_points-1)
     
@@ -121,10 +140,25 @@ def _find_closest_points_on_segments(
     # Find minimum distance and index for each position
     min_segment_distances, segment_indices = torch.min(masked_segment_distances, dim=1)
     
+    # Handle case where no valid segments exist
+    no_valid_segments = torch.all(~valid_segment_mask, dim=1)
+    segment_indices = torch.where(no_valid_segments, torch.tensor(-1, device=positions.device), segment_indices)
+    min_segment_distances = torch.where(no_valid_segments, torch.tensor(float('inf'), device=positions.device), min_segment_distances)
+    
     # Gather the closest points and t values
     batch_indices = torch.arange(positions.shape[0], device=positions.device)
-    closest_points = closest_points_per_segment[batch_indices, segment_indices]
-    t_values = t_clamped[batch_indices, segment_indices]
+    
+    # Only gather for valid indices
+    valid_batch_mask = segment_indices >= 0
+    closest_points = torch.zeros_like(positions)
+    t_values = torch.zeros(positions.shape[0], device=positions.device)
+    
+    if valid_batch_mask.any():
+        valid_batch_indices = batch_indices[valid_batch_mask]
+        valid_segment_indices = segment_indices[valid_batch_mask]
+        
+        closest_points[valid_batch_mask] = closest_points_per_segment[valid_batch_indices, valid_segment_indices]
+        t_values[valid_batch_mask] = t_clamped[valid_batch_indices, valid_segment_indices]
     
     return closest_points, min_segment_distances, segment_indices, t_values
 
@@ -261,6 +295,7 @@ def guidelines_progress_reward(
     command_name: str,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     distance_std: float = 1.0,
+    z_threshold: float = 1.0,  # Maximum z-distance for guide line association
 ) -> torch.Tensor:
     """Reward for progress along guide lines.
     
@@ -273,6 +308,7 @@ def guidelines_progress_reward(
         command_name: Name of the command
         asset_cfg: Asset configuration
         distance_std: Standard deviation for distance reward
+        z_threshold: Maximum z-distance for guide line association
         
     Returns:
         Reward tensor. Shape: (num_envs)
@@ -300,11 +336,11 @@ def guidelines_progress_reward(
     
     # Find closest points for both robot and command, including segment indices and t values
     robot_closest_points, robot_distances, robot_segment_indices, robot_t = _find_closest_points_on_segments(
-        robot_pos, env_guide_lines, valid_guide_mask
+        robot_pos, env_guide_lines, valid_guide_mask, z_threshold
     )
     
     command_closest_points, command_distances, command_segment_indices, command_t = _find_closest_points_on_segments(
-        command_world_pos, env_guide_lines, valid_guide_mask
+        command_world_pos, env_guide_lines, valid_guide_mask, z_threshold
     )
     
     # Calculate path distance along guide lines from robot to command
