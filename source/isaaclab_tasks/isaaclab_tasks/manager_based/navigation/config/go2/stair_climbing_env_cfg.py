@@ -275,8 +275,8 @@ class RewardsCfg:
             "command_name": "pose_2d_command",
             "distance_std": 8.0,
             "centering_std": 3.0,
-            "distance_scale": 1.0,
-            "centering_scale": 0.5,
+            "distance_scale": 0.9,
+            "centering_scale": 0.1,
             "asset_cfg": SceneEntityCfg("robot"),
             'z_threshold': 0.8
         }
