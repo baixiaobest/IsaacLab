@@ -25,7 +25,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CF
 from isaaclab.utils import configclass
 
 EPISDOE_LENGTH = 10.0
-GOAL_REACHED_ACTIVE_AFTER = 0.0
+GOAL_REACHED_ACTIVE_AFTER = 4.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
@@ -261,7 +261,7 @@ class RewardsCfg:
         weight=1.0,
         params={
             "func": nav_mdp.position_command_error_tanh,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "active_after_time": 0.0,
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 5.0
@@ -313,7 +313,7 @@ class RewardsCfg:
         weight=0.2,
         params={
             'func': nav_mdp.movement_reward,
-            'inactivate_after_time': GOAL_REACHED_ACTIVE_AFTER,
+            'inactivate_after_time': 0.0,
             'callback_params': {
                 'command_name': 'pose_2d_command',
                 'std': 0.2
