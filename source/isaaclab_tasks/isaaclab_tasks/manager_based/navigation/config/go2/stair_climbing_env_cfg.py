@@ -662,7 +662,7 @@ class NavigationEnd2EndNoEncoderStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
-        self.rewards.undesired_contacts.weight = -20.0
+        self.rewards.undesired_contacts.weight = -8.0
 
 class NavigationEnd2EndCNNPyramidsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
