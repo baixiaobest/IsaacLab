@@ -561,15 +561,36 @@ class ObservationsCfg:
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
             noise=Unoise(n_min=-0.1, n_max=0.1),
-            clip=(-1.0, 1.0),
+            clip=(-3.0, 3.0),
         )
 
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
 
+    @configclass
+    class RNDStateCfg(ObsGroup):
+        """Observations for RND state group."""
+
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
+        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        height_scan = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("height_scanner"), 'offset': 0.4},
+            clip=(-3.0, 3.0),
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
     # observation groups
     policy: PolicyCfg = PolicyCfg()
+
+    # Random network distillation (RND) for exploration bonus
+    rnd_state: RNDStateCfg = RNDStateCfg()
 
 @configclass
 class ActionsCfg:
@@ -657,14 +678,15 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
-    pass
+    def __post_init__(self):
+        super().__post_init__()
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):

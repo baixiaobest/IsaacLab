@@ -80,9 +80,6 @@ class RslRlRndCfg:
     state_normalization: bool = False
     """Whether to normalize the RND state. Default is False."""
 
-    learning_rate: float = 1e-3
-    """The learning rate for the RND module. Default is 1e-3."""
-
     num_outputs: int = 1
     """The number of outputs for the RND module. Default is 1."""
 

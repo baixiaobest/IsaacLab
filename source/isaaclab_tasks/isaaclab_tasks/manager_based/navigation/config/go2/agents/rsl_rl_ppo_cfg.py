@@ -1,7 +1,7 @@
 from isaaclab.utils import configclass
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, \
-  RslRlPpoEncoderActorCriticCfg, RslRlSymmetryCfg
+  RslRlPpoEncoderActorCriticCfg, RslRlSymmetryCfg, RslRlRndCfg
 import torch
 
 NavPPOConfig = RslRlPpoAlgorithmCfg(
@@ -324,7 +324,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
     wandb_project="e2e_navigation"
 
 @configclass
-class UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0):
+class UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
@@ -345,7 +345,7 @@ class UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0(Unitre
     wandb_project="stairs_climbing"
 
 @configclass
-class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0):
+class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
@@ -365,4 +365,56 @@ class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndN
         tanh_output=True,
     )
     algorithm = NavE2EPPOConfig
+    wandb_project="stairs_climbing"
+
+
+RNDConfig = RslRlRndCfg(
+   weight=0.1,
+    weight_schedule=RslRlRndCfg.LinearWeightScheduleCfg(
+        final_value=0.0,
+        initial_step=200,
+        final_step=1000,
+    ),
+    num_outputs=16,
+    predictor_hidden_dims=[256, 128, 64],
+    target_hidden_dims=[256, 128, 64],
+)
+
+NavRNDPPOConfig = RslRlPpoAlgorithmCfg(
+        rnd_cfg=RNDConfig,
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.995,
+        lam=0.995,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
+
+@configclass
+class UnitreeGo2NavigationEnd2End_CNN_RND_PPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 1500
+    save_interval = 100
+    save_jit = True
+    experiment_name = "unitree_go2_navigation_stairs_v0"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=0.8,
+        noise_clip=1.0,
+        encoder_dims=e2e_cnn_config,
+        encoder_type="cnn",
+        encoder_obs_normalize=False,
+        share_encoder_with_critic=True,
+        actor_hidden_dims=[128, 128, 64],
+        critic_hidden_dims=[128, 128, 64],
+        activation="elu",
+        tanh_output=True,
+    )
+    algorithm = NavRNDPPOConfig
     wandb_project="stairs_climbing"
