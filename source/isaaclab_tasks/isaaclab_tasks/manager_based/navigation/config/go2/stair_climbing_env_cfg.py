@@ -20,7 +20,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
-from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, PYRAMIDS_ONLY # isort: skip
+from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -653,7 +653,6 @@ class NavigationStairsEnvCfg(ManagerBasedRLEnvCfg):
 class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator = PYRAMIDS_ONLY
         self.rewards.guidelines_reward = None
 
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
@@ -669,7 +668,7 @@ class NavigationEnd2EndCNNPyramidsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = PYRAMIDS_ONLY
+        self.scene.terrain.terrain_generator = PYRAMIDS_CLIMB_UP
         self.rewards.guidelines_reward = None
 
 @configclass

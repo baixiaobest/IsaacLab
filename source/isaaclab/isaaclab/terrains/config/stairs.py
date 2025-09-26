@@ -23,6 +23,52 @@ FLAT_PATCH_PYRAMIDS = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+PYRAMIDS_CLIMB_UP = TerrainGeneratorCfg(
+    size=(10.0, 10.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0, 0.15),        
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.5,
+            holes=False,
+            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
+        ),
+    },
+)
+
+PYRAMIDS_CLIMB_DOWN = TerrainGeneratorCfg(
+    size=(10.0, 10.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0, 0.15),
+            step_width=0.3,
+            platform_width=3.0,
+            border_width=1.5,
+            holes=False,
+            flat_patch_sampling={"target": FLAT_PATCH_PYRAMIDS}
+        )
+    },
+)
+
 PYRAMIDS_ONLY = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=20.0,
