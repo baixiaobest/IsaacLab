@@ -523,6 +523,10 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
+        count_down = ObsTerm(
+            func=mdp.count_down,
+            params={"episode_length": EPISDOE_LENGTH}
+        )
 
         fl_foot_scan = ObsTerm(
             func=mdp.height_scan,
