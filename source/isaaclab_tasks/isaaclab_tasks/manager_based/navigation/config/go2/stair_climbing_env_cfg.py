@@ -25,7 +25,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CF
 from isaaclab.utils import configclass
 
 EPISDOE_LENGTH = 10.0
-GOAL_REACHED_ACTIVE_AFTER = 4.0
+GOAL_REACHED_ACTIVE_AFTER = 6.0
 SIM_DT = 0.005
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
@@ -653,7 +653,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
