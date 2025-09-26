@@ -654,6 +654,7 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = PYRAMIDS_ONLY
+        self.rewards.guidelines_reward = None
 
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
@@ -662,12 +663,14 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
+        self.rewards.undesired_contacts.weight = -20.0
 
 class NavigationEnd2EndCNNPyramidsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
         self.scene.terrain.terrain_generator = PYRAMIDS_ONLY
+        self.rewards.guidelines_reward = None
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
