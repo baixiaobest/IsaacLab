@@ -105,7 +105,7 @@ gym.register(
 ###############
 
 gym.register(
-    id="Isaac-Navigation-Pyramid-Stairs-Unitree-Go2-v0",
+    id="Isaac-Navigation-Pyramids-Unitree-Go2-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
@@ -136,9 +136,12 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationEnd2EndCNNPyramidsEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationPyramidStairsEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0"
     })
+
+
+# Play versions
 
 gym.register(
     id="Isaac-End2End-Navigation-No-Encoder-Unitree-Go2-Stairs-Play-v0",
@@ -150,10 +153,28 @@ gym.register(
     })
 
 gym.register(
-    id="Isaac-Navigation-Pyramid-Stairs-Unitree-Go2-Play-v0",
+    id="Isaac-End2End-Navigation-CNN-Unitree-Go2-Stairs-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationEnd2EndStairsOnlyEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0"
+    })
+
+gym.register(
+    id="Isaac-Navigation-Pyramid-Unitree-Go2-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationPyramidStairsEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0"
+    })
+
+gym.register(
+    id="Isaac-Navigation-Pyramid-CNN-Unitree-Go2-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationPyramidStairsEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0"
     })

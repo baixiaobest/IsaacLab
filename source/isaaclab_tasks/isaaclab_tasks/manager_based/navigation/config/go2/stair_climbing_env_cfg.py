@@ -515,9 +515,6 @@ class ObservationsCfg:
         # observation terms (order preserved)
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        # heading_sin_cos = ObsTerm(
-        #     func=mdp.root_yaw_sin_cos, noise=Unoise(n_min=-0.05, n_max=0.05)
-        # )
         projected_gravity = ObsTerm(
             func=mdp.projected_gravity,
             noise=Unoise(n_min=-0.05, n_max=0.05),
@@ -526,10 +523,6 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
-        # count_down = ObsTerm(
-        #     func=mdp.count_down,
-        #     params={"episode_length": EPISDOE_LENGTH}
-        # )
 
         fl_foot_scan = ObsTerm(
             func=mdp.height_scan,
@@ -653,6 +646,7 @@ class NavigationStairsEnvCfg(ManagerBasedRLEnvCfg):
 class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
+        self.scene.terrain.terrain_generator = PYRAMIDS_CLIMB_UP
         self.rewards.guidelines_reward = None
 
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
@@ -664,18 +658,9 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
 
-class NavigationEnd2EndCNNPyramidsEnvCfg(NavigationStairsEnvCfg):
-    def __post_init__(self):
-        super().__post_init__()
-
-        self.scene.terrain.terrain_generator = PYRAMIDS_CLIMB_UP
-        self.rewards.guidelines_reward = None
-
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
-    def __post_init__(self):
-        super().__post_init__()
-        self.episode_length_s = 16
+    pass
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
