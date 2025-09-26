@@ -9,7 +9,7 @@ FLAT_PATCH_STAIRS = FlatPatchSamplingCfg(
     x_range=(-8.0, 8.0),
     y_range=(-8.0, 8.0),
     z_range=(0.2, 10.0), # setpoint can only be set on stairs
-    max_height_diff=0.1,
+    max_height_diff=0.2,
     min_distance=0.0
 )
 
