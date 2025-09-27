@@ -281,7 +281,7 @@ class RewardsCfg:
             "centering_scale": 0.05,
             "asset_cfg": SceneEntityCfg("robot"),
             'z_threshold': 0.8,
-            'direct_distance_threshold': 1.5
+            'direct_distance_threshold': 0.8
         }
     )
     
