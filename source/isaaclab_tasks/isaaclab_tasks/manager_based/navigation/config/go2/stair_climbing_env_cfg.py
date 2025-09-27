@@ -610,20 +610,6 @@ class TerminationsCfg:
                 "threshold": 0.6},
     )
 
-    base_contact_discrete_obstacles = DoneTerm(
-        func=nav_mdp.terrain_specific_callback,
-        params={
-            "terrain_names": ["discrete_obstacles"],
-            "func": mdp.illegal_contact,
-            "callback_params": {
-                "sensor_cfg": SceneEntityCfg(
-                    "contact_forces", 
-                    body_names=["base", "Head_upper", ".*hip", "Head_lower", ".*thigh"]),
-                "threshold": 0.2
-            }
-        }
-    )
-
     base_vel_out_of_limit = DoneTerm(
         func=mdp.root_z_velocity_out_of_limit,
         params={
@@ -679,7 +665,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
@@ -688,8 +674,13 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.12)
-        self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.12)
+        # self.scene.terrain.terrain_generator.num_rows=3
+        self.terminations.base_contact.params['threshold']=2.0
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.12)
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.12)
+
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_right"].step_height_range = (0.08, 0.12)
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_left"].step_height_range = (0.08, 0.12)
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
