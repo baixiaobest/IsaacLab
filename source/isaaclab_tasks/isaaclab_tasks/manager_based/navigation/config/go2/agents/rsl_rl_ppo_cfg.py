@@ -369,15 +369,15 @@ class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 
 
 RNDConfig = RslRlRndCfg(
-   weight=0.1,
+   weight=1.0,
     weight_schedule=RslRlRndCfg.LinearWeightScheduleCfg(
         final_value=0.0,
         initial_step=200,
         final_step=1000,
     ),
     num_outputs=16,
-    predictor_hidden_dims=[256, 128, 64],
-    target_hidden_dims=[256, 128, 64],
+    predictor_hidden_dims=[256, 256, 128, 64],
+    target_hidden_dims=[256, 256, 128, 64],
 )
 
 NavRNDPPOConfig = RslRlPpoAlgorithmCfg(
