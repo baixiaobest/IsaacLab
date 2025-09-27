@@ -172,6 +172,7 @@ def _compute_path_distance(
     end_t: torch.Tensor,
     robot_pos: torch.Tensor,
     command_pos: torch.Tensor,
+    direct_distance_threshold: float = 1.0,  # New parameter
 ) -> torch.Tensor:
     """GPU-optimized path distance calculation along guide lines."""
     batch_size = guide_lines.shape[0]
@@ -188,16 +189,25 @@ def _compute_path_distance(
     
     # Create case masks
     same_segment_mask = (start_indices == end_indices)
-    forward_mask = (start_indices < end_indices) & ~same_segment_mask
-    backward_mask = (start_indices > end_indices) & ~same_segment_mask
+    
+    # Calculate direct distance between robot and command
+    direct_distances = torch.norm(command_pos - robot_pos, dim=1)
+    
+    # Create mask for close proximity (within direct_distance_threshold)
+    close_proximity_mask = direct_distances <= direct_distance_threshold
+    
+    # Use direct distance for same segment OR when within threshold distance
+    use_direct_distance_mask = same_segment_mask | close_proximity_mask
+    
+    forward_mask = (start_indices < end_indices) & ~use_direct_distance_mask
+    backward_mask = (start_indices > end_indices) & ~use_direct_distance_mask
     
     # Initialize path distances
     path_distances = torch.full((batch_size,), float('inf'), device=device, dtype=dtype)
     
-    # CASE 1: Same segment - direct distance between points
-    if same_segment_mask.any():
-        direct_distances = torch.norm(command_pos - robot_pos, dim=1)
-        path_distances = torch.where(same_segment_mask, direct_distances, path_distances)
+    # CASE 1: Same segment OR within direct distance threshold - use direct distance
+    if use_direct_distance_mask.any():
+        path_distances = torch.where(use_direct_distance_mask, direct_distances, path_distances)
     
     # CASE 2: Forward direction (start_idx < end_idx)
     if forward_mask.any():
@@ -300,6 +310,7 @@ def guidelines_progress_reward(
     distance_scale: float = 1.0,
     centering_scale: float = 0.05,
     z_threshold: float = 1.0,  # Maximum z-distance for guide line association
+    direct_distance_threshold: float = 1.0,  # Use direct distance if within this threshold
 ) -> torch.Tensor:
     """Reward for progress along guide lines.
 
@@ -317,6 +328,7 @@ def guidelines_progress_reward(
         distance_scale: Scaling factor for the distance-based reward
         centering_scale: Scaling factor for the centering-based reward
         z_threshold: Maximum allowed z-distance for guide line association
+        direct_distance_threshold: Use direct distance if robot and command are within this threshold
 
     Returns:
         Reward tensor. Shape: (num_envs)

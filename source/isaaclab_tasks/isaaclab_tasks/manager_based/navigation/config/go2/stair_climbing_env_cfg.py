@@ -279,7 +279,8 @@ class RewardsCfg:
             "distance_scale": 0.95,
             "centering_scale": 0.05,
             "asset_cfg": SceneEntityCfg("robot"),
-            'z_threshold': 0.5
+            'z_threshold': 0.8,
+            'direct_distance_threshold': 1.5
         }
     )
     
@@ -687,6 +688,8 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
+        self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.12)
+        self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.12)
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
