@@ -377,7 +377,7 @@ class RewardsCfg:
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
             "command_name": "pose_2d_command",
-            "zero_command_distance": 0.1,
+            "zero_command_distance": GOAL_REACHED_DISTANCE_THRESHOLD,
             "range": (0.4, 1.0),
             "T": 0.5
         },
