@@ -128,7 +128,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.stair_climbing_env_cfg:NavigationEnd2EndStairsOnlyEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2End_CNN_RND_PPORunnerCfg_v0"
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0"
     })
 
 gym.register(
