@@ -223,3 +223,6 @@ class RslRlOnPolicyRunnerCfg:
 
     other_dir: str = ""
     """The extra directory to load the checkpoint from. Default is empty string."""
+
+    disable_rnd_load: bool = False
+    """Whether to disable loading the RND model from checkpoint. Default is False."""

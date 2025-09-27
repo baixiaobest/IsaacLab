@@ -372,7 +372,8 @@ def guidelines_progress_reward(
         command_segment_indices, 
         command_t,
         robot_pos,
-        command_world_pos
+        command_world_pos,
+        direct_distance_threshold
     )
     
     # Check which environments have valid guide segments

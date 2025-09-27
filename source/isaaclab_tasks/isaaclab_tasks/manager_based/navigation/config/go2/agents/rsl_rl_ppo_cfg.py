@@ -416,5 +416,6 @@ class UnitreeGo2NavigationEnd2End_CNN_RND_PPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
         activation="elu",
         tanh_output=True,
     )
+    disable_rnd_load=True
     algorithm = NavRNDPPOConfig
     wandb_project="stairs_climbing"
