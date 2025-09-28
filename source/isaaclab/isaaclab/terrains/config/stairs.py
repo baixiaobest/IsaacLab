@@ -101,6 +101,61 @@ PYRAMIDS_ONLY = TerrainGeneratorCfg(
     },
 )
 
+SPIRAL_STAIRS = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "spiral_stairs_cw": terrain_gen.MeshSpiralStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.1, 0.3),
+            step_width=0.20,                # tangential tread length
+            stairs_width=1.4,
+            stairs_width_range=(2.0, 1.2),  # easy → hard radial width
+            inner_radius=0.25,
+            revolutions=1.25,
+            num_steps=None,                 # infer from revolutions & step_width
+            clockwise=True,
+            start_angle=0.0,
+            # landing & pole (None → defaults inside generator)
+            landing_thickness=None,
+            landing_radius=None,
+            add_center_pole=True,
+            center_pole_radius=None,
+            # placement
+            origin_offset_y=1.5,
+            # sampling targets only on stairs/landing
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
+        ),
+        "spiral_stairs_ccw": terrain_gen.MeshSpiralStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.1, 0.3),
+            step_width=0.20,
+            stairs_width=1.4,
+            stairs_width_range=(2.0, 1.2),
+            inner_radius=0.25,
+            revolutions=1.25,
+            num_steps=None,
+            clockwise=False,
+            start_angle=0.0,
+            landing_thickness=None,
+            landing_radius=None,
+            add_center_pole=True,
+            center_pole_radius=None,
+            origin_offset_y=1.5,
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            has_guide_lines=True
+        ),
+    },
+)
+
 TURN_90_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,

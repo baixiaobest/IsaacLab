@@ -21,7 +21,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
 from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN_180_STAIRS, TURN_90_180_STAIRS, \
-    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN # isort: skip
+    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -38,7 +38,7 @@ USE_TEST_ENV = False
 REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 0
 FOOT_SCANNER_RAIDUS = 0.10
 FOOT_SCANNER_NUM_POINTS = 8
-TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left']
+TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left', 'spiral_stairs_cw', 'spiral_stairs_ccw']
 BASE_CONTACT_LIST = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 
 @configclass
@@ -239,6 +239,8 @@ class CurriculumCfg:
     turning_stairs_90_left = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_90_left"})
     turning_stairs_180_right = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_180_right"})
     turning_stairs_180_left = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_180_left"})
+    spiral_stairs_cw = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "spiral_stairs_cw"})
+    spiral_stairs_ccw = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "spiral_stairs_ccw"})
 
 @configclass
 class CommandsCfg:
@@ -667,6 +669,17 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         super().__post_init__()
 
         self.scene.terrain.terrain_generator = TURN_180_STAIRS
+        self.rewards.guidelines_reward.weight = 1.0
+        self.rewards.goal_tracking_coarse.weight = 0.0
+        self.rewards.undesired_contacts.weight = -20.0
+        self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
+        self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
+
+class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.scene.terrain.terrain_generator = SPIRAL_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0

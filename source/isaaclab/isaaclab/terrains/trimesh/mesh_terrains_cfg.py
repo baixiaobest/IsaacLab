@@ -223,6 +223,62 @@ class MeshTurningStairs180TerrainCfg(SubTerrainBaseCfg):
     wall_clearance: float = 0.02
     wall_height_extra: float = 0.05
 
+@configclass
+class MeshSpiralStairsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a spiral staircase mesh terrain.
+
+    Matches mesh_terrains.spiral_stairs_terrain parameters.
+    """
+    function = mesh_terrains.spiral_stairs_terrain
+
+    # base plane
+    size: tuple[float, float] = (8.0, 8.0)
+
+    # step geometry
+    step_height_range: tuple[float, float] = MISSING
+    """Min/max riser height (m); difficulty interpolates."""
+    step_width: float = MISSING
+    """Tangential tread length per step (m), chord approximation."""
+
+    # width controls (radial usable width = outer_radius - inner_radius)
+    stairs_width: float = 1.2
+    """Nominal radial usable width if no range/min/ratio set."""
+    stairs_width_range: tuple[float, float] | None = None
+    """Optional difficulty interpolation for stairs_width (start, end)."""
+    min_stairs_width: float | None = None
+    """Optional absolute min width at difficulty=1.0."""
+    width_shrink_ratio: float | None = None
+    """Optional fractional shrink at difficulty=1.0 (e.g., 0.5 -> 50%)."""
+
+    # spiral layout
+    inner_radius: float = 0.2
+    """Inner radius of treads (m)."""
+    revolutions: float = 1.0
+    """Total number of full turns."""
+    num_steps: int | None = None
+    """If None, computed from revolutions and step_width."""
+    clockwise: bool = False
+    """Spiral turning direction."""
+    start_angle: float = 0.0
+    """Start angle in radians."""
+
+    # landing and center pole
+    landing_thickness: float | None = None
+    """If None, defaults to max(step_h*0.5, 0.02)."""
+    landing_radius: float | None = None
+    """If None, defaults to outer radius (inner_radius + stairs_width)."""
+    add_center_pole: bool = True
+    center_pole_radius: float | None = None
+    """If None, defaults to min(0.05, 0.5*inner_radius)."""
+
+    # placement offsets
+    stairs_center_x_offset: float = 0.0
+    stairs_center_y_offset: float = 0.0
+    origin_offset_y: float = 0.0
+
+    # extras
+    has_guide_lines: bool = False
+    """If True, also returns guide lines for visualization."""
 
 @configclass
 class MeshRandomGridTerrainCfg(SubTerrainBaseCfg):

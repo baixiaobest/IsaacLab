@@ -29,6 +29,7 @@ from .mesh_terrains_cfg import (
     MeshLinearStairsTerrainCfg,
     MeshTurningStairs90TerrainCfg,
     MeshTurningStairs180TerrainCfg,
+    MeshSpiralStairsTerrainCfg,
     MeshWalledLinearStairsTerrainCfg,
     MeshTwosidedRailsTerrainCfg,
     MeshRoomTerrainCfg,

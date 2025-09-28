@@ -624,6 +624,71 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     else:
         return meshes, origin
 
+def spiral_stairs_terrain(difficulty: float, cfg):
+    """
+    Generate a spiral staircase terrain.
+    Returns:
+      meshes, origin [, guide_lines]
+    """
+    terrain_center = np.array([
+        0.5 * cfg.size[0] + float(getattr(cfg, "stairs_center_x_offset", 0.0)),
+        0.5 * cfg.size[1] - float(getattr(cfg, "stairs_center_y_offset", 0.0)),
+        0.0
+    ])
+    meshes = [make_plane(cfg.size, 0.0, center_zero=False)]
+
+    # geometry params
+    step_h = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+    tread  = float(cfg.step_width)  # tangential length per tread (we'll approximate arc with a chord)
+    stairs_width = _resolve_width(difficulty, cfg)  # supports *_range or constants
+    inner_r = float(getattr(cfg, "inner_radius", 0.15))
+    outer_r = inner_r + stairs_width
+    revolutions = float(getattr(cfg, "revolutions", 1.0))
+    clockwise = bool(getattr(cfg, "clockwise", False))
+    start_angle = float(getattr(cfg, "start_angle", 0.0))
+    r_mid = (inner_r + outer_r) * 0.5
+
+    # compute number of steps if not provided: steps ~ total arc length / tread
+    num_steps = getattr(cfg, "num_steps", None)
+    if num_steps is None:
+        total_arc = 2.0 * np.pi * r_mid * max(1e-6, revolutions)
+        num_steps = max(1, int(np.ceil(total_arc / max(1e-6, tread))))
+    num_steps = int(num_steps)
+
+    # angle increment per step
+    dtheta_mag = 2.0 * np.pi * revolutions / num_steps
+    dtheta = -dtheta_mag if clockwise else dtheta_mag
+
+    # entry origin (spawn)
+    origin = terrain_center - np.array([0.0, float(getattr(cfg, "origin_offset_y", 0.0)), 0.0])
+    guide_pts = []
+    # build treads: each step is a rectangular box
+    chord_len = max(1e-6, r_mid * dtheta_mag)*3  # avoid degenerate
+    theta0 = start_angle
+    for i in range(num_steps):
+        theta_c = theta0 + (i + 0.5) * dtheta
+        cx = terrain_center[0] + r_mid * np.cos(theta_c)
+        cy = terrain_center[1] + r_mid * np.sin(theta_c)
+        step_full_h = (i + 1) * step_h
+        cz = step_full_h * 0.5
+
+        # rotate so x-axis aligns with tangent at theta_c
+        yaw = theta_c + np.pi * 0.5
+        transform = trimesh.transformations.euler_matrix(0.0, 0.0, yaw)
+        transform[:3, 3] = [cx, cy, cz]
+
+        box_dim = (chord_len, stairs_width, step_h)
+        meshes.append(trimesh.creation.box(box_dim, transform))
+        if i%5 == 0:
+            guide_pts.append([cx, cy, cz + 1 * step_h])
+
+        # guide lines built from the actual step tops
+    if bool(getattr(cfg, "has_guide_lines", False)):
+        guide_lines = np.vstack([origin, np.asarray(guide_pts, dtype=float)])
+        return meshes, origin, guide_lines
+    else:
+        return meshes, origin
+
 
 def random_grid_terrain(
     difficulty: float, cfg: mesh_terrains_cfg.MeshRandomGridTerrainCfg
