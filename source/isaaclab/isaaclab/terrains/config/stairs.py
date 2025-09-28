@@ -386,7 +386,7 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             step_width=0.2,
             stairs_width=2.0,
             stairs_length=6.0,
-            origin_offset_y=4.0,
+            origin_offset_y=-4.0,
             flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
             has_guide_lines=True
         ),
@@ -397,7 +397,7 @@ DIVERSE_STAIRS = TerrainGeneratorCfg(
             step_width=0.2,
             stairs_width_range=(2.0, 0.8),   # easy→hard width shrink
             stairs_length=6.0,
-            origin_offset_y=4.5,
+            origin_offset_y=-4.5,
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.5,
