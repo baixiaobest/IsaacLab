@@ -114,7 +114,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
     sub_terrains={
         "spiral_stairs_cw": terrain_gen.MeshSpiralStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0.1, 0.3),
+            step_height_range=(0.08, 0.3),
             step_width=0.20,                # tangential tread length
             stairs_width=1.4,
             stairs_width_range=(2.0, 1.2),  # easy → hard radial width
@@ -137,7 +137,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
         ),
         "spiral_stairs_ccw": terrain_gen.MeshSpiralStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0.1, 0.3),
+            step_height_range=(0.08, 0.3),
             step_width=0.20,
             stairs_width=1.4,
             stairs_width_range=(2.0, 1.2),
