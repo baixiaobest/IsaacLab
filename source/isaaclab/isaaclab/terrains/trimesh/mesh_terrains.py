@@ -260,7 +260,7 @@ def linear_stairs_terrain(
     box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
     box_length = cfg.stairs_length
 
-    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
     if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
         distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
         origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
@@ -326,7 +326,7 @@ def walled_linear_stairs_terrain(
     box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
     box_length = cfg.stairs_length
 
-    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
     if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
         distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
         origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
@@ -489,7 +489,7 @@ def turning_stairs_90_terrain(difficulty: float, cfg) \
     landing_th = max(step_h * 0.5, 0.02)
     landing_w  = float(cfg.landing_width if cfg.landing_width is not None else width)
 
-    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
 
     # RUN 1: +y from entry edge
     run1_start = (terrain_center[0], terrain_center[1])
@@ -564,7 +564,7 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     landing_th = max(step_h * 0.5, 0.02)
     landing_w  = float(cfg.landing_width if getattr(cfg, "landing_width", None) is not None else width)
 
-    origin = terrain_center - np.array([0.0, cfg.origin_offset_y, 0.0])
+    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
 
     # RUN 1: along +y from entry edge at terrain_center
     run1_start = (terrain_center[0], terrain_center[1])
@@ -660,7 +660,7 @@ def spiral_stairs_terrain(difficulty: float, cfg):
     dtheta = -dtheta_mag if clockwise else dtheta_mag
 
     # entry origin (spawn)
-    origin = terrain_center - np.array([0.0, float(getattr(cfg, "origin_offset_y", 0.0)), 0.0])
+    origin = terrain_center + np.array([float(getattr(cfg, "origin_offset_x", 0.0)), float(getattr(cfg, "origin_offset_y", 0.0)), 0.0])
     guide_pts = []
     # build treads: each step is a rectangular box
     chord_len = max(1e-6, r_mid * dtheta_mag)*3  # avoid degenerate

@@ -274,6 +274,7 @@ class MeshSpiralStairsTerrainCfg(SubTerrainBaseCfg):
     # placement offsets
     stairs_center_x_offset: float = 0.0
     stairs_center_y_offset: float = 0.0
+    origin_offset_x: float = 0.0
     origin_offset_y: float = 0.0
 
     # extras
