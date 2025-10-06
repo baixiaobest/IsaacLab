@@ -8,19 +8,19 @@ sub_terrain1 = SubTerrainTestCfg(
     cubes=[
         CubeCfg(
             position=[2, 2, 0.5],
-            dimensions=[2.0, 2.0, 2.0]
+            dimensions=[1.2, 1.2, 2.0]
         ),
         CubeCfg(
             position=[-2, 2, 0.5],
-            dimensions=[2.0, 2.0, 2.0]
+            dimensions=[1.2, 1.2, 2.0]
         ),
         CubeCfg(
             position=[2, -2, 0.5],
-            dimensions=[2.0, 2.0, 2.0]
+            dimensions=[1.2, 1.2, 2.0]
         ),
         CubeCfg(
             position=[-2, -2, 0.5],
-            dimensions=[2.0, 2.0, 2.0]
+            dimensions=[1.2, 1.2, 2.0]
         ),
     ],
     start_position=[-2.0, -5.0, 0.0],
@@ -56,6 +56,6 @@ TEST_TERRAIN_CFG = TestTerrainGeneratorCfg(
     size=(50.0, 50.0),
     num_rows=1,
     num_cols=1,
-    sub_terrains=[sub_terrain2],
+    sub_terrains=[sub_terrain1],
     subterrain_spacing=4.0
 )

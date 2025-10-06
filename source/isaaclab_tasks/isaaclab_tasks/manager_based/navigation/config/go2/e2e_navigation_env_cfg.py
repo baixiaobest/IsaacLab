@@ -744,6 +744,7 @@ class NavigationEnd2EndNoEncoderEnvCfg_PLAY(NavigationEnd2EndNoEncoderEnvCfg):
                         "threshold": 0.2})
             
             self.terminations.base_contact_discrete_obstacles = None
+            self.events.push_robot = None
 
             self.scene.terrain = TerrainImporterCfg(
                 prim_path="/World/ground",
