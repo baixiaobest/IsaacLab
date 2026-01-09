@@ -73,7 +73,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         attach_yaw_only=True,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=(4.0, 4.0)),
-        debug_vis=False,
+        debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
     fl_foot_scanner = RayCasterCfg(
@@ -90,7 +90,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -99,7 +99,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -108,7 +108,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -668,7 +668,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
@@ -685,6 +685,8 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
         self.rewards.undesired_contacts.weight = -20.0
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
+
+        self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):

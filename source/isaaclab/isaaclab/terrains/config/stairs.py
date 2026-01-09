@@ -13,6 +13,16 @@ FLAT_PATCH_STAIRS = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+FLAT_PATCH_SPIRAL_STAIRS = FlatPatchSamplingCfg(
+    num_patches=300,
+    patch_radius=0.2,
+    x_range=(-8.0, 8.0),
+    y_range=(-8.0, 8.0),
+    z_range=(0.2, 3.0), # setpoint can only be set on stairs
+    max_height_diff=0.2,
+    min_distance=0.0
+)
+
 FLAT_PATCH_PYRAMIDS = FlatPatchSamplingCfg(
     num_patches=1000,
     patch_radius=0.4,
@@ -114,12 +124,12 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
     sub_terrains={
         "spiral_stairs_cw": terrain_gen.MeshSpiralStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0.08, 0.3),
+            step_height_range=(0.05, 0.15),
             step_width=0.20,                # tangential tread length
             stairs_width=1.4,
-            stairs_width_range=(2.0, 1.2),  # easy → hard radial width
+            stairs_width_range=(2.5, 1.2),  # easy → hard radial width
             inner_radius=0.25,
-            revolutions=1.25,
+            revolutions=1.0,
             num_steps=None,                 # infer from revolutions & step_width
             clockwise=True,
             start_angle=0.0,
@@ -132,17 +142,17 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
             origin_offset_y=2.0,
             origin_offset_x=1.5,
             # sampling targets only on stairs/landing
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS},
             has_guide_lines=True
         ),
         "spiral_stairs_ccw": terrain_gen.MeshSpiralStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0.08, 0.3),
+            step_height_range=(0.05, 0.12),
             step_width=0.20,
             stairs_width=1.4,
-            stairs_width_range=(2.0, 1.2),
+            stairs_width_range=(2.5, 1.2),
             inner_radius=0.25,
-            revolutions=1.25,
+            revolutions=1.0,
             num_steps=None,
             clockwise=False,
             start_angle=0.0,
@@ -152,7 +162,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
             center_pole_radius=None,
             origin_offset_y=-2.0,
             origin_offset_x=1.5,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS},
             has_guide_lines=True
         ),
     },
