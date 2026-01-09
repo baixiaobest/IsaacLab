@@ -643,7 +643,7 @@ def spiral_stairs_terrain(difficulty: float, cfg):
     stairs_width = _resolve_width(difficulty, cfg)  # supports *_range or constants
     inner_r = float(getattr(cfg, "inner_radius", 0.15))
     outer_r = inner_r + stairs_width
-    revolutions = float(getattr(cfg, "revolutions", 1.0))
+    revolution = cfg.revolutions[0] + difficulty*(cfg.revolutions[1] - cfg.revolutions[0])
     clockwise = bool(getattr(cfg, "clockwise", False))
     start_angle = float(getattr(cfg, "start_angle", 0.0))
     r_mid = (inner_r + outer_r) * 0.5
@@ -651,12 +651,12 @@ def spiral_stairs_terrain(difficulty: float, cfg):
     # compute number of steps if not provided: steps ~ total arc length / tread
     num_steps = getattr(cfg, "num_steps", None)
     if num_steps is None:
-        total_arc = 2.0 * np.pi * r_mid * max(1e-6, revolutions)
+        total_arc = 2.0 * np.pi * r_mid * max(1e-6, revolution)
         num_steps = max(1, int(np.ceil(total_arc / max(1e-6, tread))))
     num_steps = int(num_steps)
 
     # angle increment per step
-    dtheta_mag = 2.0 * np.pi * revolutions / num_steps
+    dtheta_mag = 2.0 * np.pi * revolution / num_steps
     dtheta = -dtheta_mag if clockwise else dtheta_mag
 
     # entry origin (spawn)

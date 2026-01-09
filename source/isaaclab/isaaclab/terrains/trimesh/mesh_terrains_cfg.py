@@ -253,8 +253,8 @@ class MeshSpiralStairsTerrainCfg(SubTerrainBaseCfg):
     # spiral layout
     inner_radius: float = 0.2
     """Inner radius of treads (m)."""
-    revolutions: float = 1.0
-    """Total number of full turns."""
+    revolutions: tuple[float, float] = (1.0, 1.0)
+    """Total number of full turns. It is part of the curriculum. """
     num_steps: int | None = None
     """If None, computed from revolutions and step_width."""
     clockwise: bool = False
