@@ -236,6 +236,7 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
     sub_terrains={
         "turning_stairs_180_right": terrain_gen.MeshTurningStairs180TerrainCfg(
             proportion=1.0,
+            second_run_curriculum=True,
             step_height_range=(0.02, 0.12),
             step_width=0.20,
             num_steps_run1=10,
@@ -248,7 +249,7 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
             landing_offset_x=1.6,           # corridor spacing
             landing_width=None,
             run2_on_positive_x=True,        # place second run at +x
-            origin_offset_y=-1.5,
+            origin_offset_y=-1.0,
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
@@ -258,6 +259,7 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
 
         "turning_stairs_180_left": terrain_gen.MeshTurningStairs180TerrainCfg(
             proportion=1.0,
+            second_run_curriculum=True,
             step_height_range=(0.02, 0.12),
             step_width=0.20,
             num_steps_run1=10,
@@ -269,7 +271,7 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
             landing_length=1.2,
             landing_offset_x=1.6,           # corridor spacing
             landing_width=None,
-            run2_on_positive_x=False,        # place second run at +x
+            run2_on_positive_x=False,        # place second run at -x
             origin_offset_y=-1.5,
             wall_thickness=0.08,
             wall_clearance=0.03,

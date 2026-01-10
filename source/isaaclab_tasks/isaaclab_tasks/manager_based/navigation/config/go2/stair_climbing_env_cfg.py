@@ -668,7 +668,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
@@ -692,13 +692,7 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        # self.scene.terrain.terrain_generator.num_rows=3
         self.terminations.base_contact.params['threshold']=2.0
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.12)
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.12)
-
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_right"].step_height_range = (0.08, 0.12)
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_left"].step_height_range = (0.08, 0.12)
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):

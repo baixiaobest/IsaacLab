@@ -564,6 +564,10 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     landing_th = max(step_h * 0.5, 0.02)
     landing_w  = float(cfg.landing_width if getattr(cfg, "landing_width", None) is not None else width)
 
+    num_steps_run_2 = cfg.num_steps_run2
+    if cfg.second_run_curriculum:
+        num_steps_run_2 = int(difficulty * cfg.num_steps_run2)
+
     origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
 
     # RUN 1: along +y from entry edge at terrain_center
@@ -593,10 +597,10 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     run2_start = (run1_start[0] + x_shift, landing_center[1] - 0.5 * cfg.landing_length)
     z2, run2_far, run2_len = _build_run_steps(
         meshes, start_xy=run2_start, direction="y-",
-        base_z=z1 + landing_th, stairs_width=width, num_steps=cfg.num_steps_run2,
+        base_z=z1 + landing_th, stairs_width=width, num_steps=num_steps_run_2,
         step_h=step_h, tread=tread,
     )
-    z_top2 = z1 + landing_th + cfg.num_steps_run2 * step_h
+    z_top2 = z1 + landing_th + num_steps_run_2* step_h
     # LANDING 2 (exit landing) after run-2 toward -y
     exit_len = getattr(cfg, "second_landing_length", cfg.landing_length)
     exit_w   = float(getattr(cfg, "second_landing_width", landing_w))
