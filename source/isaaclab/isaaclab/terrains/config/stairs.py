@@ -124,10 +124,10 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
     sub_terrains={
         "spiral_stairs_cw": terrain_gen.MeshSpiralStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0.05, 0.15),
+            step_height_range=(0.025, 0.12),
             step_width=0.20,                # tangential tread length
             stairs_width=1.4,
-            stairs_width_range=(2.5, 1.2),  # easy → hard radial width
+            stairs_width_range=(2.5, 1.5),  # easy → hard radial width
             inner_radius=0.25,
             revolutions=(0.2, 1.0),
             num_steps=None,                 # infer from revolutions & step_width
@@ -139,7 +139,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
             add_center_pole=True,
             center_pole_radius=None,
             # placement
-            origin_offset_y=2.0,
+            origin_offset_y=0.5,
             origin_offset_x=1.5,
             # sampling targets only on stairs/landing
             flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS},
@@ -147,10 +147,10 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
         ),
         "spiral_stairs_ccw": terrain_gen.MeshSpiralStairsTerrainCfg(
             proportion=1.0,
-            step_height_range=(0.05, 0.12),
+            step_height_range=(0.025, 0.12),
             step_width=0.20,
             stairs_width=1.4,
-            stairs_width_range=(2.5, 1.2),
+            stairs_width_range=(2.5, 1.5),
             inner_radius=0.25,
             revolutions=(0.2, 1.0),
             num_steps=None,
@@ -160,7 +160,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
             landing_radius=None,
             add_center_pole=True,
             center_pole_radius=None,
-            origin_offset_y=-2.0,
+            origin_offset_y=-0.5,
             origin_offset_x=1.5,
             flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS},
             has_guide_lines=True

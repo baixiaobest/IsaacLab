@@ -705,4 +705,12 @@ class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        
+
+
+class NavigationEnd2EndSpiralStairsEnvCfg_PLAY(NavigationEnd2EndSpiralStairsEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.scene.terrain.terrain_generator.sub_terrains["spiral_stairs_cw"].revolutions = (1.0, 1.0)
+        self.scene.terrain.terrain_generator.sub_terrains["spiral_stairs_ccw"].revolutions = (1.0, 1.0)
+        self.scene.terrain.max_init_terrain_level = 10

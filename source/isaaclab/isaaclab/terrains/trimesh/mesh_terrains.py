@@ -670,7 +670,7 @@ def spiral_stairs_terrain(difficulty: float, cfg):
         cx = terrain_center[0] + r_mid * np.cos(theta_c)
         cy = terrain_center[1] + r_mid * np.sin(theta_c)
         step_full_h = (i + 1) * step_h
-        cz = step_full_h * 0.5
+        cz = step_full_h
 
         # rotate so x-axis aligns with tangent at theta_c
         yaw = theta_c + np.pi * 0.5
