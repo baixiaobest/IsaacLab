@@ -317,10 +317,12 @@ class RewardsCfg:
         weight=0.2,
         params={
             'func': nav_mdp.movement_reward,
-            'inactivate_after_time': 0.0,
+            'inactivate_after_time': EPISDOE_LENGTH,
             'callback_params': {
                 'command_name': 'pose_2d_command',
-                'std': 0.2
+                'std': 0.2,
+                'velocity_threshold': 0.3,
+                'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD
             }
         })
     
@@ -693,6 +695,9 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.terminations.base_contact.params['threshold']=2.0
+        self.scene.terrain.max_init_terrain_level = 10
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_right"].second_run_curriculum = False
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_left"].second_run_curriculum = False
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):

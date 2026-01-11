@@ -718,7 +718,7 @@ def movement_reward(
         velocity_threshold: float = 0.1,
         distance_threshold: float = 0.5,
         std: float = 0.2) -> torch.Tensor:
-    """Penalty for being stalled, i.e., not moving towards the goal."""
+    """Reward for moving toward goal."""
     asset: Articulation = env.scene[asset_cfg.name]
     robot_vel = asset.data.root_lin_vel_w
 

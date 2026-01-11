@@ -129,7 +129,7 @@ e2e_cnn_config = [
       'shape': [1, 21, 21]
     },
 
-    # 2) convolution, -> 16x21x21
+    # 2) convolution, -> 8x21x21
     { 'type':        'conv',
       'out_channels': 8,
       'kernel_size':   3,
