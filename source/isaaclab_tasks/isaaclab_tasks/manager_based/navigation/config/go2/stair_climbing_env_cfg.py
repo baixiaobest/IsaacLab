@@ -321,7 +321,7 @@ class RewardsCfg:
             'callback_params': {
                 'command_name': 'pose_2d_command',
                 'std': 0.2,
-                'velocity_threshold': 0.3,
+                'velocity_threshold': 0.1,
                 'distance_threshold': GOAL_REACHED_DISTANCE_THRESHOLD
             }
         })
