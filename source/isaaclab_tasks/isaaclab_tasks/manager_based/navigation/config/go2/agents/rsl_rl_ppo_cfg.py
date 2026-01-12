@@ -122,7 +122,7 @@ class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 END2END CONFIGURATION
 """
 
-e2e_cnn_config = [
+new_e2e_cnn_config = [
     # 1) Unglue the flat vector into a 1×21x21 “image”
     { 'type':   'reshape',
       'input_size': 441,
@@ -161,7 +161,7 @@ e2e_cnn_config = [
     }
 ]
 
-old_e2e_cnn_config = [
+e2e_cnn_config = [
     # 1) Unglue the flat vector into a 1×21x21 “image”
     { 'type':   'reshape',
       'input_size': 441,
