@@ -147,7 +147,14 @@ def main():
             # agent stepping
             actions = policy(obs)
             # env stepping
-            obs, _, _, _ = env.step(actions)
+            obs, _, _, infos = env.step(actions)
+
+        # Print only episode termination info
+        if "log" in infos:
+            for k, v in infos["log"].items():
+                if k.startswith("Episode_Termination/"):
+                    print(f"{k}: {v}")
+
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video

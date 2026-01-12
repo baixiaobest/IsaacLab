@@ -81,7 +81,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -90,7 +90,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -99,7 +99,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -108,7 +108,7 @@ class MySceneCfg(InteractiveSceneCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
         attach_yaw_only=True,
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"]
     )
 
@@ -667,8 +667,20 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS
 
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS
+        # Use command-based goal termination
+        self.terminations.goal_reached = DoneTerm(
+            func=nav_mdp.navigation_goal_reached_timer_by_command,
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "command_name": "pose_2d_command",
+                "distance_threshold": 0.8,
+                "velocity_threshold": 0.3,
+                "stay_for_seconds": 0.5,
+            },
+        )
+
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
@@ -703,4 +715,3 @@ class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.max_init_terrain_level = 10
-        
