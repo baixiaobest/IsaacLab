@@ -138,6 +138,45 @@ e2e_cnn_config = [
       'padding':       1
     },
 
+    # 3) Convolution -> 16x21x21
+    { 'type':        'conv',
+      'out_channels': 16,
+      'kernel_size':   3,
+      'dilation':      1,
+      'stride':        1,
+      'padding':       1
+    },
+
+    # 4) Convolution -> 32x21x21
+    { 'type':        'conv',
+      'out_channels': 32,
+      'kernel_size':   3,
+      'dilation':      1,
+      'stride':        1,
+      'padding':       1
+    },
+    # 5) 1×1 adaptive average‑pool,  32x1x1
+    { 'type':       'adaptive_pool',
+      'output_size': (1, 1)  # Directly specify the output dimensions
+    }
+]
+
+old_e2e_cnn_config = [
+    # 1) Unglue the flat vector into a 1×21x21 “image”
+    { 'type':   'reshape',
+      'input_size': 441,
+      'shape': [1, 21, 21]
+    },
+
+    # 2) convolution, -> 8x21x21
+    { 'type':        'conv',
+      'out_channels': 8,
+      'kernel_size':   3,
+      'dilation':      1,
+      'stride':        1,
+      'padding':       1
+    },
+
     # 3) 2×2 max‑pool to half H×W → 8x10x10
     { 'type':       'pool',
       'kernel_size': 2,
