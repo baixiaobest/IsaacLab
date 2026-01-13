@@ -394,7 +394,7 @@ class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     policy = RslRlPpoEncoderActorCriticCfg(
         init_noise_std=0.8,
         noise_clip=1.0,
-        encoder_dims=e2e_cnn_config,
+        encoder_dims=new_e2e_cnn_config,
         encoder_type="cnn",
         encoder_obs_normalize=False,
         share_encoder_with_critic=True,
