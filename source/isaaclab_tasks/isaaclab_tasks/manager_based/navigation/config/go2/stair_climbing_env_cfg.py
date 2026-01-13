@@ -292,7 +292,7 @@ class RewardsCfg:
         weight=1.0,
         params={
             "func": nav_mdp.position_command_error_tanh,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "active_after_time": 0.0,
             "callback_params": {
                 "command_name":"pose_2d_command",
                 "std": 1.0,
@@ -304,7 +304,7 @@ class RewardsCfg:
         weight=-0.3,
         params={
             "func": nav_mdp.heading_command_error_abs,
-            "active_after_time": GOAL_REACHED_ACTIVE_AFTER,
+            "active_after_time": 0.0,
             "callback_params": {
                 "command_name":"pose_2d_command"
             }
@@ -317,7 +317,7 @@ class RewardsCfg:
         weight=0.2,
         params={
             'func': nav_mdp.movement_reward,
-            'inactivate_after_time': EPISDOE_LENGTH,
+            'inactivate_after_time': 0,
             'callback_params': {
                 'command_name': 'pose_2d_command',
                 'std': 0.2,
@@ -674,6 +674,11 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
+        self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
 
@@ -685,6 +690,11 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
+        self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
 
