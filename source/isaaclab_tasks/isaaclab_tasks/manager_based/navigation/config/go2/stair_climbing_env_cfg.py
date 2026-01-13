@@ -35,7 +35,7 @@ STRICT_GOAL_REACHED_ANGULAR_THRESHOLD = 0.1
 OBSTACLE_SCANNER_SPACING = 0.1
 NUM_RAYS = 32
 USE_TEST_ENV = False
-REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 5
+REGULARIZATION_TERRAIN_LEVEL_THRESHOLD = 9
 FOOT_SCANNER_RAIDUS = 0.10
 FOOT_SCANNER_NUM_POINTS = 8
 TERRAIN_LEVEL_NAMES = ['pyramid_stairs', 'pyramid_stairs_inv', 'linear_stairs_ground', 'linear_stairs_walled', 'turning_stairs_90_right','turning_stairs_90_left', 'turning_stairs_180_right', 'turning_stairs_180_left', 'spiral_stairs_cw', 'spiral_stairs_ccw']
@@ -398,6 +398,7 @@ class RewardsCfg:
     # Energy minimization
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-5) # Stationary power due to motor torque
 
+@configclass
 class RegularizationRewardsCfg(RewardsCfg):
     ### The following regularization penalty can hinder exploration, 
     ### activate them after the robot can move reasonably well
@@ -623,6 +624,13 @@ class TerminationsCfg:
         }
     )
 
+def set_regularization_terrain_level(self, level: int):
+    """Set the terrain level threshold for regularization rewards."""
+    for reward_name in self.rewards.__dataclass_fields__.keys():
+        reward_cfg = getattr(self.rewards, reward_name)
+        if isinstance(reward_cfg, RewTerm) and 'terrain_level_threshold' in reward_cfg.params:
+            reward_cfg.params['terrain_level_threshold'] = level
+
 @configclass
 class NavigationStairsEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
@@ -682,6 +690,8 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
 
+        set_regularization_terrain_level(self, level=9)
+
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
@@ -699,6 +709,8 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
 
         self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
+
+        set_regularization_terrain_level(self, level=9)
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
