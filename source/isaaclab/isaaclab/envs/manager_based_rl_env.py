@@ -228,6 +228,10 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
 
             # trigger recorder terms for post-reset calls
             self.recorder_manager.record_post_reset(reset_env_ids)
+        else:
+            # Right now, _update_extras only clears the extras log.
+            # This is to prevent extras holding stale termination info from previous reset.
+            self._update_extras()
 
         # -- update command
         self.command_manager.compute(dt=self.step_dt)
@@ -390,3 +394,14 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
 
         # reset the episode length buffer
         self.episode_length_buf[env_ids] = 0
+
+    def _update_extras(self):
+        # Reset Episode_Termination logs to 0 to prevent stale termination info
+        # Remove Metrics entries completely
+        keys_to_remove = [key for key in self.extras["log"] if key.startswith("Metrics")]
+        for key in keys_to_remove:
+            del self.extras["log"][key]
+        
+        for key in self.extras["log"]:
+            if key.startswith("Episode_Termination"):
+                self.extras["log"][key] = 0

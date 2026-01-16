@@ -16,6 +16,7 @@ from isaaclab.managers import CommandTerm
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.terrains import TerrainImporter
 from isaaclab.utils.math import quat_from_euler_xyz, quat_rotate_inverse, wrap_to_pi, yaw_quat
+from isaaclab.managers import SceneEntityCfg
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -57,8 +58,10 @@ class UniformPose2dCommand(CommandTerm):
         self.pos_command_b = torch.zeros_like(self.pos_command_w)
         self.heading_command_b = torch.zeros_like(self.heading_command_w)
         # -- metrics
-        self.metrics["error_pos"] = torch.zeros(self.num_envs, device=self.device)
-        self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["error_pos"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        self.metrics["linear_velocity"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        self.metrics["power"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
 
     def __str__(self) -> str:
         msg = "PositionCommand:\n"
@@ -81,8 +84,21 @@ class UniformPose2dCommand(CommandTerm):
 
     def _update_metrics(self):
         # logs data
-        self.metrics["error_pos_2d"] = torch.norm(self.pos_command_w[:, :2] - self.robot.data.root_pos_w[:, :2], dim=1)
-        self.metrics["error_heading"] = torch.abs(wrap_to_pi(self.heading_command_w - self.robot.data.heading_w))
+        self.metrics["error_pos"] += \
+            torch.norm(self.pos_command_w[:, :3] - self.robot.data.root_pos_w[:, :3], dim=1) * self._env.step_dt
+        
+        self.metrics["error_heading"] += \
+            torch.abs(wrap_to_pi(self.heading_command_w - self.robot.data.heading_w)) * self._env.step_dt
+        
+        episode_step = self._env.episode_length_buf.float()
+
+        self.metrics["linear_velocity"] = \
+            (self.metrics["linear_velocity"] * episode_step \
+            + torch.norm(self.robot.data.root_lin_vel_w[:, :3], dim=1)) / (episode_step + 1)
+
+        self.metrics["power"] = \
+            (self.metrics["power"] * episode_step \
+            + torch.sum(torch.abs(self.robot.data.applied_torque * self.robot.data.joint_vel), dim=-1)) / (episode_step + 1)
 
     def _resample_command(self, env_ids: Sequence[int]):
         # Determine which environments should be stationary
