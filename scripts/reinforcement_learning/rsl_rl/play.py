@@ -139,6 +139,8 @@ def main():
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
+    # initialize cumulative counter before the loop
+    goal_reached_total = 0
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -147,13 +149,7 @@ def main():
             # agent stepping
             actions = policy(obs)
             # env stepping
-            obs, _, _, infos = env.step(actions)
-
-        # Print only episode termination info
-        if "log" in infos:
-            for k, v in infos["log"].items():
-                if k.startswith("Episode_Termination/"):
-                    print(f"{k}: {v}")
+            obs, reward, dones, extras = env.step(actions)
 
         if args_cli.video:
             timestep += 1

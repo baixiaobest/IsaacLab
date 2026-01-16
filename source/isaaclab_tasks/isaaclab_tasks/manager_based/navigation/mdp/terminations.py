@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from isaaclab.terrains import TerrainImporter
 from isaaclab.envs import ManagerBasedEnv
 from isaaclab.managers import RewardTermCfg, ManagerTermBase
+from isaaclab.sensors import ContactSensor
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -234,6 +235,8 @@ class navigation_goal_reached_timer_by_command(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         self.last_time_goal_reached = torch.full((env.num_envs,), -1.0, device=env.device)
+        # Counter to track total number of goal reaches
+        self.goal_reached_count = 0
 
     def __call__(
             self,
@@ -284,6 +287,13 @@ class navigation_goal_reached_timer_by_command(ManagerTermBase):
         time_at_goal[valid_times] = current_time[valid_times] - self.last_time_goal_reached[valid_times]
 
         terminate = torch.logical_and(goal_reached, time_at_goal >= stay_for_seconds)
+        
+        # Count how many environments reached the goal (terminated)
+        num_goals_reached = terminate.sum().item()
+        if num_goals_reached > 0:
+            self.goal_reached_count += num_goals_reached
+            print(f"[navigation_goal_reached_timer_by_command] Goal reached! Current count: {self.goal_reached_count}")
+        
         return terminate
 
     def reset(self, env_ids=None):
@@ -291,3 +301,124 @@ class navigation_goal_reached_timer_by_command(ManagerTermBase):
             self.last_time_goal_reached = torch.full((self._env.num_envs,), -1.0, device=self._env.device)
         elif self.last_time_goal_reached is not None:
             self.last_time_goal_reached[env_ids] = -1.0
+
+
+class navigation_time_out(ManagerTermBase):
+    """
+    Terminate when the episode length exceeds the maximum episode length.
+    Similar structure to navigation_goal_reached_timer_by_command but for timeout.
+    """
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        # Counter to track total number of timeouts
+        self.timeout_count = 0
+
+    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        """Terminate the episode when the episode length exceeds the maximum episode length."""
+        timeout = env.episode_length_buf >= env.max_episode_length
+        
+        # Count how many environments timed out
+        num_timeouts = timeout.sum().item()
+        if num_timeouts > 0:
+            self.timeout_count += num_timeouts
+            print(f"[navigation_time_out] Timeout! Current count: {self.timeout_count}")
+        
+        return timeout
+
+    def reset(self, env_ids=None):
+        """Reset the timeout tracking for specified environments.
+        
+        Args:
+            env_ids: Indices of environments to reset. If None, reset all environments.
+                    Note: We don't reset the counter here as it's cumulative across all episodes.
+        """
+        # The timeout_count is cumulative, so we don't reset it here
+        # This allows tracking total timeouts across the entire session
+        pass
+
+
+class navigation_illegal_contact(ManagerTermBase):
+    """
+    Terminate when the contact force on the sensor exceeds the force threshold.
+    Similar structure to navigation_goal_reached_timer_by_command but for illegal contacts.
+    """
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        # Counter to track total number of illegal contacts
+        self.illegal_contact_count = 0
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        threshold: float,
+        sensor_cfg: SceneEntityCfg
+    ) -> torch.Tensor:
+        """Terminate when the contact force on the sensor exceeds the force threshold."""
+        # extract the used quantities (to enable type-hinting)
+        contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+        net_contact_forces = contact_sensor.data.net_forces_w_history
+        # check if any contact force exceeds the threshold
+        illegal_contact = torch.any(
+            torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold, dim=1
+        )
+        
+        # Count how many environments had illegal contacts
+        num_illegal_contacts = illegal_contact.sum().item()
+        if num_illegal_contacts > 0:
+            self.illegal_contact_count += num_illegal_contacts
+            print(f"[navigation_illegal_contact] Illegal contact! Current count: {self.illegal_contact_count}")
+        
+        return illegal_contact
+
+    def reset(self, env_ids=None):
+        """Reset the illegal contact tracking for specified environments.
+        
+        Args:
+            env_ids: Indices of environments to reset. If None, reset all environments.
+                    Note: We don't reset the counter here as it's cumulative across all episodes.
+        """
+        # The illegal_contact_count is cumulative, so we don't reset it here
+        # This allows tracking total illegal contacts across the entire session
+        pass
+
+
+class navigation_root_z_velocity_out_of_limit(ManagerTermBase):
+    """
+    Terminate when the asset's root z-velocity is outside the provided limits.
+    Similar structure to navigation_goal_reached_timer_by_command but for z-velocity violations.
+    """
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        # Counter to track total number of z-velocity violations
+        self.z_velocity_violation_count = 0
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        max_z_velocity: float,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    ) -> torch.Tensor:
+        """Terminate when the asset's root z-velocity is outside the provided limits."""
+        # extract the used quantities (to enable type-hinting)
+        asset: RigidObject = env.scene[asset_cfg.name]
+        # compute any violations
+        z_velocity_violation = torch.abs(asset.data.root_vel_w[:, 2]) > max_z_velocity
+        
+        # Count how many environments had z-velocity violations
+        num_violations = z_velocity_violation.sum().item()
+        if num_violations > 0:
+            self.z_velocity_violation_count += num_violations
+            print(f"[navigation_root_z_velocity_out_of_limit] Z-velocity violation! Current count: {self.z_velocity_violation_count}")
+        
+        return z_velocity_violation
+
+    def reset(self, env_ids=None):
+        """Reset the z-velocity violation tracking for specified environments.
+        
+        Args:
+            env_ids: Indices of environments to reset. If None, reset all environments.
+                    Note: We don't reset the counter here as it's cumulative across all episodes.
+        """
+        # The z_velocity_violation_count is cumulative, so we don't reset it here
+        # This allows tracking total z-velocity violations across the entire session
+        pass
