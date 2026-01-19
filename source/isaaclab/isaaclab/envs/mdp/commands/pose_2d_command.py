@@ -61,6 +61,7 @@ class UniformPose2dCommand(CommandTerm):
         self.metrics["error_pos"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
         self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
         self.metrics["linear_velocity"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        self.metrics["climb_rate"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
         self.metrics["power"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
 
     def __str__(self) -> str:
@@ -95,6 +96,10 @@ class UniformPose2dCommand(CommandTerm):
         self.metrics["linear_velocity"] = \
             (self.metrics["linear_velocity"] * episode_step \
             + torch.norm(self.robot.data.root_lin_vel_w[:, :3], dim=1)) / (episode_step + 1)
+
+        self.metrics["climb_rate"] = \
+            (self.metrics["climb_rate"] * episode_step \
+            + self.robot.data.root_lin_vel_w[:, 2]) / (episode_step + 1)
 
         self.metrics["power"] = \
             (self.metrics["power"] * episode_step \

@@ -45,6 +45,7 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import gymnasium as gym
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -63,38 +64,79 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, expor
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 
+def _is_interactive_backend():
+    """Check if matplotlib is using an interactive backend.
+    
+    Returns:
+        bool: True if the backend is interactive (can show windows), False otherwise.
+    """
+    actual_backend = matplotlib.get_backend().lower()
+    return actual_backend not in ['agg', 'pdf', 'ps', 'svg', 'cairo']
+
 # PLACEHOLDER: Extension template (do not remove this comment)
 
 # Visualization update frequency
 PLOT_UPDATE_BATCH_SIZE = 10  # Update plots every N updates
 
+# Metrics to track only at episode terminations (final values when episodes end)
+TERMINATION_ONLY_METRICS = [
+    "Metrics/pose_2d_command/error_pos",
+    "Metrics/pose_2d_command/error_heading",
+]
+
 
 class VisualizationTracker:
     """Tracks and visualizes episode termination and metrics distributions."""
     
-    def __init__(self, batch_size=PLOT_UPDATE_BATCH_SIZE):
+    def __init__(self, batch_size=PLOT_UPDATE_BATCH_SIZE, output_dir=None):
         """Initialize visualization tracking components.
         
         Args:
             batch_size: Number of updates to batch before redrawing plots.
+            output_dir: Directory to save plots if display is not available. If None, uses current directory.
         """
         self.batch_size = batch_size
+        self.output_dir = output_dir if output_dir else os.getcwd()
+        # Double-check the actual backend being used
+        if not _is_interactive_backend():
+            self.has_display = False
+            if not hasattr(self, '_display_warning_printed'):
+                print("[INFO] Using non-interactive backend. Plots will be saved to files in:", self.output_dir)
+                self._display_warning_printed = True
         
         # Termination tracking
         self.termination_counts = {}
         self.termination_update_counter = 0
         
-        # Metrics tracking
+        # Metrics tracking (continuous tracking during episodes)
         self.metrics_history = {}
         self.metrics_update_counter = 0
         self.metrics_axes = {}
         self.fig_metrics = None
+        self._metrics_plot_saved = False
+        
+        # Termination-only metrics tracking (captured at episode end)
+        self.termination_metrics_history = {}
+        self.termination_metrics_update_counter = 0
+        self.termination_metrics_axes = {}
+        self.fig_termination_metrics = None
+        self._termination_metrics_plot_saved = False
         
         # Initialize termination plot
-        plt.ion()  # Enable interactive mode
         self.fig_term, self.ax_term = plt.subplots(figsize=(10, 8))
-        self.fig_term.canvas.manager.set_window_title('Episode Terminations')
-        plt.show(block=False)
+        
+        # Check if backend is actually interactive before trying to show
+        is_interactive_backend = _is_interactive_backend()
+        
+        if is_interactive_backend:
+            try:
+                self.fig_term.canvas.manager.set_window_title('Episode Terminations')
+                plt.show(block=False)
+            except Exception:
+                self.has_display = False
+                print("[INFO] Could not show plot window. Plots will be saved to files in:", self.output_dir)
+        else:
+            self.has_display = False
     
     def track_and_update(self, extras):
         """Track termination and metrics data from environment step and update plots.
@@ -105,26 +147,47 @@ class VisualizationTracker:
         termination_needs_update = False
         metrics_needs_update = False
         metrics_discovered = False
+        termination_metrics_needs_update = False
+        termination_metrics_discovered = False
         
+        # Check if any terminations occurred in this step
+        has_terminations = False
         for key in extras['log'].keys():
             if key.startswith('Episode_Termination'):
                 value = extras['log'][key]
                 if value > 0:  # Only track when terminations occur
+                    has_terminations = True
                     if key not in self.termination_counts:
                         self.termination_counts[key] = 0
                     self.termination_counts[key] += int(value)
                     termination_needs_update = True
-            
-            elif key.startswith('Metrics/'):
+        
+        for key in extras['log'].keys():
+            if key.startswith('Metrics/'):
                 value = extras['log'][key]
-                # Initialize tracking for new metrics
-                if key not in self.metrics_history:
-                    self.metrics_history[key] = []
-                    metrics_discovered = True
-                # Add value to history
-                if isinstance(value, (int, float)):
-                    self.metrics_history[key].append(float(value))
-                    metrics_needs_update = True
+                # Check if this is a termination-only metric
+                is_termination_only = key in TERMINATION_ONLY_METRICS
+                
+                if is_termination_only:
+                    # Only track termination-only metrics when terminations occur
+                    if has_terminations and isinstance(value, (int, float)):
+                        # Initialize tracking for new termination metrics
+                        if key not in self.termination_metrics_history:
+                            self.termination_metrics_history[key] = []
+                            termination_metrics_discovered = True
+                        # Add value to termination metrics history
+                        self.termination_metrics_history[key].append(float(value))
+                        termination_metrics_needs_update = True
+                else:
+                    # Regular metrics tracking (continuous during episodes)
+                    # Initialize tracking for new metrics
+                    if key not in self.metrics_history:
+                        self.metrics_history[key] = []
+                        metrics_discovered = True
+                    # Add value to history
+                    if isinstance(value, (int, float)):
+                        self.metrics_history[key].append(float(value))
+                        metrics_needs_update = True
         
         # Increment counter and update termination plot only when batch size is reached
         if termination_needs_update:
@@ -132,6 +195,17 @@ class VisualizationTracker:
             if self.termination_update_counter >= self.batch_size:
                 self._update_termination_plot()
                 self.termination_update_counter = 0
+        
+        # Create termination metrics figure if new metrics were discovered
+        if termination_metrics_discovered and self.fig_termination_metrics is None:
+            self._create_termination_metrics_figure()
+        
+        # Increment counter and update termination metrics plots when terminations occur
+        if termination_metrics_needs_update:
+            self.termination_metrics_update_counter += 1
+            if self.termination_metrics_update_counter >= self.batch_size and self.fig_termination_metrics is not None:
+                self._update_termination_metrics_plots()
+                self.termination_metrics_update_counter = 0
         
         # Create metrics figure if new metrics were discovered
         if metrics_discovered and self.fig_metrics is None:
@@ -179,14 +253,30 @@ class VisualizationTracker:
         self.ax_term.set_title('Episode Termination Distribution', fontsize=14, fontweight='bold', pad=20)
         
         plt.tight_layout()
-        self.fig_term.canvas.draw()
-        self.fig_term.canvas.flush_events()
+        
+        # Check if backend is actually interactive
+        is_interactive_backend = _is_interactive_backend()
+        
+        if self.has_display and is_interactive_backend:
+            try:
+                self.fig_term.canvas.draw()
+                self.fig_term.canvas.flush_events()
+            except Exception:
+                # Fallback to saving if display fails
+                self.has_display = False
+                is_interactive_backend = False
+        
+        # Always save if backend is non-interactive (regardless of has_display flag)
+        if not is_interactive_backend:
+            # Save plot to file
+            os.makedirs(self.output_dir, exist_ok=True)
+            save_path = os.path.join(self.output_dir, 'episode_terminations.png')
+            self.fig_term.savefig(save_path, dpi=150, bbox_inches='tight')
     
     def _update_metrics_plots(self):
         """Update the metrics distribution plots."""
-        if not self.metrics_history:
+        if not self.metrics_history or self.fig_metrics is None:
             return
-        
         for metric_name, values in self.metrics_history.items():
             if metric_name not in self.metrics_axes or len(values) == 0:
                 continue
@@ -212,8 +302,28 @@ class VisualizationTracker:
             ax.legend(loc='upper right', fontsize=9)
         
         plt.tight_layout()
-        self.fig_metrics.canvas.draw()
-        self.fig_metrics.canvas.flush_events()
+        
+        # Check if backend is actually interactive
+        is_interactive_backend = _is_interactive_backend()
+        
+        if self.has_display and is_interactive_backend:
+            try:
+                self.fig_metrics.canvas.draw()
+                self.fig_metrics.canvas.flush_events()
+            except Exception:
+                # Fallback to saving if display fails
+                self.has_display = False
+                is_interactive_backend = False
+        
+        # Always save if backend is non-interactive (regardless of has_display flag)
+        if not is_interactive_backend:
+            # Save plot to file
+            os.makedirs(self.output_dir, exist_ok=True)
+            save_path = os.path.join(self.output_dir, 'metrics_distributions.png')
+            self.fig_metrics.savefig(save_path, dpi=150, bbox_inches='tight')
+            if not self._metrics_plot_saved:
+                print(f"[INFO] Saved metrics plots to: {save_path}")
+                self._metrics_plot_saved = True
     
     def _create_metrics_figure(self):
         """Create figure and axes for metrics distributions."""
@@ -221,7 +331,18 @@ class VisualizationTracker:
         cols = min(3, num_metrics)
         rows = (num_metrics + cols - 1) // cols
         self.fig_metrics, axes = plt.subplots(rows, cols, figsize=(6*cols, 4*rows))
-        self.fig_metrics.canvas.manager.set_window_title('Metrics Distributions')
+        
+        # Check if backend is actually interactive before trying to show
+        is_interactive_backend = _is_interactive_backend()
+        
+        if self.has_display and is_interactive_backend:
+            try:
+                self.fig_metrics.canvas.manager.set_window_title('Metrics Distributions')
+                plt.show(block=False)
+            except Exception:
+                self.has_display = False
+        else:
+            self.has_display = False
         
         # Flatten axes array for easier indexing
         if num_metrics == 1:
@@ -236,11 +357,109 @@ class VisualizationTracker:
         # Hide unused subplots
         for idx in range(num_metrics, len(axes)):
             axes[idx].set_visible(False)
+    
+    def _create_termination_metrics_figure(self):
+        """Create figure and axes for termination-only metrics distributions."""
+        num_metrics = len(self.termination_metrics_history)
+        if num_metrics == 0:
+            return
         
-        plt.show(block=False)
+        cols = min(3, num_metrics)
+        rows = (num_metrics + cols - 1) // cols
+        self.fig_termination_metrics, axes = plt.subplots(rows, cols, figsize=(6*cols, 4*rows))
+        
+        # Check if backend is actually interactive before trying to show
+        is_interactive_backend = _is_interactive_backend()
+        
+        if self.has_display and is_interactive_backend:
+            try:
+                self.fig_termination_metrics.canvas.manager.set_window_title('Termination Metrics (Final Values)')
+                plt.show(block=False)
+            except Exception:
+                self.has_display = False
+        else:
+            self.has_display = False
+        
+        # Flatten axes array for easier indexing
+        if num_metrics == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten() if num_metrics > 1 else [axes]
+        
+        # Map metric names to axes
+        for idx, metric_name in enumerate(sorted(self.termination_metrics_history.keys())):
+            self.termination_metrics_axes[metric_name] = axes[idx]
+        
+        # Hide unused subplots
+        for idx in range(num_metrics, len(axes)):
+            axes[idx].set_visible(False)
+    
+    def _update_termination_metrics_plots(self):
+        """Update the termination-only metrics distribution plots."""
+        if not self.termination_metrics_history or self.fig_termination_metrics is None:
+            return
+        
+        for metric_name, values in self.termination_metrics_history.items():
+            if metric_name not in self.termination_metrics_axes or len(values) == 0:
+                continue
+            
+            ax = self.termination_metrics_axes[metric_name]
+            ax.clear()
+            
+            # Create histogram
+            ax.hist(values, bins=30, color='steelblue', edgecolor='black', alpha=0.7)
+            
+            # Add vertical dashed line for mean
+            mean_value = np.mean(values)
+            ax.axvline(mean_value, color='red', linestyle='--', linewidth=2.5, label=f'Mean: {mean_value:.3f}')
+            
+            ax.set_xlabel('Value', fontsize=10, fontweight='bold')
+            ax.set_ylabel('Frequency', fontsize=10, fontweight='bold')
+            
+            # Clean up metric name for title
+            clean_name = metric_name.replace('Metrics/', '').replace('_', ' ').title()
+            ax.set_title(f'{clean_name} (at Termination)\n(n={len(values)}, mean={mean_value:.3f})', 
+                        fontsize=11, fontweight='bold')
+            ax.grid(axis='y', alpha=0.3)
+            ax.legend(loc='upper right', fontsize=9)
+        
+        plt.tight_layout()
+        
+        # Check if backend is actually interactive
+        is_interactive_backend = _is_interactive_backend()
+        
+        if self.has_display and is_interactive_backend:
+            try:
+                self.fig_termination_metrics.canvas.draw()
+                self.fig_termination_metrics.canvas.flush_events()
+            except Exception:
+                # Fallback to saving if display fails
+                self.has_display = False
+                is_interactive_backend = False
+        
+        # Always save if backend is non-interactive (regardless of has_display flag)
+        if not is_interactive_backend:
+            # Save plot to file
+            os.makedirs(self.output_dir, exist_ok=True)
+            save_path = os.path.join(self.output_dir, 'termination_metrics_distributions.png')
+            self.fig_termination_metrics.savefig(save_path, dpi=150, bbox_inches='tight')
+            if not self._termination_metrics_plot_saved:
+                print(f"[INFO] Saved termination metrics plots to: {save_path}")
+                self._termination_metrics_plot_saved = True
     
     def close(self):
-        """Close all visualization windows."""
+        """Close all visualization windows and save final plots if in headless mode."""
+        # Check if backend is actually interactive
+        is_interactive_backend = _is_interactive_backend()
+        
+        # Save final plots if backend is non-interactive
+        if not is_interactive_backend:
+            if self.termination_counts:
+                self._update_termination_plot()
+            if self.termination_metrics_history and self.fig_termination_metrics is not None:
+                self._update_termination_metrics_plots()
+            if self.metrics_history and self.fig_metrics is not None:
+                self._update_metrics_plots()
         plt.close('all')
 
 
@@ -317,7 +536,9 @@ def main():
     dt = env.unwrapped.step_dt
 
     # Initialize visualization tracker
-    viz_tracker = VisualizationTracker()
+    # Save plots to the same directory as checkpoints if display is not available
+    plot_output_dir = os.path.join(log_dir, "plots")
+    viz_tracker = VisualizationTracker(output_dir=plot_output_dir)
 
     # reset environment
     obs, _ = env.get_observations()

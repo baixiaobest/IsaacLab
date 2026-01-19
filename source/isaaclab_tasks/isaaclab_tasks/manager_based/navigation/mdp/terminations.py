@@ -139,11 +139,9 @@ def navigation_goal_reached_by_command(
 
     # Fix: pose_2d_command contains relative goal position. 
     # The distance is simply the norm of the command vector.
-    robot_to_goal_distances = torch.norm(goals[:, :2], dim=1)
-    
-    print(f"Distance to goal: {robot_to_goal_distances}")
-
-    robot_vel = torch.norm(asset.data.root_lin_vel_w, dim=1)
+        robot_to_goal_distances = torch.norm(goals[:, :2], dim=1)
+        
+        robot_vel = torch.norm(asset.data.root_lin_vel_w, dim=1)
     action = env.action_manager.action
     no_action = torch.norm(action, dim=1) < action_threshold
 
@@ -292,7 +290,6 @@ class navigation_goal_reached_timer_by_command(ManagerTermBase):
         num_goals_reached = terminate.sum().item()
         if num_goals_reached > 0:
             self.goal_reached_count += num_goals_reached
-            print(f"[navigation_goal_reached_timer_by_command] Goal reached! Current count: {self.goal_reached_count}")
         
         return terminate
 
@@ -321,7 +318,6 @@ class navigation_time_out(ManagerTermBase):
         num_timeouts = timeout.sum().item()
         if num_timeouts > 0:
             self.timeout_count += num_timeouts
-            print(f"[navigation_time_out] Timeout! Current count: {self.timeout_count}")
         
         return timeout
 
@@ -366,7 +362,6 @@ class navigation_illegal_contact(ManagerTermBase):
         num_illegal_contacts = illegal_contact.sum().item()
         if num_illegal_contacts > 0:
             self.illegal_contact_count += num_illegal_contacts
-            print(f"[navigation_illegal_contact] Illegal contact! Current count: {self.illegal_contact_count}")
         
         return illegal_contact
 
@@ -408,7 +403,6 @@ class navigation_root_z_velocity_out_of_limit(ManagerTermBase):
         num_violations = z_velocity_violation.sum().item()
         if num_violations > 0:
             self.z_velocity_violation_count += num_violations
-            print(f"[navigation_root_z_velocity_out_of_limit] Z-velocity violation! Current count: {self.z_velocity_violation_count}")
         
         return z_velocity_violation
 
