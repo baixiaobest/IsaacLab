@@ -21,7 +21,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
 from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN_180_STAIRS, TURN_90_180_STAIRS, \
-    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS # isort: skip
+    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_5 # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -626,11 +626,11 @@ class TerminationsCfg_PLAY:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=nav_mdp.navigation_time_out, time_out=True)
-    base_contact = DoneTerm(
-        func=nav_mdp.navigation_illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
-                "threshold": 1.0},
-    )
+    # base_contact = DoneTerm(
+    #     func=nav_mdp.navigation_illegal_contact,
+    #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
+    #             "threshold": 10.0},
+    # )
 
     base_vel_out_of_limit = DoneTerm(
         func=nav_mdp.navigation_root_z_velocity_out_of_limit,
@@ -721,14 +721,11 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # self.scene.terrain.terrain_generator.num_rows=3
-        self.terminations.base_contact.params['threshold']=2.0
+        self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, 0.3), "yaw": (-3.14, 3.14)}
         self.terminations = TerminationsCfg_PLAY()
-
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.12)
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.12)
-
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_right"].step_height_range = (0.08, 0.12)
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_left"].step_height_range = (0.08, 0.12)
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
+        self.commands.pose_2d_command.stationary_prob = 0.0
+        self.episode_length_s = 20.0
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):

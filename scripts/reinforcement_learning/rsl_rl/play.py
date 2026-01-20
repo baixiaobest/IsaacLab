@@ -29,6 +29,12 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "--max_episodes",
+    type=int,
+    default=None,
+    help="Maximum number of episodes to play. If not specified, runs indefinitely.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -81,15 +87,19 @@ PLOT_UPDATE_BATCH_SIZE = 10  # Update plots every N updates
 class VisualizationTracker:
     """Tracks and visualizes episode termination and metrics distributions."""
     
-    def __init__(self, batch_size=PLOT_UPDATE_BATCH_SIZE, output_dir=None):
+    def __init__(self, batch_size=PLOT_UPDATE_BATCH_SIZE, output_dir=None, max_episodes=None):
         """Initialize visualization tracking components.
         
         Args:
             batch_size: Number of updates to batch before redrawing plots.
             output_dir: Directory to save plots if display is not available. If None, uses current directory.
+            max_episodes: Maximum number of episodes to track. If None, runs indefinitely.
         """
         self.batch_size = batch_size
         self.output_dir = output_dir if output_dir else os.getcwd()
+        self.max_episodes = max_episodes
+        self.total_episodes = 0
+        
         # Check the actual backend being used
         if not _is_interactive_backend():
             if not hasattr(self, '_display_warning_printed'):
@@ -127,11 +137,18 @@ class VisualizationTracker:
         
         Args:
             extras: Dictionary containing log data from environment step.
+            
+        Returns:
+            bool: True if max_episodes limit has been reached, False otherwise.
         """
         termination_needs_update = False
         metrics_needs_update = False
         metrics_discovered = False
         goal_reached_envs = None
+        
+        # Count total episodes in this step
+        episodes_this_step = 0
+        
         # Check if any terminations occurred in this step
         for key in extras['log'].keys():
             if key.startswith('Episode_Termination/') and not key.startswith('Episode_Termination/Envs/Ids/'):
@@ -142,7 +159,11 @@ class VisualizationTracker:
                     if key == 'Episode_Termination/goal_reached':
                         goal_reached_envs = extras['log']["Episode_Termination/Envs/Ids/goal_reached"]
                     self.termination_counts[key] += int(value)
+                    episodes_this_step += int(value)
                     termination_needs_update = True
+        
+        # Update total episode count
+        self.total_episodes += episodes_this_step
         
         # Track all metrics (they're all updated at termination)
         if goal_reached_envs is not None:
@@ -186,6 +207,12 @@ class VisualizationTracker:
             if self.metrics_update_counter >= self.batch_size and self.fig_metrics is not None:
                 self._update_metrics_plots()
                 self.metrics_update_counter = 0
+        
+        # Check if max_episodes limit has been reached
+        if self.max_episodes is not None and self.total_episodes >= self.max_episodes:
+            return True
+        
+        return False
     
     def _update_termination_plot(self):
         """Update the termination distribution plot with current counts."""
@@ -412,11 +439,18 @@ def main():
     # Initialize visualization tracker
     # Save plots to the same directory as checkpoints if display is not available
     plot_output_dir = os.path.join(log_dir, "plots")
-    viz_tracker = VisualizationTracker(output_dir=plot_output_dir)
+    viz_tracker = VisualizationTracker(output_dir=plot_output_dir, max_episodes=args_cli.max_episodes)
 
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
+    
+    # Print episode limit info
+    if args_cli.max_episodes is not None:
+        print(f"[INFO] Playing for a maximum of {args_cli.max_episodes} episodes.")
+    else:
+        print("[INFO] Playing indefinitely. Press Ctrl+C to stop.")
+    
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -428,7 +462,20 @@ def main():
             obs, reward, dones, extras = env.step(actions)
 
         # Track and visualize episode termination and metrics distributions
-        viz_tracker.track_and_update(extras)
+        max_episodes_reached = viz_tracker.track_and_update(extras)
+        
+        # Check if episode limit has been reached
+        if max_episodes_reached:
+            print(f"[INFO] Reached maximum of {args_cli.max_episodes} episodes. Stopping simulation.")
+            print(f"[INFO] Total episodes completed: {viz_tracker.total_episodes}")
+            # Update plots one final time with all data
+            viz_tracker._update_termination_plot()
+            if viz_tracker.metrics_history and viz_tracker.fig_metrics is not None:
+                viz_tracker._update_metrics_plots()
+            # Display final plots
+            print("[INFO] Displaying final plots...")
+            plt.show()
+            break
 
         if args_cli.video:
             timestep += 1
