@@ -97,6 +97,8 @@ class VisualizationTracker:
             if not hasattr(self, '_display_warning_printed'):
                 print("[INFO] Using non-interactive backend. Plots will be saved to files in:", self.output_dir)
                 self._display_warning_printed = True
+        else:
+            self.has_display = True
         
         # Termination tracking
         self.termination_counts = {}
