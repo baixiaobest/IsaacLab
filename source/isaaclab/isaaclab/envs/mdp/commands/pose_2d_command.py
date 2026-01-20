@@ -57,6 +57,8 @@ class UniformPose2dCommand(CommandTerm):
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
         self.pos_command_b = torch.zeros_like(self.pos_command_w)
         self.heading_command_b = torch.zeros_like(self.heading_command_w)
+        # -- starting position for climb rate calculation
+        self.start_pos_z = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
         # -- metrics
         self.metrics["error_pos"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
         self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
@@ -97,9 +99,17 @@ class UniformPose2dCommand(CommandTerm):
             (self.metrics["linear_velocity"] * episode_step \
             + torch.norm(self.robot.data.root_lin_vel_w[:, :3], dim=1)) / (episode_step + 1)
 
+        # Calculate climb rate as (current_z - start_z) / time_elapsed
+        # time_elapsed = episode_step * step_dt (episode_step is 0-indexed, so add 1)
+        time_elapsed = (episode_step + 1) * self._env.step_dt
+        # Avoid division by zero
+        time_elapsed = torch.clamp(time_elapsed, min=self._env.step_dt)
+        z_change = self.robot.data.root_pos_w[:, 2] - self.start_pos_z
+        current_climb_rate = z_change / time_elapsed
+        
         self.metrics["climb_rate"] = \
             (self.metrics["climb_rate"] * episode_step \
-            + self.robot.data.root_lin_vel_w[:, 2]) / (episode_step + 1)
+            + current_climb_rate) / (episode_step + 1)
 
         self.metrics["power"] = \
             (self.metrics["power"] * episode_step \
