@@ -131,34 +131,43 @@ class VisualizationTracker:
         termination_needs_update = False
         metrics_needs_update = False
         metrics_discovered = False
-        goal_reached = False
+        goal_reached_envs = None
         # Check if any terminations occurred in this step
         for key in extras['log'].keys():
-            if key.startswith('Episode_Termination'):
+            if key.startswith('Episode_Termination/') and not key.startswith('Episode_Termination/Envs/Ids/'):
                 value = extras['log'][key]
                 if value > 0:  # Only track when terminations occur
                     if key not in self.termination_counts:
                         self.termination_counts[key] = 0
                     if key == 'Episode_Termination/goal_reached':
-                        goal_reached = True
+                        goal_reached_envs = extras['log']["Episode_Termination/Envs/Ids/goal_reached"]
                     self.termination_counts[key] += int(value)
                     termination_needs_update = True
         
         # Track all metrics (they're all updated at termination)
-        for key in extras['log'].keys():
-            if key.startswith('Metrics/'):
-                value = extras['log'][key]
-                # Skip success-only metrics if goal was not reached
-                if not goal_reached:
-                    continue
-                # Initialize tracking for new metrics
-                if key not in self.metrics_history:
-                    self.metrics_history[key] = []
-                    metrics_discovered = True
-                # Add value to history
-                if isinstance(value, (int, float)):
-                    self.metrics_history[key].append(float(value))
-                    metrics_needs_update = True
+        if goal_reached_envs is not None:
+            for key in extras['log'].keys():
+                if key.startswith('Metrics/') \
+                    and not key.endswith('/Ids') and not key.endswith('/Envs'):
+
+                    parts = key.split('/')
+                    command_name = parts[1]
+                    metric_name = parts[2]
+
+                    # Initialize tracking for new metrics
+                    if key not in self.metrics_history:
+                        self.metrics_history[key] = []
+                        metrics_discovered = True
+
+                    env_ids = extras['log'][f'Metrics/{command_name}/{metric_name}/Ids']
+                    mask = torch.isin(env_ids, goal_reached_envs)
+                    metrics_values = extras['log'][f'Metrics/{command_name}/{metric_name}/Envs']
+                    goal_reached_metrics_values = metrics_values[mask]
+
+                    # Add value to history
+                    if len(goal_reached_metrics_values) > 0:
+                        self.metrics_history[key].extend(goal_reached_metrics_values.tolist())
+                        metrics_needs_update = True
         
         # Increment counter and update termination plot only when batch size is reached
         if termination_needs_update:

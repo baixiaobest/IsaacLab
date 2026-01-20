@@ -142,6 +142,7 @@ class TerminationManager(ManagerBase):
         for key in self._term_dones.keys():
             # store information
             extras["Episode_Termination/" + key] = torch.count_nonzero(self._term_dones[key][env_ids]).item()
+            extras["Episode_Termination/Envs/Ids/" + key] = torch.nonzero(self._term_dones[key])
             # clear the termination flags for reset environments
             self._term_dones[key][env_ids] = False
         # reset all the reward terms
