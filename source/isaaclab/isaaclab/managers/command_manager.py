@@ -138,6 +138,8 @@ class CommandTerm(ManagerTermBase):
         for metric_name, metric_value in self.metrics.items():
             # compute the mean metric value
             extras[metric_name] = torch.mean(metric_value[env_ids]).item()
+            extras[metric_name + "/Envs"] = metric_value[env_ids]
+            extras[metric_name + "/Ids"] = env_ids
             # reset the metric value
             metric_value[env_ids] = 0.0
 

@@ -632,6 +632,37 @@ def set_regularization_terrain_level(self, level: int):
             reward_cfg.params['terrain_level_threshold'] = level
 
 @configclass
+class TerminationsCfg_PLAY:
+    """Termination terms for the MDP."""
+
+    time_out = DoneTerm(func=nav_mdp.navigation_time_out, time_out=True)
+    base_contact = DoneTerm(
+        func=nav_mdp.navigation_illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
+                "threshold": 1.0},
+    )
+
+    base_vel_out_of_limit = DoneTerm(
+        func=nav_mdp.navigation_root_z_velocity_out_of_limit,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),  
+            "max_z_velocity": 8.0
+        }
+    )
+
+    # Use command-based goal termination
+    goal_reached = DoneTerm(
+        func=nav_mdp.navigation_goal_reached_timer_by_command,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "command_name": "pose_2d_command",
+            "distance_threshold": 0.8,
+            "velocity_threshold": 0.3,
+            "stay_for_seconds": 0.5,
+        },
+    )
+
+@configclass
 class NavigationStairsEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
     curriculum: CurriculumCfg = CurriculumCfg()
@@ -677,8 +708,7 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.undesired_contacts.weight = -20.0
@@ -717,9 +747,13 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.terminations.base_contact.params['threshold']=2.0
-        self.scene.terrain.max_init_terrain_level = 10
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_right"].second_run_curriculum = False
-        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_left"].second_run_curriculum = False
+        self.terminations = TerminationsCfg_PLAY()
+
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.12)
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.12)
+
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_right"].step_height_range = (0.08, 0.12)
+        # self.scene.terrain.terrain_generator.sub_terrains["turning_stairs_180_left"].step_height_range = (0.08, 0.12)
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
