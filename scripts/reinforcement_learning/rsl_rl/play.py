@@ -78,10 +78,6 @@ def _is_interactive_backend():
 # Visualization update frequency
 PLOT_UPDATE_BATCH_SIZE = 10  # Update plots every N updates
 
-<<<<<<< HEAD
-=======
-
->>>>>>> e0ccf951317adce728caba2e65410aaaa47d7be5
 class VisualizationTracker:
     """Tracks and visualizes episode termination and metrics distributions."""
     
@@ -152,12 +148,9 @@ class VisualizationTracker:
         for key in extras['log'].keys():
             if key.startswith('Metrics/'):
                 value = extras['log'][key]
-<<<<<<< HEAD
-=======
                 # Skip success-only metrics if goal was not reached
                 if not goal_reached:
                     continue
->>>>>>> e0ccf951317adce728caba2e65410aaaa47d7be5
                 # Initialize tracking for new metrics
                 if key not in self.metrics_history:
                     self.metrics_history[key] = []
