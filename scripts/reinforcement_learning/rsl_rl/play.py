@@ -78,12 +78,6 @@ def _is_interactive_backend():
 # Visualization update frequency
 PLOT_UPDATE_BATCH_SIZE = 10  # Update plots every N updates
 
-# Metrics to track only on successful goal reach (when Episode_Termination/goal_reached > 0)
-SUCCESS_ONLY_METRICS = [
-    "Metrics/pose_2d_command/climb_rate",
-]
-
-
 class VisualizationTracker:
     """Tracks and visualizes episode termination and metrics distributions."""
     
@@ -154,9 +148,6 @@ class VisualizationTracker:
         for key in extras['log'].keys():
             if key.startswith('Metrics/'):
                 value = extras['log'][key]
-                # Skip success-only metrics if goal was not reached
-                if key in SUCCESS_ONLY_METRICS and not goal_reached:
-                    continue
                 # Initialize tracking for new metrics
                 if key not in self.metrics_history:
                     self.metrics_history[key] = []

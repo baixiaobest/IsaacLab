@@ -629,7 +629,7 @@ class TerminationsCfg_PLAY:
     base_contact = DoneTerm(
         func=nav_mdp.navigation_illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
-                "threshold": 0.6},
+                "threshold": 1.0},
     )
 
     base_vel_out_of_limit = DoneTerm(
