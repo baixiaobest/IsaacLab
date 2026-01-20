@@ -78,6 +78,11 @@ def _is_interactive_backend():
 # Visualization update frequency
 PLOT_UPDATE_BATCH_SIZE = 10  # Update plots every N updates
 
+# Metrics to track only on successful goal reach (when Episode_Termination/goal_reached > 0)
+SUCCESS_ONLY_METRICS = [
+    "Metrics/pose_2d_command/climb_rate",
+]
+
 
 class VisualizationTracker:
     """Tracks and visualizes episode termination and metrics distributions."""
@@ -91,9 +96,8 @@ class VisualizationTracker:
         """
         self.batch_size = batch_size
         self.output_dir = output_dir if output_dir else os.getcwd()
-        # Double-check the actual backend being used
+        # Check the actual backend being used
         if not _is_interactive_backend():
-            self.has_display = False
             if not hasattr(self, '_display_warning_printed'):
                 print("[INFO] Using non-interactive backend. Plots will be saved to files in:", self.output_dir)
                 self._display_warning_printed = True
@@ -122,10 +126,7 @@ class VisualizationTracker:
                 self.fig_term.canvas.manager.set_window_title('Episode Terminations')
                 plt.show(block=False)
             except Exception:
-                self.has_display = False
                 print("[INFO] Could not show plot window. Plots will be saved to files in:", self.output_dir)
-        else:
-            self.has_display = False
     
     def track_and_update(self, extras):
         """Track termination and metrics data from environment step and update plots.
@@ -136,7 +137,7 @@ class VisualizationTracker:
         termination_needs_update = False
         metrics_needs_update = False
         metrics_discovered = False
-        
+        goal_reached = False
         # Check if any terminations occurred in this step
         for key in extras['log'].keys():
             if key.startswith('Episode_Termination'):
@@ -144,6 +145,8 @@ class VisualizationTracker:
                 if value > 0:  # Only track when terminations occur
                     if key not in self.termination_counts:
                         self.termination_counts[key] = 0
+                    if key == 'Episode_Termination/goal_reached':
+                        goal_reached = True
                     self.termination_counts[key] += int(value)
                     termination_needs_update = True
         
@@ -151,6 +154,9 @@ class VisualizationTracker:
         for key in extras['log'].keys():
             if key.startswith('Metrics/'):
                 value = extras['log'][key]
+                # Skip success-only metrics if goal was not reached
+                if key in SUCCESS_ONLY_METRICS and not goal_reached:
+                    continue
                 # Initialize tracking for new metrics
                 if key not in self.metrics_history:
                     self.metrics_history[key] = []
@@ -217,16 +223,15 @@ class VisualizationTracker:
         # Check if backend is actually interactive
         is_interactive_backend = _is_interactive_backend()
         
-        if self.has_display and is_interactive_backend:
+        if is_interactive_backend:
             try:
                 self.fig_term.canvas.draw()
                 self.fig_term.canvas.flush_events()
             except Exception:
                 # Fallback to saving if display fails
-                self.has_display = False
                 is_interactive_backend = False
         
-        # Always save if backend is non-interactive (regardless of has_display flag)
+        # Always save if backend is non-interactive
         if not is_interactive_backend:
             # Save plot to file
             os.makedirs(self.output_dir, exist_ok=True)
@@ -266,16 +271,15 @@ class VisualizationTracker:
         # Check if backend is actually interactive
         is_interactive_backend = _is_interactive_backend()
         
-        if self.has_display and is_interactive_backend:
+        if is_interactive_backend:
             try:
                 self.fig_metrics.canvas.draw()
                 self.fig_metrics.canvas.flush_events()
             except Exception:
                 # Fallback to saving if display fails
-                self.has_display = False
                 is_interactive_backend = False
         
-        # Always save if backend is non-interactive (regardless of has_display flag)
+        # Always save if backend is non-interactive
         if not is_interactive_backend:
             # Save plot to file
             os.makedirs(self.output_dir, exist_ok=True)
@@ -295,14 +299,12 @@ class VisualizationTracker:
         # Check if backend is actually interactive before trying to show
         is_interactive_backend = _is_interactive_backend()
         
-        if self.has_display and is_interactive_backend:
+        if is_interactive_backend:
             try:
                 self.fig_metrics.canvas.manager.set_window_title('Metrics Distributions')
                 plt.show(block=False)
             except Exception:
-                self.has_display = False
-        else:
-            self.has_display = False
+                pass
         
         # Flatten axes array for easier indexing
         if num_metrics == 1:
