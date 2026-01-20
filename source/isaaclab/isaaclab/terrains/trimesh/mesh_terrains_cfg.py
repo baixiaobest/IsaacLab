@@ -152,6 +152,9 @@ class MeshTurningStairs90TerrainCfg(SubTerrainBaseCfg):
     # base plane
     size: tuple[float, float] = (8.0, 8.0)
 
+    second_run_curriculum: bool = True
+    """If True, the second set of stairs will have a curriculum that determines its length."""
+
     # steps
     num_steps_run1: int = MISSING
     num_steps_run2: int = MISSING

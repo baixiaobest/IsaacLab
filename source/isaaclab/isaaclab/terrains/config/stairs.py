@@ -181,6 +181,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
     sub_terrains={
         "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
+            second_run_curriculum=True,
             step_height_range=(0.02, 0.12),
             step_width=0.20,
             num_steps_run1=10,
@@ -202,6 +203,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
 
         "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
+            second_run_curriculum=True,
             step_height_range=(0.02, 0.12),
             step_width=0.20,
             num_steps_run1=10,
