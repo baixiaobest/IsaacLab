@@ -1,6 +1,7 @@
 import isaaclab.terrains as terrain_gen
 
 from ..terrain_generator_cfg import TerrainGeneratorCfg, FlatPatchSamplingCfg
+import copy
 
 
 FLAT_PATCH_STAIRS = FlatPatchSamplingCfg(
@@ -224,6 +225,45 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
         ),
     },
 )
+
+FLAT_PATCH_STAIRS_TEST = FlatPatchSamplingCfg(
+    num_patches=300,
+    patch_radius=0.35,
+    x_range=(-8.0, 8.0),
+    y_range=(-8.0, 8.0),
+    z_range=(0.1, 10.0), # setpoint can only be set on stairs
+    max_height_diff=0.2,
+    min_distance=0.0
+)
+
+TURN_90_STAIRS_TEST_LEVEL_1 = copy.deepcopy(TURN_90_STAIRS)
+TURN_90_STAIRS_TEST_LEVEL_1.num_rows = 1
+TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_right"].origin_offset_y=-0.5
+TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_left"].origin_offset_y=-0.5
+TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_right"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST}
+TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_left"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST}
+TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_right"].step_height_range = (0.04, 0.04)
+TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_left"].step_height_range = (0.04, 0.04)
+
+TURN_90_STAIRS_TEST_LEVEL_2 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
+TURN_90_STAIRS_TEST_LEVEL_2.sub_terrains["turning_stairs_90_right"].step_height_range = (0.06, 0.06)
+TURN_90_STAIRS_TEST_LEVEL_2.sub_terrains["turning_stairs_90_left"].step_height_range = (0.06, 0.06)
+
+TURN_90_STAIRS_TEST_LEVEL_3 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
+TURN_90_STAIRS_TEST_LEVEL_3.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.08)
+TURN_90_STAIRS_TEST_LEVEL_3.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.08)
+
+TURN_90_STAIRS_TEST_LEVEL_4 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
+TURN_90_STAIRS_TEST_LEVEL_4.sub_terrains["turning_stairs_90_right"].step_height_range = (0.10, 0.10)
+TURN_90_STAIRS_TEST_LEVEL_4.sub_terrains["turning_stairs_90_left"].step_height_range = (0.10, 0.10)
+
+TURN_90_STAIRS_TEST_LEVEL_5 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
+TURN_90_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_90_right"].step_height_range = (0.12, 0.12)
+TURN_90_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_90_left"].step_height_range = (0.12, 0.12)
+
+TURN_90_STAIRS_TEST_LEVEL_6 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
+TURN_90_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_90_right"].step_height_range = (0.14, 0.14)
+TURN_90_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_90_left"].step_height_range = (0.14, 0.14)
 
 TURN_180_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
