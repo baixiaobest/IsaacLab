@@ -746,12 +746,8 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-<<<<<<< HEAD
-        self.terminations.base_contact.params['threshold']=2.0
-=======
         # self.scene.terrain.terrain_generator.num_rows=3
         self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, 0.3), "yaw": (-3.14, 3.14)}
->>>>>>> metrics
         self.terminations = TerminationsCfg_PLAY()
         self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
         self.commands.pose_2d_command.stationary_prob = 0.0
