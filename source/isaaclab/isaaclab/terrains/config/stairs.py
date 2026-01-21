@@ -182,7 +182,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
     sub_terrains={
         "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
-            second_run_curriculum=True,
+            second_run_curriculum=False,
             step_height_range=(0.02, 0.12),
             step_width=0.20,
             num_steps_run1=10,
@@ -204,7 +204,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
 
         "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
-            second_run_curriculum=True,
+            second_run_curriculum=False,
             step_height_range=(0.02, 0.12),
             step_width=0.20,
             num_steps_run1=10,
@@ -375,61 +375,21 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
     },
 )
 
-TURN_90_180_STAIRS = TerrainGeneratorCfg(
+TURN_180_STAIRS_TEST_LEVEL_1 = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
-    num_rows=10,
-    num_cols=4,
+    num_rows=1,
+    num_cols=2,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
     use_cache=False,
     curriculum=True,
     sub_terrains={
-        "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            step_width=0.20,
-            num_steps_run1=10,
-            num_steps_run2=10,
-            run1_length=3.0,
-            run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),  # easy→hard
-            landing_length=1.2,
-            landing_width=None,             # None → equals usable width
-            turn_right=True,                # second run along +x
-            origin_offset_y=-1.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
-
-        "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            step_width=0.20,
-            num_steps_run1=10,
-            num_steps_run2=10,
-            run1_length=3.0,
-            run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),  # easy→hard
-            landing_length=1.2,
-            landing_width=None,             # None → equals usable width
-            turn_right=False,                # second run along +x
-            origin_offset_y=-1.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
         "turning_stairs_180_right": terrain_gen.MeshTurningStairs180TerrainCfg(
             proportion=1.0,
-            step_height_range=(0.02, 0.12),
+            second_run_curriculum=False,
+            step_height_range=(0.04, 0.04),
             step_width=0.20,
             num_steps_run1=10,
             num_steps_run2=10,
@@ -438,20 +398,21 @@ TURN_90_180_STAIRS = TerrainGeneratorCfg(
             stairs_width=1.4,
             stairs_width_range=(2.0, 1.4),
             landing_length=1.2,
-            landing_offset_x=1.6,           # corridor spacing
+            landing_offset_x=1.6,
             landing_width=None,
-            run2_on_positive_x=True,        # place second run at +x
-            origin_offset_y=-1.5,
+            run2_on_positive_x=True,
+            origin_offset_y=-0.5,
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS_TEST},
             has_guide_lines=True
         ),
 
         "turning_stairs_180_left": terrain_gen.MeshTurningStairs180TerrainCfg(
             proportion=1.0,
-            step_height_range=(0.02, 0.12),
+            second_run_curriculum=False,
+            step_height_range=(0.04, 0.04),
             step_width=0.20,
             num_steps_run1=10,
             num_steps_run2=10,
@@ -460,18 +421,41 @@ TURN_90_180_STAIRS = TerrainGeneratorCfg(
             stairs_width=1.4,
             stairs_width_range=(2.0, 1.4),
             landing_length=1.2,
-            landing_offset_x=1.6,           # corridor spacing
+            landing_offset_x=1.6,
             landing_width=None,
-            run2_on_positive_x=False,        # place second run at +x
-            origin_offset_y=-1.5,
+            run2_on_positive_x=False,
+            origin_offset_y=-0.5,
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS_TEST},
             has_guide_lines=True
         ),
     },
 )
+
+TURN_180_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_180_right"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST}
+TURN_180_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_180_left"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST}
+
+TURN_180_STAIRS_TEST_LEVEL_2 = copy.deepcopy(TURN_180_STAIRS_TEST_LEVEL_1)
+TURN_180_STAIRS_TEST_LEVEL_2.sub_terrains["turning_stairs_180_right"].step_height_range = (0.06, 0.06)
+TURN_180_STAIRS_TEST_LEVEL_2.sub_terrains["turning_stairs_180_left"].step_height_range = (0.06, 0.06)
+
+TURN_180_STAIRS_TEST_LEVEL_3 = copy.deepcopy(TURN_180_STAIRS_TEST_LEVEL_1)
+TURN_180_STAIRS_TEST_LEVEL_3.sub_terrains["turning_stairs_180_right"].step_height_range = (0.08, 0.08)
+TURN_180_STAIRS_TEST_LEVEL_3.sub_terrains["turning_stairs_180_left"].step_height_range = (0.08, 0.08)
+
+TURN_180_STAIRS_TEST_LEVEL_4 = copy.deepcopy(TURN_180_STAIRS_TEST_LEVEL_1)
+TURN_180_STAIRS_TEST_LEVEL_4.sub_terrains["turning_stairs_180_right"].step_height_range = (0.10, 0.10)
+TURN_180_STAIRS_TEST_LEVEL_4.sub_terrains["turning_stairs_180_left"].step_height_range = (0.10, 0.10)
+
+TURN_180_STAIRS_TEST_LEVEL_5 = copy.deepcopy(TURN_180_STAIRS_TEST_LEVEL_1)
+TURN_180_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_180_right"].step_height_range = (0.12, 0.12)
+TURN_180_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_180_left"].step_height_range = (0.12, 0.12)
+
+TURN_180_STAIRS_TEST_LEVEL_6 = copy.deepcopy(TURN_180_STAIRS_TEST_LEVEL_1)
+TURN_180_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_180_right"].step_height_range = (0.14, 0.14)
+TURN_180_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_180_left"].step_height_range = (0.14, 0.14)
 
 DIVERSE_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
