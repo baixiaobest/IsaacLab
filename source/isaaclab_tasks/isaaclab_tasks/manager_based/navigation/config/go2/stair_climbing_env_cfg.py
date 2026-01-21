@@ -21,7 +21,9 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
 from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN_180_STAIRS, TURN_90_180_STAIRS, \
-    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_5 # isort: skip
+    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_1, \
+    TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
+    TURN_90_STAIRS_TEST_LEVEL_6# isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -749,7 +751,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         # self.scene.terrain.terrain_generator.num_rows=3
         self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, 0.3), "yaw": (-3.14, 3.14)}
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_6
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.episode_length_s = 20.0
 
