@@ -747,11 +747,14 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # self.scene.terrain.terrain_generator.num_rows=3
-        self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, 0.3), "yaw": (-3.14, 3.14)}
+        self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, -0.3), "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)}
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_1
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
         self.commands.pose_2d_command.stationary_prob = 0.0
-        # self.episode_length_s = 20.0
+
+        test_episode_length = 15.0
+        self.commands.pose_2d_command.resample_time_range = (test_episode_length, test_episode_length)
+        self.episode_length_s = test_episode_length
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
