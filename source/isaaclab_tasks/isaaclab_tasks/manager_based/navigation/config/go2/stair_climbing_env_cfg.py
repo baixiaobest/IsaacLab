@@ -23,7 +23,9 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN_180_STAIRS, \
     PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_1, \
     TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
-    TURN_90_STAIRS_TEST_LEVEL_6# isort: skip
+    TURN_90_STAIRS_TEST_LEVEL_6, TURN_180_STAIRS_TEST_LEVEL_1, \
+    TURN_180_STAIRS_TEST_LEVEL_2, TURN_180_STAIRS_TEST_LEVEL_3, TURN_180_STAIRS_TEST_LEVEL_4, TURN_180_STAIRS_TEST_LEVEL_5,\
+    TURN_180_STAIRS_TEST_LEVEL_6# isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -713,7 +715,6 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.scene.terrain.terrain_generator = TURN_90_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
-        self.rewards.goal_tracking_fine.weight = 2.0
         self.rewards.undesired_contacts.weight = -20.0
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
@@ -723,8 +724,6 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
 
-        set_regularization_terrain_level(self, level=9)
-
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
@@ -732,7 +731,6 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
         self.scene.terrain.terrain_generator = SPIRAL_STAIRS
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
-        self.rewards.goal_tracking_fine.weight = 2.0
         self.rewards.undesired_contacts.weight = -20.0
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
@@ -744,8 +742,6 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
 
         self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
 
-        set_regularization_terrain_level(self, level=9)
-
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
@@ -753,9 +749,9 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         # self.scene.terrain.terrain_generator.num_rows=3
         self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, 0.3), "yaw": (-3.14, 3.14)}
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_3
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_1
         self.commands.pose_2d_command.stationary_prob = 0.0
-        self.episode_length_s = 20.0
+        # self.episode_length_s = 20.0
 
 
 class NavigationPyramidStairsEnvCfg_PLAY(NavigationPyramidStairsEnvCfg):
