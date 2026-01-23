@@ -751,6 +751,10 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         self.terminations = TerminationsCfg_PLAY()
         self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
         self.commands.pose_2d_command.stationary_prob = 0.0
+        self.events.add_base_mass = None
+        self.events.base_com = None
+        self.events.push_robot = None
+        self.events.joint_torque_offset_curriculum = None
 
         test_episode_length = 15.0
         self.commands.pose_2d_command.resample_time_range = (test_episode_length, test_episode_length)
