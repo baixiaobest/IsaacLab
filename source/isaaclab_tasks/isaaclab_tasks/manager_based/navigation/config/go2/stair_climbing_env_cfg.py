@@ -25,7 +25,11 @@ from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN
     TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
     TURN_90_STAIRS_TEST_LEVEL_6, TURN_180_STAIRS_TEST_LEVEL_1, \
     TURN_180_STAIRS_TEST_LEVEL_2, TURN_180_STAIRS_TEST_LEVEL_3, TURN_180_STAIRS_TEST_LEVEL_4, TURN_180_STAIRS_TEST_LEVEL_5,\
-    TURN_180_STAIRS_TEST_LEVEL_6# isort: skip
+    TURN_180_STAIRS_TEST_LEVEL_6, SPIRAL_STAIRS_TEST_LEVEL_1, \
+    SPIRAL_STAIRS_TEST_LEVEL_2, SPIRAL_STAIRS_TEST_LEVEL_3, SPIRAL_STAIRS_TEST_LEVEL_4, SPIRAL_STAIRS_TEST_LEVEL_5,\
+    SPIRAL_STAIRS_TEST_LEVEL_6, LINEAR_STAIRS_TEST_LEVEL_1, \
+    LINEAR_STAIRS_TEST_LEVEL_2, LINEAR_STAIRS_TEST_LEVEL_3, LINEAR_STAIRS_TEST_LEVEL_4, LINEAR_STAIRS_TEST_LEVEL_5,\
+    LINEAR_STAIRS_TEST_LEVEL_6# isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -749,7 +753,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         # self.scene.terrain.terrain_generator.num_rows=3
         self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, -0.3), "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)}
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
+        self.scene.terrain.terrain_generator = LINEAR_STAIRS_TEST_LEVEL_6
         self.commands.pose_2d_command.stationary_prob = 0.0
 
         test_episode_length = 15.0

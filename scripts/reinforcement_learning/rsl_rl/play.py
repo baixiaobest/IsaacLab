@@ -324,7 +324,7 @@ class VisualizationTracker:
         num_metrics = len(self.metrics_history)
         cols = min(3, num_metrics)
         rows = (num_metrics + cols - 1) // cols
-        self.fig_metrics, axes = plt.subplots(rows, cols, figsize=(4*cols, 4*rows))
+        self.fig_metrics, axes = plt.subplots(rows, cols, figsize=(6*cols, 4*rows))
         
         # Check if backend is actually interactive before trying to show
         is_interactive_backend = _is_interactive_backend()
