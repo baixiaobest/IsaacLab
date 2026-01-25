@@ -145,6 +145,45 @@ class MeshLinearStairsTerrainCfg(SubTerrainBaseCfg):
     origin_offset_z: float = 0.0
 
 @configclass
+class MeshOneSidedLinearStairsTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a one-sided linear stairs mesh terrain.
+    
+    This terrain creates stairs that ascend from one side and lead to
+    a flat landing platform at the top.
+    """
+
+    function = mesh_terrains.one_sided_linear_stairs_terrain
+
+    border_width: float = 0.0
+    """The width of the border around the terrain (in m). Defaults to 0.0.
+
+    The border is a flat terrain with the same height as the terrain.
+    """
+    step_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the steps (in m)."""
+    num_steps: int = MISSING
+    """The number of steps in the terrain."""
+    step_width: float = MISSING
+    """
+        The width of the steps (in m). 
+        This is the tread depth - how far each step extends.
+    """
+    stairs_width_range: tuple[float, float] = MISSING
+    """The minimum and maximum width of the stairs (in m). Interpolated based on difficulty."""
+    stairs_center_y_offset: float = 0.0
+    """The offset of the center of the stairs along the y-axis (in m)."""
+    stairs_length: float = 6.0
+    """The total length of the stair structure (in m)."""
+    origin_offset_y: float = 0.0
+    """The offset of the origin of the terrain along the y-axis (in m). """
+    origin_offset_z: float = 0.0
+    """The offset of the origin of the terrain along the z-axis (in m). """
+    landing_length: float = 0.5
+    """The length of the landing platform at the top of the stairs (in m). Defaults to 0.5."""
+    has_guide_lines: bool = False
+    """If True, also returns guide lines for visualization."""
+
+@configclass
 class MeshTurningStairs90TerrainCfg(SubTerrainBaseCfg):
     """L-shaped stairs: run-1 along +y, landing, run-2 along +x (or -x)."""
     function = mesh_terrains.turning_stairs_90_terrain

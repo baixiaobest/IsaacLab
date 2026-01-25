@@ -286,6 +286,95 @@ def linear_stairs_terrain(
         return mesh_list, origin
 
 
+def one_sided_linear_stairs_terrain(
+    difficulty: float,
+    cfg: mesh_terrains_cfg.MeshOneSidedLinearStairsTerrainCfg
+) -> Union[tuple[list[trimesh.Trimesh], np.ndarray], tuple[list[trimesh.Trimesh], np.ndarray, np.ndarray]]:
+    """Generate a linear stairs terrain that ascends from one side to a landing platform.
+    
+    This terrain creates a staircase that gradually increases in height from one side,
+    leading to a flat landing platform at the top. The stairs can only be ascended from
+    the front side.
+    
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+    
+    Returns:
+        A tuple containing the tri-mesh of the terrain and the origin of the terrain (in m).
+        If cfg.has_guide_lines is True, also returns guide lines for navigation.
+    """
+    terrain_center = np.array([0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0])
+    # compute the vertices of the terrain
+    ground_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    mesh_list = [ground_mesh]
+    
+    # Interpolate step height and stairs width based on difficulty
+    step_height = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+    stairs_width = cfg.stairs_width_range[0] + difficulty * (cfg.stairs_width_range[1] - cfg.stairs_width_range[0])
+    
+    # Initial box setup - we'll build stairs on one side only
+    box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
+    
+    # Calculate the total height of the stairs
+    total_height = cfg.num_steps * step_height
+    
+    # Now create the stairs - only on the front side
+    # Start from the front and work backward
+    current_y = box_center[1] - cfg.stairs_length / 2
+    
+    for i in range(cfg.num_steps):
+        # Each step gets progressively higher
+        step_full_height = (i + 1) * step_height
+        step_z_center = step_full_height / 2
+        
+        # Step dimensions: width stays constant, length is the tread depth
+        step_dims = (stairs_width, cfg.step_width, step_full_height)
+        step_y_center = current_y + cfg.step_width / 2
+        step_center = (terrain_center[0], step_y_center, step_z_center)
+        
+        step_box = trimesh.creation.box(step_dims, trimesh.transformations.translation_matrix(step_center))
+        mesh_list.append(step_box)
+        
+        # Move to next step position
+        current_y += cfg.step_width
+    
+    # Create the landing platform at the top of the stairs
+    # The landing should start right after the last step
+    landing_length = getattr(cfg, 'landing_length', 0.5)
+    landing_height = total_height
+    stairs_start_y = box_center[1] - cfg.stairs_length / 2
+    last_step_end_y = stairs_start_y + cfg.num_steps * cfg.step_width
+    landing_y_center = last_step_end_y + landing_length / 2
+    landing_dims = (stairs_width, landing_length, landing_height)
+    landing_center = (terrain_center[0], landing_y_center, landing_height / 2)
+    landing_platform = trimesh.creation.box(landing_dims, trimesh.transformations.translation_matrix(landing_center))
+    mesh_list.append(landing_platform)
+    
+    # Calculate origin
+    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
+    if origin[1] > box_center[1] - cfg.stairs_length / 2 and origin[1] < box_center[1] + cfg.stairs_length / 2:
+        distance_from_start = origin[1] - (box_center[1] - cfg.stairs_length / 2)
+        step_index = int(distance_from_start / cfg.step_width)
+        origin_height = min(step_index, cfg.num_steps) * step_height
+        origin[2] = origin_height
+    
+    # Create guide lines if needed
+    landing_length = getattr(cfg, 'landing_length', 0.5)
+    stairs_start_y = box_center[1] - cfg.stairs_length / 2
+    last_step_end_y = stairs_start_y + cfg.num_steps * cfg.step_width
+    landing_end_y = last_step_end_y + landing_length
+    guide_lines = np.array([origin,
+                            np.array([box_center[0], stairs_start_y, 0]),
+                            np.array([box_center[0], last_step_end_y, cfg.num_steps * step_height]),
+                            np.array([box_center[0], landing_end_y, cfg.num_steps * step_height])])
+
+    if cfg.has_guide_lines:
+        return mesh_list, origin, guide_lines
+    else:
+        return mesh_list, origin
+
+
 def walled_linear_stairs_terrain(
     difficulty: float,
     cfg: mesh_terrains_cfg.MeshWalledLinearStairsTerrainCfg

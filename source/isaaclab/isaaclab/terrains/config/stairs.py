@@ -590,14 +590,15 @@ LINEAR_STAIRS = TerrainGeneratorCfg(
     use_cache=False,
     curriculum=True,
     sub_terrains={
-        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
+        "linear_stairs_ground": terrain_gen.MeshOneSidedLinearStairsTerrainCfg(
             proportion=1.0,
             step_height_range=(0.04, 0.14),
             num_steps=10,
             step_width=0.3,
-            stairs_width=4.0,
+            stairs_width_range=(3.0, 1.5),
             stairs_length=6.0,
             origin_offset_y=-4.0,
+            landing_length=2.0,
             flat_patch_sampling={"target": FLAT_PATCH_STAIRS_TEST},
             has_guide_lines=True
         ),

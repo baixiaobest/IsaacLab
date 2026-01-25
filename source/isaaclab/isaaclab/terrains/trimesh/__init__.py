@@ -33,4 +33,5 @@ from .mesh_terrains_cfg import (
     MeshWalledLinearStairsTerrainCfg,
     MeshTwosidedRailsTerrainCfg,
     MeshRoomTerrainCfg,
+    MeshOneSidedLinearStairsTerrainCfg,
 )
