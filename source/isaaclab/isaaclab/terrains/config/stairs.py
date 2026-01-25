@@ -579,6 +579,31 @@ LINEAR_STAIRS_TEST_LEVEL_5.sub_terrains["linear_stairs_ground"].step_height_rang
 LINEAR_STAIRS_TEST_LEVEL_6 = copy.deepcopy(LINEAR_STAIRS_TEST_LEVEL_1)
 LINEAR_STAIRS_TEST_LEVEL_6.sub_terrains["linear_stairs_ground"].step_height_range = (0.14, 0.14)
 
+LINEAR_STAIRS = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.04, 0.14),
+            num_steps=10,
+            step_width=0.3,
+            stairs_width=4.0,
+            stairs_length=6.0,
+            origin_offset_y=-4.0,
+            flat_patch_sampling={"target": FLAT_PATCH_STAIRS_TEST},
+            has_guide_lines=True
+        ),
+    },
+)
+
 DIVERSE_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
