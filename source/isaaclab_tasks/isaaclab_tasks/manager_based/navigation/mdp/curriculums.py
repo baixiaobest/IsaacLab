@@ -34,12 +34,14 @@ def pose_2d_command_terrain_curriculum_with_threshold(
         env_ids: Sequence[int], 
         command_name: str,
         min_level_thresholds: int,
-        max_level_thresholds: int
+        max_level_thresholds: int,
+        distance_threshold: float = 0.5, 
+        angular_threshold: float = 0.1
 ):
     """When the level is beyond a threshold, the level cannot be decreased."""
     command = env.command_manager.get_command(command_name)[env_ids]
-    within_distance = torch.norm(command[:, :3], dim=1) <= 0.5
-    within_angular_distance = torch.abs(command[:, 3]) <= 0.1
+    within_distance = torch.norm(command[:, :3], dim=1) <= distance_threshold
+    within_angular_distance = torch.abs(command[:, 3]) <= angular_threshold
 
     # update terrain levels
     terrain: TerrainImporter = env.scene.terrain
