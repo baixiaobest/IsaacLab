@@ -46,17 +46,17 @@ def pose_2d_command_terrain_curriculum_with_threshold(
     # update terrain levels
     terrain: TerrainImporter = env.scene.terrain
 
-    can_move_up = terrain.terrain_levels < max_level_thresholds
+    can_move_up = terrain.terrain_levels[env_ids] < max_level_thresholds
 
     move_up = torch.logical_and(within_distance, within_angular_distance)
     move_up = torch.logical_and(move_up, can_move_up)
     move_down = ~move_up
 
     # only allow decrease if current level is below threshold
-    can_move_down = terrain.terrain_levels < min_level_thresholds
+    can_move_down = terrain.terrain_levels[env_ids] < min_level_thresholds
     move_down = torch.logical_and(move_down, can_move_down)
 
-    terrain.update_env_origins(env_ids, move_up[env_ids], move_down[env_ids])
+    terrain.update_env_origins(env_ids, move_up, move_down)
 
     # return the mean terrain level
     return {"mean": torch.mean(terrain.terrain_levels.float()), "max": torch.max(terrain.terrain_levels.float())}
