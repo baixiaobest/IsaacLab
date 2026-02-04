@@ -294,6 +294,22 @@ class RewardsCfg:
             'direct_distance_threshold': 0.8
         }
     )
+
+    guidelines_reward_coarse = RewTerm(
+        func=nav_mdp.guidelines_progress_reward,
+        weight=0.0,
+        params={
+            "command_name": "pose_2d_command",
+            "path_std": 16.0,
+            "path_centering_std": 0.6,
+            "centering_std": 0.4,
+            "distance_scale": 0.95,
+            "centering_scale": 0.05,
+            "asset_cfg": SceneEntityCfg("robot"),
+            'z_threshold': 0.8,
+            'direct_distance_threshold': 0.8
+        }
+    )
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
@@ -717,7 +733,8 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = TURN_90_STAIRS
-        self.rewards.guidelines_reward.weight = 1.0
+        self.rewards.guidelines_reward.weight = 0.5
+        self.rewards.guidelines_reward_coarse.weight = 0.5
         self.rewards.goal_tracking_coarse.weight = 0.0
         #self.rewards.undesired_contacts.weight = -20.0
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
@@ -757,7 +774,10 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # self.scene.terrain.terrain_generator.num_rows=3
-        self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, -0.3), "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)}
+        self.events.reset_base.params['pose_range'] = {
+            "x": (-0.3, 0.3), "y": (-0.5, -0.5), "z": (0, 0), 
+            "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
+        }
         self.terminations = TerminationsCfg_PLAY()
         self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
         self.commands.pose_2d_command.stationary_prob = 0.0
@@ -767,7 +787,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         self.events.joint_torque_offset_curriculum = None
 
         test_episode_length = 15.0
-        self.commands.pose_2d_command.resample_time_range = (test_episode_length, test_episode_length)
+        self.commands.pose_2d_command.resample_time_range = (test_episode_length+0.5, test_episode_length+0.5)
         self.episode_length_s = test_episode_length
 
 
