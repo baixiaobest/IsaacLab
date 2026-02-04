@@ -294,22 +294,6 @@ class RewardsCfg:
             'direct_distance_threshold': 0.8
         }
     )
-
-    guidelines_reward_coarse = RewTerm(
-        func=nav_mdp.guidelines_progress_reward,
-        weight=0.0,
-        params={
-            "command_name": "pose_2d_command",
-            "path_std": 16.0,
-            "path_centering_std": 0.6,
-            "centering_std": 0.4,
-            "distance_scale": 0.95,
-            "centering_scale": 0.05,
-            "asset_cfg": SceneEntityCfg("robot"),
-            'z_threshold': 0.8,
-            'direct_distance_threshold': 0.8
-        }
-    )
     
     goal_tracking_fine = RewTerm(
         func=nav_mdp.active_after_time,
@@ -733,10 +717,8 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = TURN_90_STAIRS
-        self.rewards.guidelines_reward.weight = 0.5
-        self.rewards.guidelines_reward_coarse.weight = 0.5
         self.rewards.goal_tracking_coarse.weight = 0.0
-        #self.rewards.undesired_contacts.weight = -20.0
+        self.rewards.undesired_contacts.weight = -4.0
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
