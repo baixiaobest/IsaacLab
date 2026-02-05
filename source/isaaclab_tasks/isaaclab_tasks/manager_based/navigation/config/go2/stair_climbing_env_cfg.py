@@ -334,6 +334,15 @@ class RewardsCfg:
             }
         })
     
+    stall_penalty = RewTerm(
+        func=nav_mdp.stall_penalty,
+        weight=0.0,
+        params={
+            "command_name": "pose_2d_command",
+            "velocity_threshold": 0.3,
+            "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD
+        })
+    
     speed_limit_penalty = RewTerm(
         func=nav_mdp.speed_limit_penalty,
         weight=-1.0,
@@ -721,6 +730,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.undesired_contacts.weight = -4.0
         self.rewards.undesired_contacts.params['threshold'] = 1.0
+        self.rewards.stall_penalty.weight = -0.2 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
