@@ -243,7 +243,6 @@ class MeshTurningStairs180TerrainCfg(SubTerrainBaseCfg):
     step_height_range: tuple[float, float] = MISSING
 
     # width controls
-    stairs_width: float = 1.2
     stairs_width_range: tuple[float, float] | None = None
     min_stairs_width: float | None = None
     width_shrink_ratio: float | None = None
@@ -254,7 +253,6 @@ class MeshTurningStairs180TerrainCfg(SubTerrainBaseCfg):
 
     # landing
     landing_length: float = 1.2                 # y length of landing between runs
-    landing_offset_x: float = 1.4               # corridor offset to place run2 parallel to run1
     landing_width: float | None = None
 
     # orientation & offsets

@@ -652,10 +652,10 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
 
     # geometry params
     step_h = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
-    width  = _resolve_width(difficulty, cfg)
+    stair_width  = _resolve_width(difficulty, cfg)
     tread  = cfg.step_width  # constant tread depth per riser
     landing_th = max(step_h * 0.5, 0.02)
-    landing_w  = float(cfg.landing_width if getattr(cfg, "landing_width", None) is not None else width)
+    landing_w  = float(cfg.landing_width if getattr(cfg, "landing_width", None) is not None else stair_width)
 
     num_steps_run_2 = cfg.num_steps_run2
     if cfg.second_run_curriculum:
@@ -667,12 +667,12 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     run1_start = (terrain_center[0], terrain_center[1])
     z1, run1_far, run1_len = _build_run_steps(
         meshes, start_xy=run1_start, direction="y+",
-        base_z=0.0, stairs_width=width, num_steps=cfg.num_steps_run1,
+        base_z=0.0, stairs_width=stair_width, num_steps=cfg.num_steps_run1,
         step_h=step_h, tread=tread,
     )
 
     # compute x shift for second corridor (+x or -x)
-    x_shift = cfg.landing_offset_x if cfg.run2_on_positive_x else -cfg.landing_offset_x
+    x_shift = stair_width if cfg.run2_on_positive_x else -stair_width
 
     # LANDING: centered halfway between the two corridor centerlines in x,
     # and between run1_far and run1_far + landing_length in y
@@ -690,7 +690,7 @@ def turning_stairs_180_terrain(difficulty: float, cfg):
     run2_start = (run1_start[0] + x_shift, landing_center[1] - 0.5 * cfg.landing_length)
     z2, run2_far, run2_len = _build_run_steps(
         meshes, start_xy=run2_start, direction="y-",
-        base_z=z1 + landing_th, stairs_width=width, num_steps=num_steps_run_2,
+        base_z=z1 + landing_th, stairs_width=stair_width, num_steps=num_steps_run_2,
         step_h=step_h, tread=tread,
     )
     z_top2 = z1 + landing_th + num_steps_run_2* step_h

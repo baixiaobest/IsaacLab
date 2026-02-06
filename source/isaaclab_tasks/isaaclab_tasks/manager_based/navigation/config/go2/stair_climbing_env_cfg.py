@@ -20,7 +20,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
-from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN_180_STAIRS, \
+from isaaclab.terrains.config.stairs import TURN_90_STAIRS, TURN_180_STAIRS, \
     PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_1, \
     TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
     TURN_90_STAIRS_TEST_LEVEL_6, TURN_180_STAIRS_TEST_LEVEL_1, \
@@ -57,7 +57,7 @@ class MySceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
             prim_path="/World/ground",
             terrain_type="generator",
-            terrain_generator=DIVERSE_STAIRS,
+            terrain_generator=LINEAR_STAIRS,
             max_init_terrain_level=0,
             collision_group=-1,
             physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -773,7 +773,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_6
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_3
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None

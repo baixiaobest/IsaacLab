@@ -336,10 +336,8 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
             num_steps_run2=10,
             run1_length=3.0,
             run2_length=3.0,
-            stairs_width=1.4,
             stairs_width_range=(2.0, 1.4),
             landing_length=1.2,
-            landing_offset_x=1.6,           # corridor spacing
             landing_width=None,
             run2_on_positive_x=True,        # place second run at +x
             origin_offset_y=-0.5,
@@ -359,10 +357,8 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
             num_steps_run2=10,
             run1_length=3.0,
             run2_length=3.0,
-            stairs_width=1.4,
             stairs_width_range=(2.0, 1.4),
             landing_length=1.2,
-            landing_offset_x=1.6,           # corridor spacing
             landing_width=None,
             run2_on_positive_x=False,        # place second run at -x
             origin_offset_y=-0.5,
@@ -395,10 +391,8 @@ TURN_180_STAIRS_TEST_LEVEL_1 = TerrainGeneratorCfg(
             num_steps_run2=10,
             run1_length=3.0,
             run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),
-            landing_length=1.2,
-            landing_offset_x=1.6,
+            stairs_width_range=(2.0, 2.0),
+            landing_length=1.4,
             landing_width=None,
             run2_on_positive_x=True,
             origin_offset_y=-0.5,
@@ -418,10 +412,8 @@ TURN_180_STAIRS_TEST_LEVEL_1 = TerrainGeneratorCfg(
             num_steps_run2=10,
             run1_length=3.0,
             run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),
-            landing_length=1.2,
-            landing_offset_x=1.6,
+            stairs_width_range=(2.0, 2.0),
+            landing_length=1.4,
             landing_width=None,
             run2_on_positive_x=False,
             origin_offset_y=-0.5,
@@ -601,130 +593,6 @@ LINEAR_STAIRS = TerrainGeneratorCfg(
             origin_offset_y=-4.0,
             landing_length=2.0,
             flat_patch_sampling={"target": FLAT_PATCH_STAIRS_TEST},
-            has_guide_lines=True
-        ),
-    },
-)
-
-DIVERSE_STAIRS = TerrainGeneratorCfg(
-    size=(8.0, 8.0),
-    border_width=20.0,
-    num_rows=10,
-    num_cols=8,
-    horizontal_scale=0.1,
-    vertical_scale=0.005,
-    slope_threshold=0.75,
-    use_cache=False,
-    curriculum=True,
-    sub_terrains={
-        "linear_stairs_ground": terrain_gen.MeshLinearStairsTerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            num_steps=10,
-            step_width=0.2,
-            stairs_width=2.0,
-            stairs_length=6.0,
-            origin_offset_y=-4.0,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
-        "linear_stairs_walled": terrain_gen.MeshWalledLinearStairsTerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            num_steps=10,
-            step_width=0.2,
-            stairs_width_range=(2.0, 0.8),   # easy→hard width shrink
-            stairs_length=6.0,
-            origin_offset_y=-4.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.5,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
-        "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            step_width=0.26,
-            num_steps_run1=10,
-            num_steps_run2=10,
-            run1_length=3.0,
-            run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),  # easy→hard
-            landing_length=1.2,
-            landing_width=None,             # None → equals usable width
-            turn_right=True,                # second run along +x
-            origin_offset_y=-1.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
-
-        "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            step_width=0.26,
-            num_steps_run1=10,
-            num_steps_run2=10,
-            run1_length=3.0,
-            run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),  # easy→hard
-            landing_length=1.2,
-            landing_width=None,             # None → equals usable width
-            turn_right=False,                # second run along +x
-            origin_offset_y=-1.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
-
-        "turning_stairs_180_right": terrain_gen.MeshTurningStairs180TerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            step_width=0.26,
-            num_steps_run1=10,
-            num_steps_run2=10,
-            run1_length=3.0,
-            run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),
-            landing_length=1.2,
-            landing_offset_x=1.6,           # corridor spacing
-            landing_width=None,
-            run2_on_positive_x=True,        # place second run at +x
-            origin_offset_y=-1.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
-            has_guide_lines=True
-        ),
-
-        "turning_stairs_180_left": terrain_gen.MeshTurningStairs180TerrainCfg(
-            proportion=1.0,
-            step_height_range=(0.02, 0.12),
-            step_width=0.26,
-            num_steps_run1=10,
-            num_steps_run2=10,
-            run1_length=3.0,
-            run2_length=3.0,
-            stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),
-            landing_length=1.2,
-            landing_offset_x=1.6,           # corridor spacing
-            landing_width=None,
-            run2_on_positive_x=False,        # place second run at +x
-            origin_offset_y=-1.5,
-            wall_thickness=0.08,
-            wall_clearance=0.03,
-            wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_STAIRS},
             has_guide_lines=True
         ),
     },
