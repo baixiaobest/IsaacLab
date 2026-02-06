@@ -21,7 +21,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
 from isaaclab.terrains.config.stairs import TURN_90_STAIRS, TURN_180_STAIRS, \
-    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_1, \
+    PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_0, TURN_90_STAIRS_TEST_LEVEL_1, \
     TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
     TURN_90_STAIRS_TEST_LEVEL_6, TURN_180_STAIRS_TEST_LEVEL_1, \
     TURN_180_STAIRS_TEST_LEVEL_2, TURN_180_STAIRS_TEST_LEVEL_3, TURN_180_STAIRS_TEST_LEVEL_4, TURN_180_STAIRS_TEST_LEVEL_5,\
@@ -775,11 +775,11 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         super().__post_init__()
         # self.scene.terrain.terrain_generator.num_rows=3
         self.events.reset_base.params['pose_range'] = {
-            "x": (-0.3, 0.3), "y": (-0.5, -0.5), "z": (0, 0), 
+            "x": (-0.3, 0.3), "y": (-0.7, -0.7), "z": (0, 0), 
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_1
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_4
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None

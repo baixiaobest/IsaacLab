@@ -236,6 +236,16 @@ FLAT_PATCH_STAIRS_TEST = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+FLAT_PATCH_STAIRS_TEST_HIGH_DIFFICULTY = FlatPatchSamplingCfg(
+    num_patches=300,
+    patch_radius=0.35,
+    x_range=(-8.0, 8.0),
+    y_range=(-8.0, 8.0),
+    z_range=(0.1, 10.0), # setpoint can only be set on stairs
+    max_height_diff=0.2,
+    min_distance=0.0
+)
+
 TURN_90_STAIRS_TEST_LEVEL_1 = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
@@ -293,6 +303,10 @@ TURN_90_STAIRS_TEST_LEVEL_1 = TerrainGeneratorCfg(
     },
 )
 
+TURN_90_STAIRS_TEST_LEVEL_0 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
+TURN_90_STAIRS_TEST_LEVEL_0.sub_terrains["turning_stairs_90_right"].step_height_range = (0.02, 0.02)
+TURN_90_STAIRS_TEST_LEVEL_0.sub_terrains["turning_stairs_90_left"].step_height_range = (0.02, 0.02)
+
 TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_right"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST}
 TURN_90_STAIRS_TEST_LEVEL_1.sub_terrains["turning_stairs_90_left"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST}
 
@@ -311,10 +325,14 @@ TURN_90_STAIRS_TEST_LEVEL_4.sub_terrains["turning_stairs_90_left"].step_height_r
 TURN_90_STAIRS_TEST_LEVEL_5 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
 TURN_90_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_90_right"].step_height_range = (0.12, 0.12)
 TURN_90_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_90_left"].step_height_range = (0.12, 0.12)
+TURN_90_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_90_right"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST_HIGH_DIFFICULTY}
+TURN_90_STAIRS_TEST_LEVEL_5.sub_terrains["turning_stairs_90_left"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST_HIGH_DIFFICULTY}
 
 TURN_90_STAIRS_TEST_LEVEL_6 = copy.deepcopy(TURN_90_STAIRS_TEST_LEVEL_1)
 TURN_90_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_90_right"].step_height_range = (0.14, 0.14)
 TURN_90_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_90_left"].step_height_range = (0.14, 0.14)
+TURN_90_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_90_right"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST_HIGH_DIFFICULTY}
+TURN_90_STAIRS_TEST_LEVEL_6.sub_terrains["turning_stairs_90_left"].flat_patch_sampling = {"target": FLAT_PATCH_STAIRS_TEST_HIGH_DIFFICULTY}
 
 TURN_180_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
