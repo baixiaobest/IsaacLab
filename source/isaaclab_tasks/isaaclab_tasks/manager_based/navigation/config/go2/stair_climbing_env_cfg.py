@@ -20,7 +20,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnvCfg
 
-from isaaclab.terrains.config.stairs import TURN_90_STAIRS, TURN_180_STAIRS, \
+from isaaclab.terrains.config.stairs import TURN_90_STAIRS, TURN_180_STAIRS, TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM, \
     PYRAMIDS_ONLY, PYRAMIDS_CLIMB_UP, PYRAMIDS_CLIMB_DOWN, SPIRAL_STAIRS, TURN_90_STAIRS_TEST_LEVEL_0, TURN_90_STAIRS_TEST_LEVEL_1, \
     TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
     TURN_90_STAIRS_TEST_LEVEL_6, TURN_180_STAIRS_TEST_LEVEL_1, \

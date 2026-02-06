@@ -389,6 +389,10 @@ TURN_180_STAIRS = TerrainGeneratorCfg(
     },
 )
 
+TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM = copy.deepcopy(TURN_180_STAIRS)
+TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM.sub_terrains["turning_stairs_180_right"].second_run_curriculum = False
+TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM.sub_terrains["turning_stairs_180_left"].second_run_curriculum = False
+
 TURN_180_STAIRS_TEST_LEVEL_1 = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
