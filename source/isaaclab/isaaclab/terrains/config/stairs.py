@@ -172,7 +172,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
 TURN_90_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
-    num_rows=10,
+    num_rows=13,
     num_cols=2,
     horizontal_scale=0.1,
     vertical_scale=0.005,
@@ -183,7 +183,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
         "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
             second_run_curriculum=True,
-            step_height_range=(0.02, 0.12),
+            step_height_range=(0.02, 0.15),
             step_width=0.26,
             num_steps_run1=10,
             num_steps_run2=10,
@@ -205,7 +205,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
         "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
             second_run_curriculum=True,
-            step_height_range=(0.02, 0.12),
+            step_height_range=(0.02, 0.15),
             step_width=0.26,
             num_steps_run1=10,
             num_steps_run2=10,
