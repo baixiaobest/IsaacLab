@@ -747,7 +747,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
                 
         if self.scene.terrain.terrain_generator == TURN_180_STAIRS:
             # Bump up guideline rewards for turn 180
-            self.rewards.guidelines_reward.weight = 2.0
+            self.rewards.guidelines_reward.weight = 4.0
             self.rewards.goal_tracking_fine.params['callback_params']['std'] = 0.4
             self.rewards.goal_tracking_fine.weight = 2.0
 
