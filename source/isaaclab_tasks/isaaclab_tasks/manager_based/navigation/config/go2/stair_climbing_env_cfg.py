@@ -743,7 +743,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
                     "distance_threshold": 0.8,
                     "angular_threshold": 0.4,
                     "min_level_thresholds": 7,
-                    "max_level_thresholds": self.scene.terrain_generator.num_levels - 1})
+                    "max_level_thresholds": self.scene.terrain_generator.num_rows - 1})
 
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
