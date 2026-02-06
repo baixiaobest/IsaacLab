@@ -749,7 +749,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
             # Bump up guideline rewards for turn 180
             self.rewards.guidelines_reward.weight = 2.0
             self.rewards.goal_tracking_fine.params['callback_params']['std'] = 0.4
-            self.rewards.goal_tracking_fine.weight = 1.0
+            self.rewards.goal_tracking_fine.weight = 2.0
 
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
@@ -779,7 +779,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_3
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_1
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
@@ -787,7 +787,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         self.events.joint_torque_offset_curriculum = None
 
         test_episode_length = 15.0
-        self.commands.pose_2d_command.resample_time_range = (math.inf, math.inf)
+        self.commands.pose_2d_command.resampling_time_range = (1e6, 1e6)
         self.episode_length_s = test_episode_length
 
 
