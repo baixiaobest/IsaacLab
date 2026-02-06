@@ -744,6 +744,10 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
                     "angular_threshold": 0.4,
                     "min_level_thresholds": 7,
                     "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
+                
+        if self.scene.terrain.terrain_generator == TURN_180_STAIRS:
+            # Bump up guideline rewards for turn 180
+            self.rewards.guidelines_reward.weight = 2.0
 
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
