@@ -730,7 +730,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.guidelines_reward.weight = 1.0
         self.rewards.undesired_contacts.weight = -4.0
         self.rewards.undesired_contacts.params['threshold'] = 1.0
-        self.rewards.stall_penalty.weight = -0.4 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
+        self.rewards.stall_penalty.weight = -0.2 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
@@ -773,7 +773,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_5
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_TEST_LEVEL_6
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
@@ -781,7 +781,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         self.events.joint_torque_offset_curriculum = None
 
         test_episode_length = 15.0
-        self.commands.pose_2d_command.resample_time_range = (test_episode_length+0.5, test_episode_length+0.5)
+        self.commands.pose_2d_command.resample_time_range = (math.inf, math.inf)
         self.episode_length_s = test_episode_length
 
 
