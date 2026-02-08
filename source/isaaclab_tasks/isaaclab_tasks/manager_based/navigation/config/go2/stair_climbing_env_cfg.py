@@ -729,10 +729,9 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.goal_tracking_coarse.weight = 0.0
 
         # Bump up guideline rewards
-        self.rewards.guidelines_reward.weight = 2.0
+        self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_fine.params['callback_params']['std'] = 1.0
         self.rewards.goal_tracking_fine.weight = 1.0
-        self.rewards.goal_heading_error.weight = -0.6
 
         self.rewards.undesired_contacts.weight = -4.0
         self.rewards.undesired_contacts.params['threshold'] = 1.0
@@ -783,7 +782,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_2
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_3
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
