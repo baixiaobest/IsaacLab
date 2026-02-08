@@ -730,7 +730,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
 
         # Bump up guideline rewards
         self.rewards.guidelines_reward.weight = 2.0
-        self.rewards.goal_tracking_fine.params['callback_params']['std'] = 0.4
+        self.rewards.goal_tracking_fine.params['callback_params']['std'] = 1.0
         self.rewards.goal_tracking_fine.weight = 1.0
 
         self.rewards.undesired_contacts.weight = -4.0
