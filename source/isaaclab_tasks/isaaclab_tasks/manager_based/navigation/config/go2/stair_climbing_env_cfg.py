@@ -25,7 +25,7 @@ from isaaclab.terrains.config.stairs import DIVERSE_STAIRS, TURN_90_STAIRS, TURN
     TURN_90_STAIRS_TEST_LEVEL_2, TURN_90_STAIRS_TEST_LEVEL_3, TURN_90_STAIRS_TEST_LEVEL_4, TURN_90_STAIRS_TEST_LEVEL_5,\
     TURN_90_STAIRS_TEST_LEVEL_6, TURN_180_STAIRS_TEST_LEVEL_1, \
     TURN_180_STAIRS_TEST_LEVEL_2, TURN_180_STAIRS_TEST_LEVEL_3, TURN_180_STAIRS_TEST_LEVEL_4, TURN_180_STAIRS_TEST_LEVEL_5,\
-    TURN_180_STAIRS_TEST_LEVEL_6, SPIRAL_STAIRS_TEST_LEVEL_1, \
+    TURN_180_STAIRS_TEST_LEVEL_6, SPIRAL_STAIRS_TEST_LEVEL_1, LINEAR_STAIRS, \
     SPIRAL_STAIRS_TEST_LEVEL_2, SPIRAL_STAIRS_TEST_LEVEL_3, SPIRAL_STAIRS_TEST_LEVEL_4, SPIRAL_STAIRS_TEST_LEVEL_5,\
     SPIRAL_STAIRS_TEST_LEVEL_6, LINEAR_STAIRS_TEST_LEVEL_1, \
     LINEAR_STAIRS_TEST_LEVEL_2, LINEAR_STAIRS_TEST_LEVEL_3, LINEAR_STAIRS_TEST_LEVEL_4, LINEAR_STAIRS_TEST_LEVEL_5,\
@@ -644,11 +644,11 @@ class TerminationsCfg_PLAY:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=nav_mdp.navigation_time_out, time_out=True)
-    # base_contact = DoneTerm(
-    #     func=nav_mdp.navigation_illegal_contact,
-    #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
-    #             "threshold": 10.0},
-    # )
+    base_contact = DoneTerm(
+        func=nav_mdp.navigation_illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BASE_CONTACT_LIST), 
+                "threshold": 10.0},
+    )
 
     base_vel_out_of_limit = DoneTerm(
         func=nav_mdp.navigation_root_z_velocity_out_of_limit,
@@ -746,6 +746,23 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
 
         self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
 
+class NavigationEnd2EndLinearStairsEnvCfg(NavigationStairsEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.terrain_generator = LINEAR_STAIRS
+        self.rewards.guidelines_reward.weight = 1.0
+        self.rewards.goal_tracking_coarse.weight = 0.0
+        self.rewards.undesired_contacts.weight = -20.0
+        self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+        self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+
+        self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
+        self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
+
+        self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
+
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
     def __post_init__(self):
@@ -753,7 +770,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
         # self.scene.terrain.terrain_generator.num_rows=3
         self.events.reset_base.params['pose_range'] = {"x": (-0.3, 0.3), "y": (-0.3, -0.3), "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)}
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = LINEAR_STAIRS
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_4
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None

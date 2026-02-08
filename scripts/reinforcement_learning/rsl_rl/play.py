@@ -181,6 +181,9 @@ class VisualizationTracker:
                         metrics_discovered = True
 
                     env_ids = extras['log'][f'Metrics/{command_name}/{metric_name}/Ids']
+                    # Ensure env_ids is a tensor for torch.isin()
+                    if not isinstance(env_ids, torch.Tensor):
+                        env_ids = torch.tensor(env_ids, device=goal_reached_envs.device)
                     mask = torch.isin(env_ids, goal_reached_envs)
                     metrics_values = extras['log'][f'Metrics/{command_name}/{metric_name}/Envs']
                     goal_reached_metrics_values = metrics_values[mask]

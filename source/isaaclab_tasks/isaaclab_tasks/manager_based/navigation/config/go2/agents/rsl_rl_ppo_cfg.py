@@ -404,6 +404,7 @@ class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         tanh_output=True,
     )
     algorithm = NavE2EPPOConfig
+    logger="wandb"
     wandb_project="stairs_climbing"
 
 
