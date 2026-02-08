@@ -725,7 +725,7 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS
+        self.scene.terrain.terrain_generator = SPIRAL_STAIRS
         self.rewards.goal_tracking_coarse.weight = 0.0
 
         # Bump up guideline rewards
