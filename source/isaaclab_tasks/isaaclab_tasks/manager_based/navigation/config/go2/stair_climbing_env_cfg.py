@@ -725,7 +725,7 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator = SPIRAL_STAIRS
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM
         self.rewards.goal_tracking_coarse.weight = 0.0
 
         # Bump up guideline rewards
@@ -744,14 +744,14 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
 
-        self.curriculum.terrain_levels = CurrTerm(
-            func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
-            params={
-                    "command_name": "pose_2d_command",
-                    "distance_threshold": 0.8,
-                    "angular_threshold": 0.4,
-                    "min_level_thresholds": 7,
-                    "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
+        # self.curriculum.terrain_levels = CurrTerm(
+        #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
+        #     params={
+        #             "command_name": "pose_2d_command",
+        #             "distance_threshold": 0.8,
+        #             "angular_threshold": 0.4,
+        #             "min_level_thresholds": 7,
+        #             "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
                 
 
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
