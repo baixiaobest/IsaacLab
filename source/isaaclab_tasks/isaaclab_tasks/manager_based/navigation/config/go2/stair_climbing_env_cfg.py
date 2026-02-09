@@ -235,8 +235,8 @@ class CurriculumCfg:
     terrain_levels = CurrTerm(func=nav_mdp.pose_2d_command_terrain_curriculum,
                               params={
                                   "command_name": "pose_2d_command",
-                                  "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
-                                  "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
+                                  "distance_threshold": 0.8,
+                                  "angular_threshold": 0.4
                               })
     
     pyramids_stairs = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs"})
@@ -736,20 +736,14 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
 
-        # self.curriculum.terrain_levels = CurrTerm(
-        #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
-        #     params={
-        #             "command_name": "pose_2d_command",
-        #             "distance_threshold": 0.8,
-        #             "angular_threshold": 0.4,
-        #             "min_level_thresholds": 7,
-        #             "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
-                
-        # if self.scene.terrain.terrain_generator == TURN_180_STAIRS:
-        #     # Bump up guideline rewards for turn 180
-        #     self.rewards.guidelines_reward.weight = 4.0
-        #     self.rewards.goal_tracking_fine.params['callback_params']['std'] = 0.4
-        #     self.rewards.goal_tracking_fine.weight = 2.0
+        self.curriculum.terrain_levels = CurrTerm(
+            func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
+            params={
+                    "command_name": "pose_2d_command",
+                    "distance_threshold": 0.8,
+                    "angular_threshold": 0.4,
+                    "min_level_thresholds": 0,
+                    "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
 
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
