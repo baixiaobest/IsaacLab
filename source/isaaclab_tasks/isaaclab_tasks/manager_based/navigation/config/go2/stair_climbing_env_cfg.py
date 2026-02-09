@@ -727,58 +727,47 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         super().__post_init__()
         self.scene.terrain.terrain_generator = TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM
         self.rewards.goal_tracking_coarse.weight = 0.0
-
-        # Bump up guideline rewards
         self.rewards.guidelines_reward.weight = 1.0
-        self.rewards.goal_tracking_fine.params['callback_params']['std'] = 1.0
-        self.rewards.goal_tracking_fine.weight = 1.0
-
         self.rewards.undesired_contacts.weight = -4.0
         self.rewards.undesired_contacts.params['threshold'] = 1.0
-
-        # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
-        self.rewards.stall_penalty.weight = -0.2 
-        
+        self.rewards.stall_penalty.weight = -0.2 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
 
-        # self.curriculum.terrain_levels = CurrTerm(
-        #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
-        #     params={
-        #             "command_name": "pose_2d_command",
-        #             "distance_threshold": 0.8,
-        #             "angular_threshold": 0.4,
-        #             "min_level_thresholds": 7,
-        #             "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
-
-        if self.scene.terrain.terrain_generator == TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM:
-            self.scene.terrain.max_init_terrain_level = 9
+        self.curriculum.terrain_levels = CurrTerm(
+            func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
+            params={
+                    "command_name": "pose_2d_command",
+                    "distance_threshold": 0.8,
+                    "angular_threshold": 0.4,
+                    "min_level_thresholds": 7,
+                    "max_level_thresholds": self.scene.terrain.terrain_generator.num_rows - 1})
                 
+        if self.scene.terrain.terrain_generator == TURN_180_STAIRS:
+            # Bump up guideline rewards for turn 180
+            self.rewards.guidelines_reward.weight = 4.0
+            self.rewards.goal_tracking_fine.params['callback_params']['std'] = 0.4
+            self.rewards.goal_tracking_fine.weight = 2.0
 
 class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
         self.scene.terrain.terrain_generator = SPIRAL_STAIRS
-        self.rewards.goal_tracking_coarse.weight = 0.0
-
-        # Bump up guideline rewards
         self.rewards.guidelines_reward.weight = 1.0
-        self.rewards.goal_tracking_fine.params['callback_params']['std'] = 1.0
-        self.rewards.goal_tracking_fine.weight = 1.0
-
-        self.rewards.undesired_contacts.weight = -4.0
-        self.rewards.undesired_contacts.params['threshold'] = 1.0
-
-        # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
-        self.rewards.stall_penalty.weight = -0.2 
-        
+        self.rewards.goal_tracking_coarse.weight = 0.0
+        self.rewards.undesired_contacts.weight = -20.0
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+
+        self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
+        self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
+
+        self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
@@ -790,7 +779,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_3
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_4
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
