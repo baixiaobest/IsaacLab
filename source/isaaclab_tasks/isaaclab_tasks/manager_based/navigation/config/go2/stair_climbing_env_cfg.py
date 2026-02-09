@@ -751,7 +751,7 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
 
         self.scene.terrain.terrain_generator = SPIRAL_STAIRS
         self.rewards.goal_tracking_coarse.weight = 0.0
-        self.rewards.guidelines_reward.weight = 1.0
+        self.rewards.guidelines_reward.weight = 2.0
         self.rewards.undesired_contacts.weight = -4.0
         self.rewards.undesired_contacts.params['threshold'] = 1.0
         self.rewards.stall_penalty.weight = -0.2 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
