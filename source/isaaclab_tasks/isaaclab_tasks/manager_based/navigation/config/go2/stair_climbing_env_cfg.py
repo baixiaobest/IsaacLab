@@ -759,18 +759,23 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
         super().__post_init__()
 
         self.scene.terrain.terrain_generator = SPIRAL_STAIRS
-        self.rewards.guidelines_reward.weight = 1.0
         self.rewards.goal_tracking_coarse.weight = 0.0
-        self.rewards.undesired_contacts.weight = -20.0
+
+        # Bump up guideline rewards
+        self.rewards.guidelines_reward.weight = 1.0
+        self.rewards.goal_tracking_fine.params['callback_params']['std'] = 1.0
+        self.rewards.goal_tracking_fine.weight = 1.0
+
+        self.rewards.undesired_contacts.weight = -4.0
+        self.rewards.undesired_contacts.params['threshold'] = 1.0
+
+        # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
+        self.rewards.stall_penalty.weight = -0.2 
+        
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
-
-        self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
-        self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
-
-        self.scene.height_scanner.offset = RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.5))
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
