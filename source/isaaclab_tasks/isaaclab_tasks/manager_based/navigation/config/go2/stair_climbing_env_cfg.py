@@ -235,8 +235,8 @@ class CurriculumCfg:
     terrain_levels = CurrTerm(func=nav_mdp.pose_2d_command_terrain_curriculum,
                               params={
                                   "command_name": "pose_2d_command",
-                                  "distance_threshold": 0.8,
-                                  "angular_threshold": 0.4
+                                  "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
+                                  "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
                               })
     
     pyramids_stairs = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "pyramid_stairs"})
