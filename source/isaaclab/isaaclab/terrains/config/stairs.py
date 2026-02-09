@@ -20,7 +20,7 @@ FLAT_PATCH_SPIRAL_STAIRS = FlatPatchSamplingCfg(
     x_range=(-8.0, 8.0),
     y_range=(-8.0, 8.0),
     z_range=(0.1, 3.0), # setpoint can only be set on stairs
-    max_height_diff=0.7,
+    max_height_diff=0.2,
     min_distance=0.0
 )
 
@@ -172,7 +172,7 @@ SPIRAL_STAIRS = TerrainGeneratorCfg(
 TURN_90_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
-    num_rows=13,
+    num_rows=10,
     num_cols=2,
     horizontal_scale=0.1,
     vertical_scale=0.005,
@@ -190,7 +190,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
             run1_length=3.0,
             run2_length=3.0,
             stairs_width=1.4,
-            stairs_width_range=(2.0, 1.4),  # easy→hard
+            stairs_width_range=(2.0, 1.2),  # easy→hard
             landing_length=1.2,
             landing_width=None,             # None → equals usable width
             turn_right=True,                # second run along +x
@@ -205,7 +205,7 @@ TURN_90_STAIRS = TerrainGeneratorCfg(
         "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
             proportion=1.0,
             second_run_curriculum=True,
-            step_height_range=(0.02, 0.15),
+            step_height_range=(0.02, 0.12),
             step_width=0.26,
             num_steps_run1=10,
             num_steps_run2=10,
