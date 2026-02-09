@@ -758,7 +758,7 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.scene.terrain.terrain_generator = SPIRAL_STAIRS
+        self.scene.terrain.terrain_generator = TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM
         self.rewards.goal_tracking_coarse.weight = 0.0
 
         # Bump up guideline rewards
@@ -776,6 +776,9 @@ class NavigationEnd2EndSpiralStairsEnvCfg(NavigationStairsEnvCfg):
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_heading_error.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
+
+        if self.scene.terrain.terrain_generator == TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM:
+            self.scene.terrain.max_init_terrain_level = 9
 
 @configclass
 class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
