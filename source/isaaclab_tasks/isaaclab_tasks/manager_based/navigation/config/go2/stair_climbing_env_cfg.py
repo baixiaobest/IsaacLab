@@ -29,7 +29,8 @@ from isaaclab.terrains.config.stairs import TURN_90_STAIRS, TURN_180_STAIRS, TUR
     SPIRAL_STAIRS_TEST_LEVEL_2, SPIRAL_STAIRS_TEST_LEVEL_3, SPIRAL_STAIRS_TEST_LEVEL_4, SPIRAL_STAIRS_TEST_LEVEL_5,\
     SPIRAL_STAIRS_TEST_LEVEL_6, LINEAR_STAIRS_TEST_LEVEL_1, \
     LINEAR_STAIRS_TEST_LEVEL_2, LINEAR_STAIRS_TEST_LEVEL_3, LINEAR_STAIRS_TEST_LEVEL_4, LINEAR_STAIRS_TEST_LEVEL_5,\
-    LINEAR_STAIRS_TEST_LEVEL_6, LINEAR_STAIRS# isort: skip
+    LINEAR_STAIRS_TEST_LEVEL_6, LINEAR_STAIRS,\
+    TURN_90_STAIRS_CLIMB_DOWN# isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -719,13 +720,13 @@ class NavigationStairsEnvCfg(ManagerBasedRLEnvCfg):
 class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator = PYRAMIDS_CLIMB_UP
+        self.scene.terrain.terrain_generator = PYRAMIDS_CLIMB_DOWN
         self.rewards.guidelines_reward = None
 
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_NO_SECOND_RUN_CURRICULUM
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.guidelines_reward.weight = 2.0
         self.rewards.undesired_contacts.weight = -4.0
@@ -785,7 +786,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_180_STAIRS_TEST_LEVEL_4
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None

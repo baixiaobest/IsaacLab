@@ -260,7 +260,7 @@ def linear_stairs_terrain(
     box_center = np.array([terrain_center[0], terrain_center[1] - cfg.stairs_center_y_offset, step_height / 2])
     box_length = cfg.stairs_length
 
-    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
+    origin = terrain_center + np.array([cfg.origin_offset_x, cfg.origin_offset_y, cfg.origin_offset_z])
     if origin[1] > box_center[1] - box_length / 2 and origin[1] < box_center[1] + box_length / 2:
         distance_to_box_edge = min(origin[1] - (box_center[1] - box_length/2), box_center[1] + box_length / 2 - origin[1])
         origin_height = min((int(distance_to_box_edge / cfg.step_width) + 1), cfg.num_steps) * step_height
@@ -582,7 +582,11 @@ def turning_stairs_90_terrain(difficulty: float, cfg) \
     if cfg.second_run_curriculum:
         num_steps_run_2 = int(difficulty * cfg.num_steps_run2)
 
-    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
+    second_landing_top_height = (
+        (cfg.num_steps_run1 + num_steps_run_2) * step_h + 2.0 * landing_th
+    )
+    origin_z = second_landing_top_height if getattr(cfg, "z_set_to_top", False) else 0.0
+    origin = terrain_center + np.array([cfg.origin_offset_x, cfg.origin_offset_y, origin_z])
 
     # RUN 1: +y from entry edge
     run1_start = (terrain_center[0], terrain_center[1])

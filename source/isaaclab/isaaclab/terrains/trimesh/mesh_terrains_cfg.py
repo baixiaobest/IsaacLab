@@ -219,8 +219,14 @@ class MeshTurningStairs90TerrainCfg(SubTerrainBaseCfg):
     stairs_center_y_offset: float = 0.0
     stairs_center_x_offset: float = 0.0
     origin_offset_y: float = 0.0
+    origin_offset_y: float = 0.0
+    """Offset along +y to shift stairs center from terrain center."""
 
-    # walls
+    origin_offset_x: float = 0.0
+    """Offset along +x to shift origin from terrain center. Defaults to 0.0."""
+
+    z_set_to_top: bool = False
+    """If True, sets origin z to the top height of the second landing."""
     wall_thickness: float = 0.06
     wall_clearance: float = 0.02
     wall_height_extra: float = 0.05
