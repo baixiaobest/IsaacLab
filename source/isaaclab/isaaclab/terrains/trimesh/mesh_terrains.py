@@ -577,6 +577,7 @@ def turning_stairs_90_terrain(difficulty: float, cfg) \
     tread  = cfg.step_width                              # constant tread depth
     landing_th = max(step_h * 0.5, 0.02)
     landing_w  = float(cfg.landing_width if cfg.landing_width is not None else width)
+    landing_len = max(float(cfg.landing_length), float(width))
 
     num_steps_run_2 = cfg.num_steps_run2
     if cfg.second_run_curriculum:
@@ -597,9 +598,9 @@ def turning_stairs_90_terrain(difficulty: float, cfg) \
     )
 
     # Landing beyond run1 end
-    landing_center = (run1_far[0], run1_far[1] + 0.5 * cfg.landing_length)
+    landing_center = (run1_far[0], run1_far[1] + 0.5 * landing_len)
     landing_full_height = z1 + landing_th  # Total height from ground to top of landing
-    landing_dim    = (landing_w, cfg.landing_length, landing_full_height)
+    landing_dim    = (landing_w, landing_len, landing_full_height)
     meshes.append(trimesh.creation.box(
         landing_dim, trimesh.transformations.translation_matrix((landing_center[0], landing_center[1], landing_full_height / 2.0))
     ))
