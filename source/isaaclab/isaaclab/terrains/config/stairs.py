@@ -232,7 +232,7 @@ FLAT_PATCH_STAIRS_TEST = FlatPatchSamplingCfg(
     x_range=(-8.0, 8.0),
     y_range=(-8.0, 8.0),
     z_range=(0.1, 10.0), # setpoint can only be set on stairs
-    max_height_diff=0.7,
+    max_height_diff=0.3,
     min_distance=0.0
 )
 
