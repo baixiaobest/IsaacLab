@@ -415,6 +415,87 @@ TURN_90_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
     },
 )
 
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1 = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=1,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "turning_stairs_90_right": terrain_gen.MeshTurningStairs90TerrainCfg(
+            proportion=1.0,
+            second_run_curriculum=False,
+            step_height_range=(0.04, 0.04),
+            step_width=0.26,
+            num_steps_run1=10,
+            num_steps_run2=10,
+            run1_length=3.0,
+            run2_length=3.0,
+            stairs_width=1.4,
+            stairs_width_range=(2.0, 2.0),
+            landing_length=1.2,
+            landing_width=None,
+            turn_right=True,
+            origin_offset_x=4.0,
+            origin_offset_y=4.0,
+            z_set_to_top=True,
+            wall_thickness=0.08,
+            wall_clearance=0.03,
+            wall_height_extra=0.10,
+            flat_patch_sampling={"target": FLAT_PATCH_TURN_90_RIGHT_CLIMBDOWN},
+            has_guide_lines=True
+        ),
+
+        "turning_stairs_90_left": terrain_gen.MeshTurningStairs90TerrainCfg(
+            proportion=1.0,
+            second_run_curriculum=False,
+            step_height_range=(0.04, 0.04),
+            step_width=0.26,
+            num_steps_run1=10,
+            num_steps_run2=10,
+            run1_length=3.0,
+            run2_length=3.0,
+            stairs_width=1.4,
+            stairs_width_range=(2.0, 2.0),
+            landing_length=1.2,
+            landing_width=None,
+            turn_right=False,
+            origin_offset_x=-4.0,
+            origin_offset_y=4.0,
+            z_set_to_top=True,
+            wall_thickness=0.08,
+            wall_clearance=0.03,
+            wall_height_extra=0.10,
+            flat_patch_sampling={"target": FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN},
+            has_guide_lines=True
+        ),
+    },
+)
+
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_2 = copy.deepcopy(TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_2.sub_terrains["turning_stairs_90_right"].step_height_range = (0.06, 0.06)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_2.sub_terrains["turning_stairs_90_left"].step_height_range = (0.06, 0.06)
+
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_3 = copy.deepcopy(TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_3.sub_terrains["turning_stairs_90_right"].step_height_range = (0.08, 0.08)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_3.sub_terrains["turning_stairs_90_left"].step_height_range = (0.08, 0.08)
+
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_4 = copy.deepcopy(TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_4.sub_terrains["turning_stairs_90_right"].step_height_range = (0.10, 0.10)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_4.sub_terrains["turning_stairs_90_left"].step_height_range = (0.10, 0.10)
+
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_5 = copy.deepcopy(TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_5.sub_terrains["turning_stairs_90_right"].step_height_range = (0.12, 0.12)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_5.sub_terrains["turning_stairs_90_left"].step_height_range = (0.12, 0.12)
+
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6 = copy.deepcopy(TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6.sub_terrains["turning_stairs_90_right"].step_height_range = (0.14, 0.14)
+TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6.sub_terrains["turning_stairs_90_left"].step_height_range = (0.14, 0.14)
+
 TURN_180_STAIRS = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
