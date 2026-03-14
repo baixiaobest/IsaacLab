@@ -745,6 +745,9 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.curriculum.terrain_levels.params['distance_threshold'] = 0.8
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
 
+        if self.scene.terrain.terrain_generator == TURN_90_STAIRS_CLIMB_DOWN:
+            self.rewards.backward_movement_penalty.weight = -0.2
+
         # self.curriculum.terrain_levels = CurrTerm(
         #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
         #     params={
