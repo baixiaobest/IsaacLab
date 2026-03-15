@@ -726,7 +726,9 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
         self.rewards.guidelines_reward = None
 
         if self.scene.terrain.terrain_generator == PYRAMIDS_CLIMB_DOWN:
-            self.rewards.backward_movement_penalty.weight = -0.2
+            self.rewards.backward_movement_penalty.weight = -0.5
+            self.rewards.backward_movement_penalty.params['heading_deadband'] = 0.1745 # 10 degrees
+            self.rewards.action_rate_l2.weight = -0.0005 # Avoid jerky actions
 
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
