@@ -746,7 +746,8 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
 
         if self.scene.terrain.terrain_generator == TURN_90_STAIRS_CLIMB_DOWN:
-            self.rewards.backward_movement_penalty.weight = -0.2
+            self.rewards.backward_movement_penalty.weight = -0.5
+            self.rewards.backward_movement_penalty.params['heading_deadband'] = 0.1745 # 10 degrees
 
         # self.curriculum.terrain_levels = CurrTerm(
         #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
@@ -794,7 +795,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
