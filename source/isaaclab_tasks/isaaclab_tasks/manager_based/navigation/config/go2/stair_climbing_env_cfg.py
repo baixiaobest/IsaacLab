@@ -751,6 +751,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
             self.rewards.backward_movement_penalty.weight = -0.5
             self.rewards.backward_movement_penalty.params['heading_deadband'] = 0.1745 # 10 degrees
             self.rewards.action_rate_l2.weight = -0.002 # Avoid jerky actions
+            self.rewards.action_rate_l2.params['terrain_level_threshold'] = 1
 
         # self.curriculum.terrain_levels = CurrTerm(
         #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
