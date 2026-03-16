@@ -795,6 +795,16 @@ FLAT_PATCH_LINEAR_STAIRS_CLIMB_DOWN = FlatPatchSamplingCfg(
     num_patches=1000,
     patch_radius=0.35,
     x_range=(-1.0, 1.0),
+    y_range=(-6.0, -2.0),
+    z_range=(-10.0, 10.0), # setpoint can only be set on stairs
+    max_height_diff=0.3,
+    min_distance=0.0
+)
+
+FLAT_PATCH_LINEAR_STAIRS_TEST = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(-1.0, 1.0),
     y_range=(-6.0, -4.0),
     z_range=(-10.0, 10.0), # setpoint can only be set on stairs
     max_height_diff=0.3,
@@ -822,7 +832,7 @@ LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1 = TerrainGeneratorCfg(
             origin_offset_y=1.0,
             z_set_to_top=True,
             landing_length=2.0,
-            flat_patch_sampling={"target": FLAT_PATCH_LINEAR_STAIRS_CLIMB_DOWN},
+            flat_patch_sampling={"target": FLAT_PATCH_LINEAR_STAIRS_TEST},
             has_guide_lines=True,
         ),
     },
