@@ -176,10 +176,10 @@ class MeshOneSidedLinearStairsTerrainCfg(SubTerrainBaseCfg):
     """The total length of the stair structure (in m)."""
     origin_offset_y: float = 0.0
     """The offset of the origin of the terrain along the y-axis (in m). """
-    origin_offset_z: float = 0.0
-    """The offset of the origin of the terrain along the z-axis (in m). """
     landing_length: float = 0.5
     """The length of the landing platform at the top of the stairs (in m). Defaults to 0.5."""
+    z_set_to_top: bool = False
+    """If True, sets origin z to the top height of the landing platform."""
     has_guide_lines: bool = False
     """If True, also returns guide lines for visualization."""
 

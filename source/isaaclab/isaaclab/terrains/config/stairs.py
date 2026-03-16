@@ -790,3 +790,82 @@ LINEAR_STAIRS = TerrainGeneratorCfg(
         ),
     },
 )
+
+FLAT_PATCH_LINEAR_STAIRS_CLIMB_DOWN = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(-1.0, 1.0),
+    y_range=(-6.0, -4.0),
+    z_range=(-10.0, 10.0), # setpoint can only be set on stairs
+    max_height_diff=0.3,
+    min_distance=0.0
+)
+
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1 = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=1,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "linear_stairs_ground": terrain_gen.MeshOneSidedLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.04, 0.04),
+            num_steps=10,
+            step_width=0.3,
+            stairs_width_range=(2.5, 2.5),
+            stairs_length=6.0,
+            origin_offset_y=1.0,
+            z_set_to_top=True,
+            landing_length=2.0,
+            flat_patch_sampling={"target": FLAT_PATCH_LINEAR_STAIRS_CLIMB_DOWN},
+            has_guide_lines=True,
+        ),
+    },
+)
+
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_2 = copy.deepcopy(LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_2.sub_terrains["linear_stairs_ground"].step_height_range = (0.06, 0.06)
+
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_3 = copy.deepcopy(LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_3.sub_terrains["linear_stairs_ground"].step_height_range = (0.08, 0.08)
+
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_4 = copy.deepcopy(LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_4.sub_terrains["linear_stairs_ground"].step_height_range = (0.10, 0.10)
+
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_5 = copy.deepcopy(LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_5.sub_terrains["linear_stairs_ground"].step_height_range = (0.12, 0.12)
+
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_6 = copy.deepcopy(LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_6.sub_terrains["linear_stairs_ground"].step_height_range = (0.14, 0.14)
+
+LINEAR_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "linear_stairs_ground": terrain_gen.MeshOneSidedLinearStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.04, 0.14),
+            num_steps=10,
+            step_width=0.3,
+            stairs_width_range=(3.0, 1.5),
+            stairs_length=6.0,
+            origin_offset_y=1.0,
+            z_set_to_top=True,
+            landing_length=2.0,
+            flat_patch_sampling={"target": FLAT_PATCH_LINEAR_STAIRS_CLIMB_DOWN},
+            has_guide_lines=True
+        ),
+    },
+)

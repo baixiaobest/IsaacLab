@@ -352,12 +352,16 @@ def one_sided_linear_stairs_terrain(
     mesh_list.append(landing_platform)
     
     # Calculate origin
-    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, 0.0])
+    origin_z = total_height if getattr(cfg, "z_set_to_top", False) else 0.0
+    origin = terrain_center + np.array([0.0, cfg.origin_offset_y, origin_z])
     if origin[1] > box_center[1] - cfg.stairs_length / 2 and origin[1] < box_center[1] + cfg.stairs_length / 2:
         distance_from_start = origin[1] - (box_center[1] - cfg.stairs_length / 2)
         step_index = int(distance_from_start / cfg.step_width)
         origin_height = min(step_index, cfg.num_steps) * step_height
         origin[2] = origin_height
+
+    if getattr(cfg, "z_set_to_top", False):
+        origin[2] = total_height
     
     # Create guide lines if needed
     landing_length = getattr(cfg, 'landing_length', 0.5)
