@@ -677,7 +677,7 @@ class TerminationsCfg_PLAY:
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "command_name": "pose_2d_command",
-            "distance_threshold": 0.8,
+            "distance_threshold": 0.5,
             "velocity_threshold": 0.3,
             "stay_for_seconds": 0.5,
         },
@@ -800,7 +800,7 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
