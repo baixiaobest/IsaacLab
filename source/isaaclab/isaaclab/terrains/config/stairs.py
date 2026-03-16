@@ -354,11 +354,20 @@ FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+FLAT_PATCH_ROUGH = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(-8.0, 8.0),
+    y_range=(-8.0, 8.0),
+    max_height_diff=0.2,
+    min_distance=0.0
+)
+
 TURN_90_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
     num_rows=10,
-    num_cols=2,
+    num_cols=3,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
@@ -411,6 +420,11 @@ TURN_90_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
             wall_height_extra=0.10,
             flat_patch_sampling={"target": FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN},
             has_guide_lines=True
+        ),
+
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=1.0, noise_range=(0.02, 0.10), noise_step=0.02, border_width=1.0,
+            flat_patch_sampling={"target": FLAT_PATCH_ROUGH}
         ),
     },
 )
