@@ -252,6 +252,7 @@ class CurriculumCfg:
     turning_stairs_180_left = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "turning_stairs_180_left"})
     spiral_stairs_cw = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "spiral_stairs_cw"})
     spiral_stairs_ccw = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "spiral_stairs_ccw"})
+    random_rough = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "random_rough"})
 
 @configclass
 class CommandsCfg:
