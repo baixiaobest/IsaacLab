@@ -30,10 +30,12 @@ RUN chmod +x isaaclab.sh
 
 ENV TERM=xterm
 
+RUN ./isaaclab.sh -p -m pip install numpy==1.26.0 --force-reinstall
+
 # Run the installation script with the -i flag (install mode)
 RUN bash ./isaaclab.sh -i
 
-RUN ./isaaclab.sh -p -m pip install wandb
+RUN ./isaaclab.sh -p -m pip install --upgrade wandb
 
 RUN ./isaaclab.sh -p -m pip install noise
 
