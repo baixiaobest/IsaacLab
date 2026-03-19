@@ -28,8 +28,9 @@ RUN ln -s /isaac-sim _isaac_sim
 
 RUN chmod +x isaaclab.sh
 
+ENV TERM=xterm
+
 # Run the installation script with the -i flag (install mode)
-ENV TERM xterm
 RUN bash ./isaaclab.sh -i
 
 RUN ./isaaclab.sh -p -m pip install wandb
