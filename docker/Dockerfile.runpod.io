@@ -30,7 +30,7 @@ RUN chmod +x isaaclab.sh
 
 # Run the installation script with the -i flag (install mode)
 ENV TERM xterm
-RUN bash ./isaaclab.sh -i rsl_rl
+RUN bash ./isaaclab.sh -i
 
 RUN ./isaaclab.sh -p -m pip install wandb
 
