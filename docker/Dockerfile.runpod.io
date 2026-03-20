@@ -13,7 +13,7 @@ run yes | apt-get install cmake build-essential
 RUN yes | apt-get install pip
 
 # Clone the repository and initialize submodules
-WORKDIR /workspace
+WORKDIR /code
 RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git \
     && cd IsaacLab \
     && git submodule update --init --recursive
@@ -21,7 +21,7 @@ RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git \
 RUN git clone https://github.com/baixiaobest/occupancy_prediction.git
 
 # Set the working directory to IsaacLab and make the script executable
-WORKDIR /workspace/IsaacLab
+WORKDIR /code/IsaacLab
 
 # link the isaac sim
 RUN ln -s /isaac-sim _isaac_sim
