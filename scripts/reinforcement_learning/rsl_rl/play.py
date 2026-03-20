@@ -444,6 +444,9 @@ def main():
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
+    ratio_log_interval_s = 5.0
+    ratio_window_start_wall = time.time()
+    ratio_window_sim_time = 0.0
     
     # Print episode limit info
     if args_cli.max_episodes is not None:
@@ -460,6 +463,8 @@ def main():
             actions = policy(obs)
             # env stepping
             obs, reward, dones, extras = env.step(actions)
+
+        ratio_window_sim_time += dt
 
         # Track and visualize episode termination and metrics distributions
         max_episodes_reached = viz_tracker.track_and_update(extras)
@@ -487,6 +492,16 @@ def main():
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
+
+        ratio_window_elapsed_wall = time.time() - ratio_window_start_wall
+        if ratio_window_elapsed_wall >= ratio_log_interval_s:
+            sim_to_realtime_ratio = ratio_window_sim_time / ratio_window_elapsed_wall
+            print(
+                f"[INFO] Sim-to-realtime ratio ({ratio_window_elapsed_wall:.1f}s window): "
+                f"{sim_to_realtime_ratio:.3f}x"
+            )
+            ratio_window_start_wall = time.time()
+            ratio_window_sim_time = 0.0
 
     # close the simulator
     env.close()
