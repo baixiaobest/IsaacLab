@@ -30,14 +30,17 @@ RUN chmod +x isaaclab.sh
 
 ENV TERM=xterm
 
-RUN ./isaaclab.sh -p -m pip install numpy==1.26.0 --force-reinstall
+RUN ./isaaclab.sh -p -m pip install numpy==1.26.0
 
 # Run the installation script with the -i flag (install mode)
 RUN bash ./isaaclab.sh -i
 
-RUN ./isaaclab.sh -p -m pip install --upgrade wandb
+RUN ./isaaclab.sh -p -m pip install wandb==0.23.1
 
 RUN ./isaaclab.sh -p -m pip install noise
+
+# As previous install will update numpy back to the newest
+RUN ./isaaclab.sh -p -m pip install numpy==1.26.0
 
 # Setup for runpod.io
 ENTRYPOINT [""]
