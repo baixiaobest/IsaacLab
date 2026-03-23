@@ -765,11 +765,17 @@ def spiral_stairs_terrain(difficulty: float, cfg):
     dtheta_mag = 2.0 * np.pi * revolution / num_steps
     dtheta = -dtheta_mag if clockwise else dtheta_mag
 
+    total_height = num_steps * step_h
+    z_set_to_top = bool(getattr(cfg, "z_set_to_top", False))
+
     # entry origin (spawn)
     origin = terrain_center + np.array([float(getattr(cfg, "origin_offset_x", 0.0)), float(getattr(cfg, "origin_offset_y", 0.0)), 0.0])
+    if z_set_to_top:
+        origin[2] = total_height
+
     guide_pts = []
     # build treads: each step is a rectangular box
-    chord_len = max(1e-6, r_mid * dtheta_mag)*3  # avoid degenerate
+    chord_len = max(1e-6, r_mid * dtheta_mag) * 4  # avoid degenerate; *4 gives wider treads
     theta0 = start_angle
     for i in range(num_steps):
         theta_c = theta0 + (i + 0.5) * dtheta
@@ -788,9 +794,12 @@ def spiral_stairs_terrain(difficulty: float, cfg):
         if i%5 == 0:
             guide_pts.append([cx, cy, cz + 1 * step_h])
 
-        # guide lines built from the actual step tops
     if bool(getattr(cfg, "has_guide_lines", False)):
-        guide_lines = np.vstack([origin, np.asarray(guide_pts, dtype=float)])
+        if z_set_to_top:
+            # For climb-down: guide goes from top (origin) down through steps to bottom
+            guide_lines = np.vstack([origin, np.asarray(list(reversed(guide_pts)), dtype=float)])
+        else:
+            guide_lines = np.vstack([origin, np.asarray(guide_pts, dtype=float)])
         return meshes, origin, guide_lines
     else:
         return meshes, origin

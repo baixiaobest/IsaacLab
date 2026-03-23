@@ -853,6 +853,82 @@ LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_5.sub_terrains["linear_stairs_ground"].step_
 LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_6 = copy.deepcopy(LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
 LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_6.sub_terrains["linear_stairs_ground"].step_height_range = (0.14, 0.14)
 
+FLAT_PATCH_SPIRAL_STAIRS_CLIMBDOWN_CCW = FlatPatchSamplingCfg(
+    num_patches=300,
+    patch_radius=0.35,
+    x_range=(4.5, 6.0),   # east of origin toward bottom entry of spiral
+    y_range=(-1.5, 0.5),  # around center y, relative to origin
+    z_range=(-10.0, 10.0),  # unconstrained — find_flat_patches returns patches relative to origin, x/y range targets bottom
+    max_height_diff=0.3,
+    min_distance=0.0
+)
+
+FLAT_PATCH_SPIRAL_STAIRS_CLIMBDOWN_CW = FlatPatchSamplingCfg(
+    num_patches=300,
+    patch_radius=0.35,
+    x_range=(4.5, 6.0),   # east of origin toward bottom entry of spiral
+    y_range=(-0.5, 1.5),  # around center y, relative to origin
+    z_range=(-10.0, 10.0),  # unconstrained — find_flat_patches returns patches relative to origin, x/y range targets bottom
+    max_height_diff=0.3,
+    min_distance=0.0
+)
+
+SPIRAL_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "spiral_stairs_cw": terrain_gen.MeshSpiralStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.02, 0.12),
+            step_width=0.26,
+            stairs_width=1.4,
+            stairs_width_range=(2.5, 2.0),
+            inner_radius=0.75,
+            revolutions=(0.5, 0.5),
+            num_steps=None,
+            clockwise=True,
+            start_angle=0.0,
+            landing_thickness=None,
+            landing_radius=None,
+            add_center_pole=True,
+            center_pole_radius=None,
+            origin_offset_x=-2.0,
+            origin_offset_y=-0.5,
+            z_set_to_top=True,
+            flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS_CLIMBDOWN_CW},
+            has_guide_lines=True
+        ),
+        "spiral_stairs_ccw": terrain_gen.MeshSpiralStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.02, 0.12),
+            step_width=0.26,
+            stairs_width=1.4,
+            stairs_width_range=(2.5, 2.0),
+            inner_radius=0.75,
+            revolutions=(0.5, 0.5),
+            num_steps=None,
+            clockwise=False,
+            start_angle=0.0,
+            landing_thickness=None,
+            landing_radius=None,
+            add_center_pole=True,
+            center_pole_radius=None,
+            origin_offset_x=-2.0,
+            origin_offset_y=0.8,
+            z_set_to_top=True,
+            flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS_CLIMBDOWN_CCW},
+            has_guide_lines=True
+        ),
+    },
+)
+
 LINEAR_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
@@ -879,3 +955,79 @@ LINEAR_STAIRS_CLIMB_DOWN = TerrainGeneratorCfg(
         ),
     },
 )
+
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1 = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=1,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "spiral_stairs_cw": terrain_gen.MeshSpiralStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.04, 0.04),
+            step_width=0.26,
+            stairs_width=2,
+            stairs_width_range=(2.5, 2.5),
+            inner_radius=1.75,
+            revolutions=(0.5, 0.5),
+            num_steps=None,
+            clockwise=True,
+            start_angle=0.0,
+            landing_thickness=None,
+            landing_radius=None,
+            add_center_pole=True,
+            center_pole_radius=None,
+            origin_offset_x=-2.5,
+            origin_offset_y=-0.13,
+            z_set_to_top=True,
+            flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS_CLIMBDOWN_CW},
+            has_guide_lines=True
+        ),
+        "spiral_stairs_ccw": terrain_gen.MeshSpiralStairsTerrainCfg(
+            proportion=1.0,
+            step_height_range=(0.04, 0.04),
+            step_width=0.26,
+            stairs_width=2,
+            stairs_width_range=(2.5, 2.5),
+            inner_radius=1.75,
+            revolutions=(0.5, 0.5),
+            num_steps=None,
+            clockwise=False,
+            start_angle=0.0,
+            landing_thickness=None,
+            landing_radius=None,
+            add_center_pole=True,
+            center_pole_radius=None,
+            origin_offset_x=-2.5,
+            origin_offset_y=0.8,
+            z_set_to_top=True,
+            flat_patch_sampling={"target": FLAT_PATCH_SPIRAL_STAIRS_CLIMBDOWN_CCW},
+            has_guide_lines=True
+        ),
+    },
+)
+
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_2 = copy.deepcopy(SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_2.sub_terrains["spiral_stairs_cw"].step_height_range = (0.06, 0.06)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_2.sub_terrains["spiral_stairs_ccw"].step_height_range = (0.06, 0.06)
+
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_3 = copy.deepcopy(SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_3.sub_terrains["spiral_stairs_cw"].step_height_range = (0.08, 0.08)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_3.sub_terrains["spiral_stairs_ccw"].step_height_range = (0.08, 0.08)
+
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_4 = copy.deepcopy(SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_4.sub_terrains["spiral_stairs_cw"].step_height_range = (0.10, 0.10)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_4.sub_terrains["spiral_stairs_ccw"].step_height_range = (0.10, 0.10)
+
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_5 = copy.deepcopy(SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_5.sub_terrains["spiral_stairs_cw"].step_height_range = (0.12, 0.12)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_5.sub_terrains["spiral_stairs_ccw"].step_height_range = (0.12, 0.12)
+
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_6 = copy.deepcopy(SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_6.sub_terrains["spiral_stairs_cw"].step_height_range = (0.14, 0.14)
+SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_6.sub_terrains["spiral_stairs_ccw"].step_height_range = (0.14, 0.14)
