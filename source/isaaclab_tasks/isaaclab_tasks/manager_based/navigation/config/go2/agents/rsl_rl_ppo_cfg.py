@@ -459,3 +459,7 @@ class UnitreeGo2NavigationEnd2End_CNN_RND_PPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
     disable_rnd_load=True
     algorithm = NavRNDPPOConfig
     wandb_project="stairs_climbing"
+
+@configclass
+class UnitreeGo2RVO2CrowdPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0):
+    experiment_name = "unitree_go2_rvo2_crowd_v0"

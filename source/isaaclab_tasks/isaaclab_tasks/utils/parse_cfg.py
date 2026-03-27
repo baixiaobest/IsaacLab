@@ -185,8 +185,9 @@ def get_checkpoint_path(
     except IndexError:
         raise ValueError(f"No runs present in the directory: '{log_path}' match: '{run_dir}'.")
 
-    # list all model checkpoints in the directory
-    model_checkpoints = [f for f in os.listdir(run_path) if re.match(checkpoint, f)]
+    # list all model checkpoints in the directory, excluding JIT archives (*_jit.pt)
+    # which are inference-only exports not suitable for loading via the runner
+    model_checkpoints = [f for f in os.listdir(run_path) if re.match(checkpoint, f) and not f.endswith("_jit.pt")]
     # check if any checkpoints are present
     if len(model_checkpoints) == 0:
         raise ValueError(f"No checkpoints in the directory: '{run_path}' match '{checkpoint}'.")
