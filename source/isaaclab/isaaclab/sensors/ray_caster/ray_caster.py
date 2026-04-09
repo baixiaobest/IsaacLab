@@ -283,7 +283,9 @@ class RayCaster(SensorBase):
         # remove possible inf values
         viz_points = self._data.ray_hits_w.reshape(-1, 3)
         viz_points = viz_points[~torch.any(torch.isinf(viz_points), dim=1)]
-        # show ray hit positions
+        # show ray hit positions — guard against empty tensor (causes crash)
+        if viz_points.shape[0] == 0:
+            return
         self.ray_visualizer.visualize(viz_points)
 
     """

@@ -35,6 +35,13 @@ PERSON_Z = PERSON_RADIUS + PERSON_HEIGHT / 2.0   # spawn / standing height
 PERSON_SPAWN_RADIUS = 4.0    # circle radius for initial placement [m]
 PERSON_SPEED = 1.2           # max RVO2 speed [m/s]
 
+# Occupancy grid constants
+GRID_SIZE_M: float = 10.0                                    # total grid span [m] (±5 m from robot)
+GRID_RESOLUTION: float = 0.1                                 # meters per cell
+GRID_CELLS: int = int(GRID_SIZE_M / GRID_RESOLUTION)        # = 20 cells per axis
+GRID_MARK_RADIUS: int = max(1, round(PERSON_RADIUS / GRID_RESOLUTION))  # cells to mark around each person
+GRID_SHOW_FREE_CELLS: bool = True                            # set False to only draw occupied cells
+
 # Distinct colours for each person (RGB 0-1)
 _PERSON_COLORS = [
     (0.85, 0.20, 0.20),  # red
@@ -142,7 +149,19 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         self._rvo2_manager: RVO2CrowdManager | None = None
         self._person_objects: list[RigidObject] = []
         self._person_goals: list[tuple[float, float]] = []
+        self._occupancy_grid: torch.Tensor = torch.zeros(
+            GRID_CELLS, GRID_CELLS, dtype=torch.float32, device=self.device
+        )
         self._setup_rvo2()
+
+    @property
+    def occupancy_grid(self) -> torch.Tensor:
+        """Current 2D occupancy grid, shape [GRID_CELLS, GRID_CELLS], float32.
+
+        World-aligned (X=world-X, Y=world-Y), centred on robot XY position.
+        0.0 = free, 1.0 = occupied by a person. Updated every :meth:`step`.
+        """
+        return self._occupancy_grid
 
     # ------------------------------------------------------------------
     # RVO2 setup helpers
@@ -228,6 +247,108 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
             pose[:, 4:7] = 0.0  # qx, qy, qz
             person_obj.write_root_pose_to_sim(pose)
 
+    def _compute_occupancy_grid(self) -> torch.Tensor:
+        """Compute a 2D occupancy grid centred on the robot's current XY position.
+
+        Vectorised: no Python loops over cells. Scales to high resolutions.
+
+        Returns:
+            Float32 tensor [GRID_CELLS, GRID_CELLS]: 0.0=free, 1.0=occupied.
+            Cell [0,0] is bottom-left (most-negative X and Y relative to robot).
+        """
+        grid = torch.zeros(GRID_CELLS, GRID_CELLS, dtype=torch.float32, device=self.device)
+
+        if self._rvo2_manager is None:
+            self._occupancy_grid = grid
+            return grid
+
+        rx, ry = self._get_robot_xy()
+        positions_2d = self._rvo2_manager.get_positions()  # np.ndarray (N, 2)
+        half = GRID_SIZE_M / 2.0
+
+        # Vectorised: convert all person positions to grid indices at once
+        dx = positions_2d[:, 0] - rx  # (N,)
+        dy = positions_2d[:, 1] - ry  # (N,)
+        in_range = (np.abs(dx) <= half) & (np.abs(dy) <= half)
+        dx, dy = dx[in_range], dy[in_range]
+
+        if len(dx) > 0:
+            cols = np.clip((dx + half) / GRID_RESOLUTION, 0, GRID_CELLS - 1).astype(int)
+            rows = np.clip((dy + half) / GRID_RESOLUTION, 0, GRID_CELLS - 1).astype(int)
+
+            # Expand by mark radius using broadcasting
+            offsets = np.arange(-GRID_MARK_RADIUS, GRID_MARK_RADIUS + 1)
+            dr, dc = np.meshgrid(offsets, offsets, indexing="ij")  # (D,D)
+            dr, dc = dr.ravel(), dc.ravel()  # (D*D,)
+
+            all_rows = (rows[:, None] + dr[None, :]).ravel()  # (N*D*D,)
+            all_cols = (cols[:, None] + dc[None, :]).ravel()
+            mask = (all_rows >= 0) & (all_rows < GRID_CELLS) & (all_cols >= 0) & (all_cols < GRID_CELLS)
+            grid[all_rows[mask], all_cols[mask]] = 1.0
+
+        self._occupancy_grid = grid
+        return grid
+
+    def _draw_occupancy_grid(self):
+        """Draw occupancy grid cells as colored points in the Isaac Sim viewport.
+
+        Vectorised: builds point arrays via numpy, no Python cell loops.
+        Occupied = orange (larger), free = dim grey (smaller, only if GRID_SHOW_FREE_CELLS).
+        No-ops silently in headless mode.
+        """
+        try:
+            from isaacsim.util.debug_draw import _debug_draw
+            draw = _debug_draw.acquire_debug_draw_interface()
+        except Exception:
+            try:
+                import omni.debugdraw
+                draw = omni.debugdraw.get_debug_draw_interface()
+            except Exception:
+                self._draw_occupancy_grid = lambda: None  # disable permanently
+                return
+
+        draw.clear_points()
+
+        rx, ry = self._get_robot_xy()
+        env_origin = self.scene.env_origins[0]
+        ox, oy = float(env_origin[0].item()), float(env_origin[1].item())
+        wx, wy = rx + ox, ry + oy
+        half = GRID_SIZE_M / 2.0
+
+        # Build cell-centre XY arrays via numpy (no Python loop)
+        col_idx = np.arange(GRID_CELLS)
+        row_idx = np.arange(GRID_CELLS)
+        cols, rows = np.meshgrid(col_idx, row_idx, indexing="xy")  # (GRID_CELLS, GRID_CELLS)
+        cx = wx + (cols + 0.5) * GRID_RESOLUTION - half
+        cy = wy + (rows + 0.5) * GRID_RESOLUTION - half
+
+        occ_mask = self._occupancy_grid.cpu().numpy() >= 0.5  # (H, W) bool
+
+        points, colors, sizes = [], [], []
+
+        # Occupied cells
+        occ_cx = cx[occ_mask].ravel()
+        occ_cy = cy[occ_mask].ravel()
+        if len(occ_cx):
+            z = np.full(len(occ_cx), 0.1)
+            points += list(zip(occ_cx.tolist(), occ_cy.tolist(), z.tolist()))
+            colors += [(1.0, 0.3, 0.0, 0.8)] * len(occ_cx)
+            sizes  += [8.0] * len(occ_cx)
+
+        # Free cells (optional)
+        if GRID_SHOW_FREE_CELLS:
+            free_mask = ~occ_mask
+            free_cx = cx[free_mask].ravel()
+            free_cy = cy[free_mask].ravel()
+            if len(free_cx):
+                z = np.full(len(free_cx), 0.1)
+                points += list(zip(free_cx.tolist(), free_cy.tolist(), z.tolist()))
+                colors += [(0.4, 0.4, 0.4, 0.3)] * len(free_cx)
+                sizes  += [4.0] * len(free_cx)
+
+        if points:
+            draw.draw_points(points, colors, sizes)
+
     # ------------------------------------------------------------------
     # Overridden ManagerBasedRLEnv methods
     # ------------------------------------------------------------------
@@ -235,10 +356,9 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
     def _reset_idx(self, env_ids):
         """Re-initialise RVO2 whenever the scene resets selected envs."""
         super()._reset_idx(env_ids)
-        # Re-spawn persons at fresh circle positions after scene reset.
         self._setup_rvo2()
-        # Immediately write so Isaac Sim sees the new positions this step.
         self._write_persons_to_sim()
+        self._compute_occupancy_grid()
 
     def step(self, action: torch.Tensor):
         if self._rvo2_manager is not None:
@@ -251,10 +371,15 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         # Write person positions AFTER super so they override any reset that
         # happened inside (internal resets snap persons back to init_state).
         self._write_persons_to_sim()
+        # Compute occupancy grid and expose via extras (result[4] is self.extras).
+        self._compute_occupancy_grid()
+        self.extras["occupancy_grid"] = self._occupancy_grid
+        self._draw_occupancy_grid()
         return result
 
     def reset(self, seed=None, options=None):
         result = super().reset(seed=seed, options=options)
         self._setup_rvo2()
         self._write_persons_to_sim()
+        self._compute_occupancy_grid()
         return result

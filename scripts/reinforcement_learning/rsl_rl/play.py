@@ -453,6 +453,7 @@ def main():
     # reset environment
     obs, _ = env.get_observations()
     timestep = 0
+    step_count = 0
     ratio_log_interval_s = 5.0
     ratio_window_start_wall = time.time()
     ratio_window_sim_time = 0.0
@@ -472,6 +473,17 @@ def main():
             actions = policy(obs)
             # env stepping
             obs, reward, dones, extras = env.step(actions)
+
+        step_count += 1
+
+        # [RVO2] Step — occupancy grid diagnostics
+        if hasattr(env.unwrapped, 'occupancy_grid') and step_count % 100 == 0:
+            occ = env.unwrapped.occupancy_grid
+            occupied = int(occ.sum().item())
+            print(f"[OccGrid] Step {step_count}: shape={list(occ.shape)}, occupied_cells={occupied}/{occ.numel()}")
+            # Also check extras
+            if 'occupancy_grid' in extras:
+                print(f"[OccGrid] also in extras: shape={list(extras['occupancy_grid'].shape)}")
 
         ratio_window_sim_time += dt
 
