@@ -354,6 +354,26 @@ FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN = FlatPatchSamplingCfg(
     min_distance=0.0
 )
 
+FLAT_PATCH_TURN_90_RIGHT_CLIMBDOWN_TEST = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(-5.0, -3.0),
+    y_range=(-6.0, -5.0),
+    z_range=(-10.0, 10.0),
+    max_height_diff=0.3,
+    min_distance=0.0
+)
+
+FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN_TEST = FlatPatchSamplingCfg(
+    num_patches=1000,
+    patch_radius=0.35,
+    x_range=(3.0, 5.0),
+    y_range=(-6.0, -5.0),
+    z_range=(-10.0, 10.0),
+    max_height_diff=0.3,
+    min_distance=0.0
+)
+
 FLAT_PATCH_ROUGH = FlatPatchSamplingCfg(
     num_patches=1000,
     patch_radius=0.35,
@@ -455,7 +475,7 @@ TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1 = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_TURN_90_RIGHT_CLIMBDOWN},
+            flat_patch_sampling={"target": FLAT_PATCH_TURN_90_RIGHT_CLIMBDOWN_TEST},
             has_guide_lines=True
         ),
 
@@ -479,7 +499,7 @@ TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_1 = TerrainGeneratorCfg(
             wall_thickness=0.08,
             wall_clearance=0.03,
             wall_height_extra=0.10,
-            flat_patch_sampling={"target": FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN},
+            flat_patch_sampling={"target": FLAT_PATCH_TURN_90_LEFT_CLIMBDOWN_TEST},
             has_guide_lines=True
         ),
     },

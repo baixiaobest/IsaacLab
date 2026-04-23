@@ -812,7 +812,11 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
+<<<<<<< Updated upstream
         self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_3
+=======
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6
+>>>>>>> Stashed changes
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
