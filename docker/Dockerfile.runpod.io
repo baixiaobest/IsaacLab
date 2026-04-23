@@ -42,6 +42,14 @@ RUN ./isaaclab.sh -p -m pip install noise
 # As previous install will update numpy back to the newest
 RUN ./isaaclab.sh -p -m pip install numpy==1.26.0
 
+RUN ./isaaclab.sh -p -m pip install cython
+
+WORKDIR /code/
+
+RUN git clone https://github.com/sybrenstuvel/Python-RVO2.git
+WORKDIR /code/Python-RVO2
+RUN /code/IsaacLab/isaaclab.sh -p setup.py install
+
 # Setup for runpod.io
 ENTRYPOINT [""]
 CMD ["sleep", "infinity"]
