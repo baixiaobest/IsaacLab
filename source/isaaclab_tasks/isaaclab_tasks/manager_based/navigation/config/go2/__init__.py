@@ -101,6 +101,30 @@ gym.register(
     })
 
 ###############
+# RVO2 Crowd Navigation
+###############
+
+gym.register(
+    id="Isaac-Navigation-RVO2-Crowd-Unitree-Go2-v0",
+    entry_point="isaaclab_tasks.manager_based.navigation.config.go2.rvo2_navigation_env_cfg:RVO2NavigationEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rvo2_navigation_env_cfg:RVO2NavigationEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RVO2CrowdPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
+    id="Isaac-Navigation-RVO2-Crowd-Unitree-Go2-Play-v0",
+    entry_point="isaaclab_tasks.manager_based.navigation.config.go2.rvo2_navigation_env_cfg:RVO2NavigationEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rvo2_navigation_env_cfg:RVO2NavigationEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2RVO2CrowdPPORunnerCfg_v0",
+    },
+)
+
+###############
 # Stair Climbing
 ###############
 

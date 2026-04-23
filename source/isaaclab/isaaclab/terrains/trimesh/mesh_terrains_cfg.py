@@ -326,9 +326,13 @@ class MeshSpiralStairsTerrainCfg(SubTerrainBaseCfg):
     origin_offset_x: float = 0.0
     origin_offset_y: float = 0.0
 
+    z_set_to_top: bool = False
+    """If True, sets origin z to the top height of the spiral (for climb-down tasks)."""
+
     # extras
     has_guide_lines: bool = False
     """If True, also returns guide lines for visualization."""
+
 
 @configclass
 class MeshRandomGridTerrainCfg(SubTerrainBaseCfg):

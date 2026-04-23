@@ -35,7 +35,10 @@ from isaaclab.terrains.config.stairs import TURN_90_STAIRS, TURN_180_STAIRS, TUR
     TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_6,\
     LINEAR_STAIRS_CLIMB_DOWN, LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_1, LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_2, \
     LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_3, LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_4, LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_5, \
-    LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_6 # isort: skip
+    LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_6, \
+    SPIRAL_STAIRS_CLIMB_DOWN, SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_1, SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_2, \
+    SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_3, SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_4, SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_5, \
+    SPIRAL_STAIRS_CLIMB_DOWN_TEST_LEVEL_6 # isort: skip
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG, UNITREE_GO2_STIFF_CFG
 from isaaclab.utils import configclass
 
@@ -737,12 +740,12 @@ class NavigationPyramidStairsEnvCfg(NavigationStairsEnvCfg):
 class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
     def __post_init__(self):
         super().__post_init__()
-        self.scene.terrain.terrain_generator = LINEAR_STAIRS_CLIMB_DOWN
+        self.scene.terrain.terrain_generator = SPIRAL_STAIRS_CLIMB_DOWN
         self.rewards.goal_tracking_coarse.weight = 0.0
         self.rewards.guidelines_reward.weight = 2.0
         self.rewards.undesired_contacts.weight = -4.0
         self.rewards.undesired_contacts.params['threshold'] = 1.0
-        self.rewards.stall_penalty.weight = -0.2 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
+        self.rewards.stall_penalty.weight = -0.8 # Important, prevent the robot from stalling at the beginning of the episode and encourage it to explore
         self.rewards.movement_reward.params['inactivate_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_fine.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
         self.rewards.goal_tracking_coarse.params['active_after_time'] = GOAL_REACHED_ACTIVE_AFTER
@@ -752,11 +755,16 @@ class NavigationEnd2EndStairsOnlyEnvCfg(NavigationStairsEnvCfg):
         self.curriculum.terrain_levels.params['angular_threshold'] = 0.4
 
         if self.scene.terrain.terrain_generator == TURN_90_STAIRS_CLIMB_DOWN \
-            or self.scene.terrain.terrain_generator == LINEAR_STAIRS_CLIMB_DOWN:
+            or self.scene.terrain.terrain_generator == LINEAR_STAIRS_CLIMB_DOWN \
+            or self.scene.terrain.terrain_generator == SPIRAL_STAIRS_CLIMB_DOWN:
             self.rewards.backward_movement_penalty.weight = -0.5
             self.rewards.backward_movement_penalty.params['heading_deadband'] = 0.1745 # 10 degrees
             self.rewards.action_rate_l2.weight = -0.001 # Avoid jerky actions
             set_regularization_terrain_level(self, 1)
+            # For climb-down terrains, robot spawns at the top (z_set_to_top=True).
+            # stationary_prob would set the goal to the robot's spawn position (= top),
+            # which creates incorrect "goal at top" markers and degenerate training signal.
+            self.commands.pose_2d_command.stationary_prob = 0.0
 
         # self.curriculum.terrain_levels = CurrTerm(
         #     func=nav_mdp.pose_2d_command_terrain_curriculum_with_threshold, 
@@ -804,14 +812,14 @@ class NavigationEnd2EndStairsOnlyEnvCfg_PLAY(NavigationEnd2EndStairsOnlyEnvCfg):
             "yaw": (-math.pi/4 + math.pi/2, math.pi/4 + math.pi/2)
         }
         self.terminations = TerminationsCfg_PLAY()
-        self.scene.terrain.terrain_generator = LINEAR_STAIRS_CLIMB_DOWN_TEST_LEVEL_5
+        self.scene.terrain.terrain_generator = TURN_90_STAIRS_CLIMB_DOWN_TEST_LEVEL_3
         self.commands.pose_2d_command.stationary_prob = 0.0
         self.events.add_base_mass = None
         self.events.base_com = None
         self.events.push_robot = None
         self.events.joint_torque_offset_curriculum = None
 
-        test_episode_length = 15.0
+        test_episode_length = 35.0
         self.commands.pose_2d_command.resampling_time_range = (1e6, 1e6)
         self.episode_length_s = test_episode_length
 
