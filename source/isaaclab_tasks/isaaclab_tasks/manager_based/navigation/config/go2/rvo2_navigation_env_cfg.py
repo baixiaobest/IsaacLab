@@ -13,9 +13,10 @@ import numpy as np
 import torch
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import RigidObjectCfg, RigidObject
+from isaaclab.assets import ArticulationCfg, RigidObjectCfg, RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.utils import configclass
+from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 
 from .e2e_navigation_env_cfg import (
     MySceneCfg,
@@ -28,12 +29,29 @@ from isaaclab_tasks.manager_based.navigation.mdp.rvo2_crowd import RVO2CrowdMana
 # Constants
 ##
 
-NUM_PERSONS = 5
+NUM_PERSONS = 10
 PERSON_RADIUS = 0.3          # capsule radius [m]
 PERSON_HEIGHT = 1.2          # capsule cylinder height [m] → total ≈ 1.8 m
 PERSON_Z = PERSON_RADIUS + PERSON_HEIGHT / 2.0   # spawn / standing height
-PERSON_SPAWN_RADIUS = 4.0    # circle radius for initial placement [m]
+PERSON_SPAWN_RADIUS = 4.0    # distance from origin for start / goal [m]
 PERSON_SPEED = 1.2           # max RVO2 speed [m/s]
+
+# Linear A-to-B walk: persons start at x = -PERSON_SPAWN_RADIUS, goal at +PERSON_SPAWN_RADIUS
+PERSON_SPAWN_X   = -PERSON_SPAWN_RADIUS   # start side  (west)
+PERSON_GOAL_X    =  PERSON_SPAWN_RADIUS   # goal side   (east)
+PERSON_Y_SPACING = 1.0                    # lateral gap between persons [m]
+
+# Positions of the 5 static Go2 robots — equally spaced ring at 2.5 m around ego (0,0)
+# angles: 0, 72, 144, 216, 288 degrees
+_STATIC_ROBOT_RADIUS_M = 2.5
+_STATIC_ROBOT_POSITIONS: list[tuple[float, float]] = [
+    ( 2.50,  0.00),   #   0°
+    ( 0.77,  2.38),   #  72°
+    (-2.02,  1.47),   # 144°
+    (-2.02, -1.47),   # 216°
+    ( 0.77, -2.38),   # 288°
+]
+STATIC_ROBOT_RADIUS = 0.5   # RVO2 avoidance radius for the static robots [m]
 
 # Occupancy grid constants
 GRID_SIZE_M: float = 10.0                                    # total grid span [m] (±5 m from robot)
@@ -49,6 +67,11 @@ _PERSON_COLORS = [
     (0.20, 0.40, 0.90),  # blue
     (0.90, 0.80, 0.10),  # yellow
     (0.90, 0.45, 0.10),  # orange
+    (0.60, 0.20, 0.80),  # purple
+    (0.10, 0.80, 0.80),  # cyan
+    (0.90, 0.40, 0.60),  # pink
+    (0.40, 0.80, 0.20),  # lime
+    (0.80, 0.60, 0.20),  # tan
 ]
 
 
@@ -60,6 +83,32 @@ def _capsule_cfg(color: tuple[float, float, float]) -> sim_utils.CapsuleCfg:
         mass_props=sim_utils.MassPropertiesCfg(mass=70.0),
         collision_props=sim_utils.CollisionPropertiesCfg(),
         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=color),
+    )
+
+
+def _static_go2_cfg(pos: tuple[float, float, float]) -> ArticulationCfg:
+    """Go2 robot fixed in place (root pinned, high-stiffness joints hold default pose)."""
+    return UNITREE_GO2_CFG.replace(
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=pos,
+            joint_pos={
+                ".*L_hip_joint": 0.1,
+                ".*R_hip_joint": -0.1,
+                "F[L,R]_thigh_joint": 0.8,
+                "R[L,R]_thigh_joint": 1.0,
+                ".*_calf_joint": -1.5,
+            },
+            joint_vel={".*": 0.0},
+        ),
+        spawn=UNITREE_GO2_CFG.spawn.replace(
+            activate_contact_sensors=False,
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                fix_root_link=True,          # base stays pinned
+                enabled_self_collisions=False,
+                solver_position_iteration_count=4,
+                solver_velocity_iteration_count=0,
+            ),
+        ),
     )
 
 
@@ -96,6 +145,39 @@ class RVO2SceneCfg(MySceneCfg):
         spawn=_capsule_cfg(_PERSON_COLORS[4]),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(1.5, 1.5, PERSON_Z)),
     )
+    person_5: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Person_5",
+        spawn=_capsule_cfg(_PERSON_COLORS[5]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(-1.5, -1.5, PERSON_Z)),
+    )
+    person_6: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Person_6",
+        spawn=_capsule_cfg(_PERSON_COLORS[6]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(3.0, 0.0, PERSON_Z)),
+    )
+    person_7: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Person_7",
+        spawn=_capsule_cfg(_PERSON_COLORS[7]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(-3.0, 0.0, PERSON_Z)),
+    )
+    person_8: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Person_8",
+        spawn=_capsule_cfg(_PERSON_COLORS[8]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 3.0, PERSON_Z)),
+    )
+    person_9: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Person_9",
+        spawn=_capsule_cfg(_PERSON_COLORS[9]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -3.0, PERSON_Z)),
+    )
+
+    # Five static Go2 robots in a ring at 2.5 m around the ego robot (0, 0).
+    # fix_root_link=True pins their base so they don't fall.
+    static_robot_0: ArticulationCfg = _static_go2_cfg(pos=( 2.50,  0.00, 0.4)).replace(prim_path="{ENV_REGEX_NS}/StaticRobot_0")
+    static_robot_1: ArticulationCfg = _static_go2_cfg(pos=( 0.77,  2.38, 0.4)).replace(prim_path="{ENV_REGEX_NS}/StaticRobot_1")
+    static_robot_2: ArticulationCfg = _static_go2_cfg(pos=(-2.02,  1.47, 0.4)).replace(prim_path="{ENV_REGEX_NS}/StaticRobot_2")
+    static_robot_3: ArticulationCfg = _static_go2_cfg(pos=(-2.02, -1.47, 0.4)).replace(prim_path="{ENV_REGEX_NS}/StaticRobot_3")
+    static_robot_4: ArticulationCfg = _static_go2_cfg(pos=( 0.77, -2.38, 0.4)).replace(prim_path="{ENV_REGEX_NS}/StaticRobot_4")
 
 
 ##
@@ -179,15 +261,13 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         if not self._person_objects:
             return
 
+        n = len(self._person_objects)
         positions, goals = [], []
-        for i in range(len(self._person_objects)):
-            angle = 2.0 * math.pi * i / len(self._person_objects)
-            x = PERSON_SPAWN_RADIUS * math.cos(angle)
-            y = PERSON_SPAWN_RADIUS * math.sin(angle)
-            positions.append((x, y))
-            opp = angle + math.pi
-            goals.append((PERSON_SPAWN_RADIUS * math.cos(opp),
-                          PERSON_SPAWN_RADIUS * math.sin(opp)))
+        for i in range(n):
+            # Spread persons evenly along Y, centred on 0
+            y = (i - (n - 1) / 2.0) * PERSON_Y_SPACING
+            positions.append((PERSON_SPAWN_X, y))
+            goals.append((PERSON_GOAL_X, y))
 
         self._person_goals = goals
         self._rvo2_manager = RVO2CrowdManager(
@@ -197,6 +277,8 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
             max_speed=PERSON_SPEED,
         )
         self._rvo2_manager.reset(positions, goals)
+        # Register static Go2 robots as immobile RVO2 obstacles
+        self._rvo2_manager.add_static_obstacles(_STATIC_ROBOT_POSITIONS, STATIC_ROBOT_RADIUS)
 
     # ------------------------------------------------------------------
     # Per-step helpers
@@ -217,13 +299,32 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         for i, (gx, gy) in enumerate(self._person_goals):
             px, py = float(positions_2d[i, 0]), float(positions_2d[i, 1])
             if math.sqrt((px - gx) ** 2 + (py - gy) ** 2) < 0.5:
-                opp = math.atan2(py, px) + math.pi
-                new_goals[i] = (PERSON_SPAWN_RADIUS * math.cos(opp),
-                                PERSON_SPAWN_RADIUS * math.sin(opp))
+                # Flip between east and west ends, keep same Y lane
+                new_gx = PERSON_SPAWN_X if gx > 0 else PERSON_GOAL_X
+                new_goals[i] = (new_gx, gy)
                 changed = True
         if changed:
             self._person_goals = new_goals
             self._rvo2_manager.set_goals(new_goals)
+
+    def _reset_static_robots(self):
+        """Teleport static robots to their env-local positions (accounts for env_origin)."""
+        env_origin = self.scene.env_origins[0]
+        ox = float(env_origin[0].item())
+        oy = float(env_origin[1].item())
+        for i, (px, py) in enumerate(_STATIC_ROBOT_POSITIONS):
+            name = f"static_robot_{i}"
+            try:
+                robot = self.scene[name]
+            except KeyError:
+                continue
+            pose = robot.data.root_state_w[:, :7].clone()
+            pose[:, 0] = ox + px
+            pose[:, 1] = oy + py
+            pose[:, 2] = 0.4   # standing height
+            pose[:, 3] = 1.0   # qw
+            pose[:, 4:7] = 0.0  # qx, qy, qz
+            robot.write_root_pose_to_sim(pose)
 
     def _write_persons_to_sim(self):
         """Teleport kinematic capsules to their RVO2 positions."""
@@ -358,6 +459,7 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         super()._reset_idx(env_ids)
         self._setup_rvo2()
         self._write_persons_to_sim()
+        self._reset_static_robots()
         self._compute_occupancy_grid()
 
     def step(self, action: torch.Tensor):
@@ -381,5 +483,6 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         result = super().reset(seed=seed, options=options)
         self._setup_rvo2()
         self._write_persons_to_sim()
+        self._reset_static_robots()
         self._compute_occupancy_grid()
         return result

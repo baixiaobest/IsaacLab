@@ -118,6 +118,10 @@ class RVO2CrowdManager:
         if self._robot_agent_id is not None:
             self._sim.setAgentPrefVelocity(self._robot_agent_id, (0.0, 0.0))
 
+        # Static obstacles have zero preferred velocity
+        for sid in getattr(self, "_static_obstacle_ids", []):
+            self._sim.setAgentPrefVelocity(sid, (0.0, 0.0))
+
         self._sim.doStep()
 
     def get_positions(self) -> np.ndarray:
@@ -148,6 +152,31 @@ class RVO2CrowdManager:
         """
         assert len(goals) == self.num_agents
         self._goals = list(goals)
+
+    def add_static_obstacles(self, positions: list[tuple[float, float]], radius: float) -> None:
+        """Register fixed-position obstacles as zero-speed RVO2 agents.
+
+        Persons will steer around these positions. Call once after reset().
+
+        Args:
+            positions: List of (x, y) world positions for each static obstacle.
+            radius: Collision radius to use for each obstacle.
+        """
+        if self._sim is None:
+            return
+        self._static_obstacle_ids: list[int] = []
+        for pos in positions:
+            agent_id = self._sim.addAgent(
+                pos,
+                self._neighbor_dist,
+                self._max_neighbors,
+                self._time_horizon,
+                self._time_horizon_obst,
+                radius,
+                0.0,   # max_speed=0 — cannot move
+                (0.0, 0.0),
+            )
+            self._static_obstacle_ids.append(agent_id)
 
     def update_robot_obstacle(self, position: tuple[float, float], radius: float | None = None) -> None:
         """Update or add the robot as a dynamic obstacle agent.
