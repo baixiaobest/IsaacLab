@@ -10,6 +10,7 @@ import json
 import os
 import random
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 import torch
@@ -27,6 +28,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset_path", type=str, required=True, help="Path to an HDF5 rollout file or a directory of HDF5 files.")
     parser.add_argument("--output_dir", type=str, default="logs/velocity_estimator", help="Directory for checkpoints and logs.")
     parser.add_argument("--run_name", type=str, default=None, help="Optional run name. Defaults to a timestamp.")
+    parser.add_argument(
+        "--logger",
+        type=str,
+        default="tensorboard",
+        choices=["tensorboard", "wandb", "both", "none"],
+        help="Training logger backend.",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default=None,
+        help="Weights & Biases project name. Required when --logger is wandb or both.",
+    )
     parser.add_argument("--horizon", type=int, default=10, help="Number of past observations, including the current step, used by the estimator.")
     parser.add_argument("--batch_size", type=int, default=1024, help="Mini-batch size.")
     parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs.")
@@ -71,6 +85,44 @@ def _build_run_dir(output_dir: str, run_name: str | None) -> str:
     run_dir = os.path.abspath(os.path.join(output_dir, run_name))
     os.makedirs(run_dir, exist_ok=True)
     return run_dir
+
+
+def _uses_tensorboard(logger_name: str) -> bool:
+    """Return whether TensorBoard logging is enabled."""
+    return logger_name in {"tensorboard", "both"}
+
+
+def _uses_wandb(logger_name: str) -> bool:
+    """Return whether Weights & Biases logging is enabled."""
+    return logger_name in {"wandb", "both"}
+
+
+def _init_wandb(args: argparse.Namespace, run_dir: str, run_name: str):
+    """Initialize a Weights & Biases run if requested."""
+    if not _uses_wandb(args.logger):
+        return None
+    if not args.wandb_project:
+        raise ValueError("--wandb_project is required when --logger is wandb or both.")
+
+    try:
+        import wandb
+    except ImportError as error:  # noqa: BLE001 - present a targeted installation message.
+        raise ImportError("Weights & Biases logging requested but the 'wandb' package is not installed.") from error
+
+    wandb_run = wandb.init(
+        project=args.wandb_project,
+        name=run_name,
+        dir=run_dir,
+        config={key: value for key, value in vars(args).items() if key != "run_name"},
+    )
+    return wandb_run
+
+
+def _upload_file_to_wandb(wandb_run: Any, file_path: str, base_path: str) -> None:
+    """Upload a file to the active Weights & Biases run."""
+    if wandb_run is None:
+        return
+    wandb_run.save(file_path, base_path=base_path, policy="now")
 
 
 def _evaluate(model: VelocityEstimator, data_loader: DataLoader, device: torch.device) -> tuple[float, float]:
@@ -150,8 +202,10 @@ def main() -> None:
 
     set_seed(args.seed)
 
-    run_dir = _build_run_dir(args.output_dir, args.run_name)
-    writer = SummaryWriter(log_dir=os.path.join(run_dir, "tensorboard"))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = _build_run_dir(args.output_dir, args.run_name or timestamp)
+    writer = SummaryWriter(log_dir=os.path.join(run_dir, "tensorboard")) if _uses_tensorboard(args.logger) else None
+    wandb_run = _init_wandb(args, run_dir, timestamp)
 
     dataset, train_subset, validation_subset = create_estimator_datasets(
         dataset_path=args.dataset_path,
@@ -189,6 +243,21 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
     _save_run_metadata(run_dir, dataset, args, train_subset, validation_subset)
+    if wandb_run is not None:
+        wandb_run.config.update(
+            {
+                "run_dir": run_dir,
+                "input_paths": dataset.input_paths,
+                "target_paths": dataset.target_paths,
+                "input_dim": dataset.input_dim,
+                "target_dim": dataset.target_dim,
+                "num_episodes": len(dataset.episode_entries),
+                "num_training_samples": len(train_subset),
+                "num_validation_samples": len(validation_subset),
+            },
+            allow_val_change=True,
+        )
+        _upload_file_to_wandb(wandb_run, os.path.join(run_dir, "metadata.json"), run_dir)
 
     best_validation_loss = float("inf")
     best_checkpoint_path = os.path.join(run_dir, "best.pt")
@@ -203,6 +272,7 @@ def main() -> None:
     print(f"[INFO] Input terms: {sorted(dataset.input_paths)}")
     print(f"[INFO] Target terms: {sorted(dataset.target_paths)}")
     print(f"[INFO] Excluded input terms: {sorted(set(args.exclude_input_terms or []))}")
+    print(f"[INFO] Logger: {args.logger}")
 
     try:
         for epoch in range(1, args.epochs + 1):
@@ -233,35 +303,46 @@ def main() -> None:
 
             validation_loss, validation_mae = _evaluate(model, validation_loader, device) if len(validation_subset) > 0 else (0.0, 0.0)
 
-            writer.add_scalar("loss/train", train_loss, epoch)
-            writer.add_scalar("mae/train", train_mae, epoch)
-            if len(validation_subset) > 0:
-                writer.add_scalar("loss/val", validation_loss, epoch)
-                writer.add_scalar("mae/val", validation_mae, epoch)
-
             metrics = {
                 "train_loss": train_loss,
                 "train_mae": train_mae,
                 "validation_loss": validation_loss,
                 "validation_mae": validation_mae,
             }
+
+            if writer is not None:
+                writer.add_scalar("loss/train", train_loss, epoch)
+                writer.add_scalar("mae/train", train_mae, epoch)
+                if len(validation_subset) > 0:
+                    writer.add_scalar("loss/val", validation_loss, epoch)
+                    writer.add_scalar("mae/val", validation_mae, epoch)
+
+            if wandb_run is not None:
+                wandb_run.log({"epoch": epoch, **metrics}, step=epoch)
+
             _save_checkpoint(last_checkpoint_path, model, optimizer, epoch, metrics, dataset, args)
+            _upload_file_to_wandb(wandb_run, last_checkpoint_path, run_dir)
 
             if args.checkpoint_save_interval > 0 and epoch % args.checkpoint_save_interval == 0:
                 periodic_checkpoint_path = os.path.join(periodic_checkpoint_dir, f"epoch_{epoch:04d}.pt")
                 _save_checkpoint(periodic_checkpoint_path, model, optimizer, epoch, metrics, dataset, args)
+                _upload_file_to_wandb(wandb_run, periodic_checkpoint_path, run_dir)
 
             monitored_loss = validation_loss if len(validation_subset) > 0 else train_loss
             if monitored_loss < best_validation_loss:
                 best_validation_loss = monitored_loss
                 _save_checkpoint(best_checkpoint_path, model, optimizer, epoch, metrics, dataset, args)
+                _upload_file_to_wandb(wandb_run, best_checkpoint_path, run_dir)
 
             print(
                 f"[Epoch {epoch:03d}] train_loss={train_loss:.6f} train_mae={train_mae:.6f} "
                 f"val_loss={validation_loss:.6f} val_mae={validation_mae:.6f}"
             )
     finally:
-        writer.close()
+        if writer is not None:
+            writer.close()
+        if wandb_run is not None:
+            wandb_run.finish()
 
     print(f"[INFO] Saved best checkpoint to: {best_checkpoint_path}")
     print(f"[INFO] Saved last checkpoint to: {last_checkpoint_path}")

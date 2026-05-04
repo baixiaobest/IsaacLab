@@ -283,7 +283,7 @@ class LocomotionVelEnvCfg_ROLLOUT(LocomotionVelEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        ROLLOUT_LENGTH = 5.0
+        ROLLOUT_LENGTH = 3.0
 
         self.episode_length_s = ROLLOUT_LENGTH
         self.observations.policy.enable_corruption = True
