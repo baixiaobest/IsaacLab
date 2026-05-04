@@ -11,6 +11,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
@@ -19,6 +20,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
+from isaaclab.terrains.config.rough import ROUGH_ONLY
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
@@ -31,7 +33,8 @@ class MySceneCfg(InteractiveSceneCfg):
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="plane",
+        terrain_type="generator",
+        terrain_generator=ROUGH_ONLY,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -112,7 +115,14 @@ class ObservationsCfg:
             self.enable_corruption = True
             self.concatenate_terms = True
 
+    @configclass
+    class GroundTruthCfg(ObsGroup):
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
+
     policy: PolicyCfg = PolicyCfg()
+
+    ground_truth: GroundTruthCfg = GroundTruthCfg()
 
 
 @configclass
@@ -230,6 +240,9 @@ class TerminationsCfg:
         },
     )
 
+@configclass
+class CurriculumCfg:
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
 
 @configclass
 class LocomotionVelEnvCfg(ManagerBasedRLEnvCfg):
@@ -242,6 +255,7 @@ class LocomotionVelEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         self.decimation = 4
@@ -263,3 +277,15 @@ class LocomotionVelEnvCfg_PLAY(LocomotionVelEnvCfg):
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
         self.commands.base_velocity.resampling_time_range = (10000.0, 10000.0)
+
+@configclass
+class LocomotionVelEnvCfg_ROLLOUT(LocomotionVelEnvCfg):
+
+    def __post_init__(self):
+        super().__post_init__()
+        ROLLOUT_LENGTH = 5.0
+
+        self.episode_length_s = ROLLOUT_LENGTH
+        self.observations.policy.enable_corruption = True
+        self.commands.base_velocity.resampling_time_range = (ROLLOUT_LENGTH, ROLLOUT_LENGTH)
+
