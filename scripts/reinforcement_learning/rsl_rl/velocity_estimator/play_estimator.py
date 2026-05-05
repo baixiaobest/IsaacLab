@@ -60,8 +60,8 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
 
-from checkpoint_utils import get_checkpoint_string_list, load_estimator_checkpoint, resolve_policy_checkpoint
-from observation_utils import ObservationTermSpec, build_observation_term_specs, split_observation_groups
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.checkpoint_utils import get_checkpoint_string_list, load_estimator_checkpoint, resolve_policy_checkpoint
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, split_observation_groups
 
 
 def _get_nested_tensor(mapping: dict[str, dict[str, torch.Tensor]] | dict[str, torch.Tensor], path: str) -> torch.Tensor:

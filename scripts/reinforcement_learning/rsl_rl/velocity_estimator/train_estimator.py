@@ -18,8 +18,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import create_estimator_datasets
-from model import VelocityEstimator
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.dataset import create_estimator_datasets
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.model import VelocityEstimator
 
 
 def parse_args() -> argparse.Namespace:

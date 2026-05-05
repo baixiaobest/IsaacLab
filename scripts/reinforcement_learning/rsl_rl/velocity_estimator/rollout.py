@@ -84,7 +84,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
-from observation_utils import ObservationTermSpec, build_observation_term_specs, serialize_observation_specs, split_observation_groups
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, serialize_observation_specs, split_observation_groups
 
 
 def _resolve_resume_path(agent_cfg: RslRlOnPolicyRunnerCfg) -> tuple[str, str]:

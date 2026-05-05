@@ -13,7 +13,7 @@ import torch
 
 from isaaclab.utils.assets import retrieve_file_path
 
-from model import VelocityEstimator
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.model import VelocityEstimator
 
 
 def resolve_policy_checkpoint(experiment_name: str, checkpoint: str | None, purpose: str) -> str:

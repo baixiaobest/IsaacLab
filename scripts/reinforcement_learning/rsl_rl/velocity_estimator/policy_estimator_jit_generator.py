@@ -57,14 +57,14 @@ from isaaclab_rl.rsl_rl.exporter import _TorchPolicyExporter
 
 import isaaclab_tasks  # noqa: F401
 
-from checkpoint_utils import (
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.checkpoint_utils import (
     get_checkpoint_int,
     get_checkpoint_string_list,
     load_estimator_checkpoint,
     resolve_policy_checkpoint,
 )
-from model import VelocityEstimator
-from observation_utils import build_observation_term_specs
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.model import VelocityEstimator
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import build_observation_term_specs
 
 
 class PolicyEstimatorJitModule(torch.nn.Module):
