@@ -96,7 +96,6 @@ def _uses_wandb(logger_name: str) -> bool:
     """Return whether Weights & Biases logging is enabled."""
     return logger_name in {"wandb", "both"}
 
-
 def _init_wandb(args: argparse.Namespace, run_dir: str, run_name: str):
     """Initialize a Weights & Biases run if requested."""
     if not _uses_wandb(args.logger):
@@ -202,7 +201,7 @@ def main() -> None:
 
     set_seed(args.seed)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = _build_run_dir(args.output_dir, args.run_name or timestamp)
     writer = SummaryWriter(log_dir=os.path.join(run_dir, "tensorboard")) if _uses_tensorboard(args.logger) else None
     wandb_run = _init_wandb(args, run_dir, timestamp)

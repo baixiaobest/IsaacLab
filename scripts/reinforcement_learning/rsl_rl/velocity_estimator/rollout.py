@@ -8,11 +8,9 @@
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
@@ -86,15 +84,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
-
-@dataclass(frozen=True)
-class ObservationTermSpec:
-    """Description of a single flattened observation term."""
-
-    name: str
-    shape: tuple[int, ...]
-    start: int
-    stop: int
+from observation_utils import ObservationTermSpec, build_observation_term_specs, serialize_observation_specs, split_observation_groups
 
 
 def _resolve_resume_path(agent_cfg: RslRlOnPolicyRunnerCfg) -> tuple[str, str]:
@@ -109,70 +99,6 @@ def _resolve_resume_path(agent_cfg: RslRlOnPolicyRunnerCfg) -> tuple[str, str]:
     return resume_path, os.path.dirname(resume_path)
 
 
-def _build_observation_term_specs(env: ManagerBasedRLEnv) -> dict[str, list[ObservationTermSpec]]:
-    """Infer flattened tensor slices for each observation term in every observation group."""
-    observation_manager = env.observation_manager
-    observation_specs: dict[str, list[ObservationTermSpec]] = {}
-
-    for group_name, term_names in observation_manager.active_terms.items():
-        if not observation_manager.group_obs_concatenate[group_name]:
-            raise RuntimeError(
-                f"Observation group '{group_name}' is not concatenated. This rollout script expects concatenated groups "
-                "so the policy interface stays unchanged."
-            )
-
-        specs: list[ObservationTermSpec] = []
-        offset = 0
-        for term_name, term_shape in zip(term_names, observation_manager.group_obs_term_dim[group_name], strict=True):
-            width = math.prod(term_shape)
-            specs.append(ObservationTermSpec(term_name, tuple(term_shape), offset, offset + width))
-            offset += width
-        observation_specs[group_name] = specs
-
-    return observation_specs
-
-
-def _serialize_observation_specs(specs: dict[str, list[ObservationTermSpec]]) -> dict[str, dict[str, object]]:
-    """Convert observation specs into JSON-serializable metadata."""
-    output: dict[str, dict[str, object]] = {}
-    for group_name, group_specs in specs.items():
-        output[group_name] = {
-            "terms": [
-                {
-                    "name": spec.name,
-                    "shape": list(spec.shape),
-                    "slice": [spec.start, spec.stop],
-                }
-                for spec in group_specs
-            ]
-        }
-    return output
-
-
-def _extract_observation_groups(
-    obs_dict: dict[str, torch.Tensor | dict[str, torch.Tensor]],
-    specs: dict[str, list[ObservationTermSpec]],
-    env_id: int,
-) -> dict[str, dict[str, torch.Tensor]]:
-    """Split concatenated observation groups back into named per-term tensors for one environment."""
-    extracted: dict[str, dict[str, torch.Tensor]] = {}
-
-    for group_name, group_obs in obs_dict.items():
-        if isinstance(group_obs, dict):
-            extracted[group_name] = {name: value[env_id].detach().clone() for name, value in group_obs.items()}
-            continue
-
-        env_group_obs = group_obs[env_id]
-        extracted[group_name] = {}
-        for term_spec in specs[group_name]:
-            term_value = env_group_obs[term_spec.start : term_spec.stop]
-            if term_spec.shape:
-                term_value = term_value.reshape(term_spec.shape)
-            extracted[group_name][term_spec.name] = term_value.detach().clone()
-
-    return extracted
-
-
 def _add_observation_step(
     episode: EpisodeData,
     obs_dict: dict[str, torch.Tensor | dict[str, torch.Tensor]],
@@ -180,7 +106,7 @@ def _add_observation_step(
     env_id: int,
 ) -> None:
     """Append the current observation snapshot for one environment."""
-    extracted_groups = _extract_observation_groups(obs_dict, observation_specs, env_id)
+    extracted_groups = split_observation_groups(obs_dict, observation_specs, env_id)
     ground_truth = extracted_groups.pop("ground_truth", None)
 
     episode.add("observations", extracted_groups)
@@ -338,7 +264,7 @@ def main() -> None:
 
     policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
 
-    observation_specs = _build_observation_term_specs(env.unwrapped)
+    observation_specs = build_observation_term_specs(env.unwrapped, "rollout script")
     dataset_writer = RolloutDatasetWriter(
         dataset_root=args_cli.dataset_root,
         dataset_name=args_cli.dataset_name,
@@ -347,7 +273,7 @@ def main() -> None:
         env_args={
             "source": "rsl_rl.rollout",
             "checkpoint": resume_path,
-            "observation_spec": _serialize_observation_specs(observation_specs),
+            "observation_spec": serialize_observation_specs(observation_specs),
             "ground_truth_group": "ground_truth" if "ground_truth" in observation_specs else "",
             "num_envs": env.num_envs,
             "device": str(agent_cfg.device),
