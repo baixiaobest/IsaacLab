@@ -60,17 +60,8 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
 
-from model import VelocityEstimator
+from checkpoint_utils import get_checkpoint_string_list, load_estimator_checkpoint, resolve_policy_checkpoint
 from observation_utils import ObservationTermSpec, build_observation_term_specs, split_observation_groups
-
-
-def _resolve_policy_checkpoint(agent_cfg: RslRlOnPolicyRunnerCfg) -> str:
-    """Resolve the policy checkpoint path."""
-    log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", agent_cfg.experiment_name))
-    print(f"[INFO] Loading experiment from directory: {log_root_path}")
-    if not args_cli.checkpoint:
-        raise ValueError("--checkpoint is required to play the policy with an estimator.")
-    return retrieve_file_path(args_cli.checkpoint)
 
 
 def _get_nested_tensor(mapping: dict[str, dict[str, torch.Tensor]] | dict[str, torch.Tensor], path: str) -> torch.Tensor:
@@ -156,31 +147,6 @@ def _advance_history(
     return updated_history
 
 
-def _load_estimator_checkpoint(checkpoint_path: str, device: torch.device) -> tuple[VelocityEstimator, dict[str, object]]:
-    """Load a trained estimator checkpoint and rebuild the model."""
-    estimator_checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    model = VelocityEstimator(
-        input_dim=int(estimator_checkpoint["input_dim"]),
-        horizon=int(estimator_checkpoint["horizon"]),
-        output_dim=int(estimator_checkpoint["target_dim"]),
-        hidden_dims=estimator_checkpoint["args"].get("hidden_dims", [256, 256, 128]),
-        activation=estimator_checkpoint["args"].get("activation", "elu"),
-        dropout=estimator_checkpoint["args"].get("dropout", 0.0),
-    ).to(device)
-    model.load_state_dict(estimator_checkpoint["model_state_dict"])
-    model.eval()
-    return model, estimator_checkpoint
-
-
-def _get_checkpoint_string_list(checkpoint: dict[str, object], key: str) -> list[str]:
-    """Read a list of strings from a checkpoint entry."""
-    value = checkpoint.get(key)
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise RuntimeError(f"Estimator checkpoint entry '{key}' must be a list of strings.")
-    return value
-
-
 def _update_rmse_accumulators(
     accumulators: dict[str, dict[str, float]],
     estimator_output: torch.Tensor,
@@ -219,7 +185,7 @@ def main() -> None:
     )
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
-    policy_checkpoint = _resolve_policy_checkpoint(agent_cfg)
+    policy_checkpoint = resolve_policy_checkpoint(agent_cfg.experiment_name, args_cli.checkpoint, "play the policy with an estimator")
     estimator_checkpoint_path = retrieve_file_path(args_cli.estimator_checkpoint)
 
     base_env = gym.make(args_cli.task, cfg=env_cfg)
@@ -239,7 +205,7 @@ def main() -> None:
 
     estimator_device = torch.device(str(env.unwrapped.device))
     print(f"[INFO] Loading estimator checkpoint from: {estimator_checkpoint_path}")
-    estimator, estimator_checkpoint = _load_estimator_checkpoint(estimator_checkpoint_path, estimator_device)
+    estimator, estimator_checkpoint = load_estimator_checkpoint(estimator_checkpoint_path, estimator_device)
 
     observation_specs = build_observation_term_specs(env.unwrapped, "play estimator script")
     if "policy" not in observation_specs or "ground_truth" not in observation_specs:
@@ -249,8 +215,8 @@ def main() -> None:
     current_obs_dict = extras["observations"]
     expanded_obs = split_observation_groups(current_obs_dict, observation_specs)
 
-    input_paths = _get_checkpoint_string_list(estimator_checkpoint, "input_paths")
-    target_paths = _get_checkpoint_string_list(estimator_checkpoint, "target_paths")
+    input_paths = get_checkpoint_string_list(estimator_checkpoint, "input_paths")
+    target_paths = get_checkpoint_string_list(estimator_checkpoint, "target_paths")
     target_layout = _build_target_layout(expanded_obs, target_paths)
 
     current_features = _gather_estimator_inputs(expanded_obs, input_paths)

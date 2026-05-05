@@ -65,11 +65,11 @@ class VelocityEstimator(nn.Module):
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Estimate current velocity from a horizon of past observations."""
         if inputs.ndim != 3:
-            raise ValueError(f"Expected inputs with shape (batch, horizon, input_dim), got {tuple(inputs.shape)}")
+            raise ValueError("Expected inputs with shape (batch, horizon, input_dim).")
         if inputs.shape[1] != self.horizon:
-            raise ValueError(f"Expected horizon={self.horizon}, got {inputs.shape[1]}")
+            raise ValueError("Unexpected horizon in estimator inputs.")
         if inputs.shape[2] != self.input_dim:
-            raise ValueError(f"Expected input_dim={self.input_dim}, got {inputs.shape[2]}")
+            raise ValueError("Unexpected input dimension in estimator inputs.")
 
         flattened = inputs.reshape(inputs.shape[0], self.horizon * self.input_dim)
         return self.network(flattened)
