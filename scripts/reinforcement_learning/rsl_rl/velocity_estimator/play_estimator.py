@@ -28,8 +28,14 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--estimator_checkpoint",
     type=str,
-    required=True,
+    default=None,
     help="Path to the trained estimator checkpoint produced by train_estimator.py.",
+)
+parser.add_argument(
+    "--policy_estimator_jit",
+    type=str,
+    default=None,
+    help="Optional TorchScript policy-estimator file exported by policy_estimator_jit_generator.py.",
 )
 parser.add_argument(
     "--max_episodes",
@@ -42,6 +48,10 @@ parser.add_argument("--log_interval", type=float, default=5.0, help="Seconds bet
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
+
+if args_cli.policy_estimator_jit is None:
+    if args_cli.estimator_checkpoint is None or args_cli.checkpoint is None:
+        parser.error("Either provide --policy_estimator_jit, or provide both --estimator_checkpoint and --checkpoint.")
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -100,6 +110,19 @@ def _build_target_layout(
         layout.append((term_name, offset, offset + width))
         offset += width
     return layout
+
+
+def _infer_jit_schema_paths(observation_specs: dict[str, list[ObservationTermSpec]]) -> tuple[list[str], list[str]]:
+    """Infer JIT input and target paths directly from the environment observation layout."""
+    policy_specs = observation_specs.get("policy")
+    ground_truth_specs = observation_specs.get("ground_truth")
+    if policy_specs is None or ground_truth_specs is None:
+        raise RuntimeError("The environment must expose both 'policy' and 'ground_truth' observation groups.")
+
+    target_term_names = {spec.name for spec in ground_truth_specs}
+    input_paths = sorted(f"policy/{spec.name}" for spec in policy_specs if spec.name not in target_term_names)
+    target_paths = sorted(f"ground_truth/{spec.name}" for spec in ground_truth_specs)
+    return input_paths, target_paths
 
 
 def _gather_ground_truth_targets(
@@ -175,6 +198,13 @@ def _format_rmse(accumulators: dict[str, dict[str, float]]) -> str:
     return ", ".join(parts)
 
 
+def _load_policy_estimator_jit(jit_path: str, device: torch.device) -> torch.jit.RecursiveScriptModule:
+    """Load the exported policy-estimator TorchScript module."""
+    scripted_module = torch.jit.load(jit_path, map_location=device)
+    scripted_module.eval()
+    return scripted_module
+
+
 def main() -> None:
     """Play the policy while replacing velocity observations with estimator outputs."""
     env_cfg = parse_env_cfg(
@@ -185,8 +215,8 @@ def main() -> None:
     )
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
-    policy_checkpoint = resolve_policy_checkpoint(agent_cfg.experiment_name, args_cli.checkpoint, "play the policy with an estimator")
-    estimator_checkpoint_path = retrieve_file_path(args_cli.estimator_checkpoint)
+    estimator_checkpoint_path = retrieve_file_path(args_cli.estimator_checkpoint) if args_cli.estimator_checkpoint else None
+    policy_estimator_jit_path = retrieve_file_path(args_cli.policy_estimator_jit) if args_cli.policy_estimator_jit else None
 
     base_env = gym.make(args_cli.task, cfg=env_cfg)
     if isinstance(base_env.unwrapped, DirectMARLEnv):
@@ -198,14 +228,22 @@ def main() -> None:
 
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
 
-    ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
-    print(f"[INFO] Loading policy checkpoint from: {policy_checkpoint}")
-    ppo_runner.load(policy_checkpoint)
-    policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
-
     estimator_device = torch.device(str(env.unwrapped.device))
-    print(f"[INFO] Loading estimator checkpoint from: {estimator_checkpoint_path}")
-    estimator, estimator_checkpoint = load_estimator_checkpoint(estimator_checkpoint_path, estimator_device)
+    policy_estimator_jit = None
+    policy = None
+    if policy_estimator_jit_path is not None:
+        print(f"[INFO] Loading policy-estimator TorchScript from: {policy_estimator_jit_path}")
+        policy_estimator_jit = _load_policy_estimator_jit(policy_estimator_jit_path, estimator_device)
+    else:
+        policy_checkpoint = resolve_policy_checkpoint(
+            agent_cfg.experiment_name,
+            args_cli.checkpoint,
+            "play the policy with an estimator",
+        )
+        ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+        print(f"[INFO] Loading policy checkpoint from: {policy_checkpoint}")
+        ppo_runner.load(policy_checkpoint)
+        policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
 
     observation_specs = build_observation_term_specs(env.unwrapped, "play estimator script")
     if "policy" not in observation_specs or "ground_truth" not in observation_specs:
@@ -215,12 +253,32 @@ def main() -> None:
     current_obs_dict = extras["observations"]
     expanded_obs = split_observation_groups(current_obs_dict, observation_specs)
 
-    input_paths = get_checkpoint_string_list(estimator_checkpoint, "input_paths")
-    target_paths = get_checkpoint_string_list(estimator_checkpoint, "target_paths")
+    estimator = None
+    if policy_estimator_jit is not None:
+        input_paths, target_paths = _infer_jit_schema_paths(observation_specs)
+    else:
+        if estimator_checkpoint_path is None:
+            raise RuntimeError("Estimator checkpoint path is required when --policy_estimator_jit is not provided.")
+        print(f"[INFO] Loading estimator checkpoint from: {estimator_checkpoint_path}")
+        estimator, estimator_checkpoint = load_estimator_checkpoint(estimator_checkpoint_path, estimator_device)
+        input_paths = get_checkpoint_string_list(estimator_checkpoint, "input_paths")
+        target_paths = get_checkpoint_string_list(estimator_checkpoint, "target_paths")
+
     target_layout = _build_target_layout(expanded_obs, target_paths)
 
     current_features = _gather_estimator_inputs(expanded_obs, input_paths)
-    history = current_features.unsqueeze(1).repeat(1, estimator.horizon, 1)
+    if policy_estimator_jit is not None:
+        history_horizon = int(policy_estimator_jit.horizon)
+    else:
+        if estimator is None:
+            raise RuntimeError("Estimator model is not initialized.")
+        history_horizon = estimator.horizon
+    if policy_estimator_jit is not None and current_features.shape[1] != int(policy_estimator_jit.input_dim):
+        raise RuntimeError(
+            "Derived policy-estimator JIT input dimension does not match the scripted module contract. "
+            f"derived={current_features.shape[1]}, jit={int(policy_estimator_jit.input_dim)}"
+        )
+    history = current_features.unsqueeze(1).repeat(1, history_horizon, 1)
 
     rmse_accumulators = {
         term_name: {"sum_sq": 0.0, "count": 0.0} for term_name, _, _ in target_layout
@@ -238,20 +296,33 @@ def main() -> None:
     else:
         print("[INFO] Playing with estimator indefinitely. Press Ctrl+C to stop.")
 
+    if policy_estimator_jit is not None:
+        print("[INFO] Using direct policy-estimator TorchScript inference.")
+    else:
+        print("[INFO] Using separate estimator and policy checkpoints.")
+
     try:
         while simulation_app.is_running():
             loop_start_time = time.time()
 
             ground_truth = _gather_ground_truth_targets(expanded_obs, target_layout)
             with torch.inference_mode():
-                estimator_output = estimator(history)
-                policy_obs = _inject_estimated_velocities(
-                    current_obs_dict["policy"],
-                    estimator_output,
-                    observation_specs["policy"],
-                    target_layout,
-                )
-                actions = policy(policy_obs)
+                if policy_estimator_jit is not None:
+                    estimator_output = policy_estimator_jit.estimate_velocity(history)
+                    actions = policy_estimator_jit(history)
+                else:
+                    if estimator is None:
+                        raise RuntimeError("Estimator model is not initialized.")
+                    estimator_output = estimator(history)
+                    policy_obs = _inject_estimated_velocities(
+                        current_obs_dict["policy"],
+                        estimator_output,
+                        observation_specs["policy"],
+                        target_layout,
+                    )
+                    if policy is None:
+                        raise RuntimeError("Policy callable is not initialized.")
+                    actions = policy(policy_obs)
 
             _update_rmse_accumulators(rmse_accumulators, estimator_output, ground_truth, target_layout)
 
