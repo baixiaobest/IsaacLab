@@ -75,7 +75,7 @@ class CommandsCfg:
     base_velocity = mdp.UniformVelocityCommandCfg(
         asset_name="robot",
         resampling_time_range=(10.0, 10.0),
-        rel_standing_envs=0.1,
+        rel_standing_envs=0.2,
         rel_heading_envs=1.0,
         heading_command=True,
         heading_control_stiffness=0.5,
@@ -225,6 +225,16 @@ class RewardsCfg:
         func=mdp.track_ang_vel_z_exp,
         weight=0.75,
         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
+    )
+    zero_command_lin_vel_xy_l2 = RewTerm(
+        func=mdp.zero_command_lin_vel_xy_l2,
+        weight=-3.0,
+        params={"command_name": "base_velocity", "command_threshold": 0.1},
+    )
+    zero_command_ang_vel_xy_l2 = RewTerm(
+        func=mdp.zero_command_ang_vel_xy_l2,
+        weight=-0.5,
+        params={"command_name": "base_velocity", "command_threshold": 0.1},
     )
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)

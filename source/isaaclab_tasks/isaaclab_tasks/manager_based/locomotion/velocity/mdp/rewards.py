@@ -227,3 +227,29 @@ def track_ang_vel_z_world_exp(
     asset = env.scene[asset_cfg.name]
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_w[:, 2])
     return torch.exp(-ang_vel_error / std**2)
+
+
+def zero_command_lin_vel_xy_l2(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    command_threshold: float = 0.1,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize residual planar drift when the commanded planar speed is near zero."""
+    asset = env.scene[asset_cfg.name]
+    command_norm = torch.linalg.norm(env.command_manager.get_command(command_name)[:, :2], dim=1)
+    planar_speed_sq = torch.sum(torch.square(asset.data.root_lin_vel_b[:, :2]), dim=1)
+    return torch.where(command_norm < command_threshold, planar_speed_sq, torch.zeros_like(planar_speed_sq))
+
+
+def zero_command_ang_vel_xy_l2(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    command_threshold: float = 0.1,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize roll/pitch corrective motion when the commanded planar speed is near zero."""
+    asset = env.scene[asset_cfg.name]
+    command_norm = torch.linalg.norm(env.command_manager.get_command(command_name)[:, :2], dim=1)
+    body_ang_vel_sq = torch.sum(torch.square(asset.data.root_ang_vel_b[:, :2]), dim=1)
+    return torch.where(command_norm < command_threshold, body_ang_vel_sq, torch.zeros_like(body_ang_vel_sq))
