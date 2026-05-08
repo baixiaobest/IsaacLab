@@ -134,8 +134,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.8, 0.8),
-            "dynamic_friction_range": (0.6, 0.6),
+            "static_friction_range": (0.8, 1.2),
+            "dynamic_friction_range": (0.6, 1.0),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -179,9 +179,20 @@ class EventCfg:
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(10.0, 15.0),
+        interval_range_s=(6.0, 15.0),
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
+
+    joint_torque_offset_curriculum = EventTerm(
+        func=mdp.apply_external_joint_torque_curriculum,
+        mode="reset",
+        params={
+            "base_torque_range": (-0.0, 0.0),
+            "max_torque_range": (-5.0, 5.0),
+            "start_terrain_level": 5,
+            "max_terrain_level": 10,
+            "joint_names": [".*"],
+    })
 
 
 @configclass
@@ -243,6 +254,16 @@ class TerminationsCfg:
 @configclass
 class CurriculumCfg:
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    command_resampling_time = CurrTerm(
+        func=mdp.command_resampling_time_level,
+        params={
+            "command_name": "base_velocity",
+            "start_time_range": (10.0, 10.0),
+            "end_time_range": (3.0, 3.0),
+            "start_level": 0,
+            "end_level": 5,
+        },
+    )
 
 @configclass
 class LocomotionVelEnvCfg(ManagerBasedRLEnvCfg):
@@ -259,7 +280,7 @@ class LocomotionVelEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self):
         self.decimation = 4
-        self.episode_length_s = 20.0
+        self.episode_length_s = 10.0
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material

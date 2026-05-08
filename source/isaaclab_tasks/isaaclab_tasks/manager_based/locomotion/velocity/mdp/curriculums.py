@@ -144,6 +144,46 @@ def command_velocity_level(
     
     return terrain_level
 
+
+def command_resampling_time_level(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    command_name: str = "base_velocity",
+    start_time_range: tuple[float, float] = (10.0, 10.0),
+    end_time_range: tuple[float, float] = (3.0, 3.0),
+    start_level: int = 0,
+    end_level: int = 5,
+) -> dict[str, float]:
+    """Curriculum that decreases command hold time as the terrain level increases.
+
+    The command interval is interpolated between ``start_time_range`` and ``end_time_range`` using the
+    mean terrain level. Longer intervals at lower terrain levels make early training easier, while shorter
+    intervals at higher terrain levels expose the policy to more frequent command changes and stops.
+
+    Returns:
+        Logging dictionary with the current terrain level and active command interval.
+    """
+    terrain: TerrainImporter = env.scene.terrain
+    command_term: UniformVelocityCommand = env.command_manager.get_term(command_name)
+
+    mean_terrain_level = torch.mean(terrain.terrain_levels.float()).item()
+
+    if end_level <= start_level:
+        alpha = 1.0
+    else:
+        alpha = (mean_terrain_level - start_level) / float(end_level - start_level)
+        alpha = max(0.0, min(1.0, alpha))
+
+    min_time = start_time_range[0] + alpha * (end_time_range[0] - start_time_range[0])
+    max_time = start_time_range[1] + alpha * (end_time_range[1] - start_time_range[1])
+    command_term.cfg.resampling_time_range = (min_time, max_time)
+
+    return {
+        "mean": mean_terrain_level,
+        "resampling_time_min": min_time,
+        "resampling_time_max": max_time,
+    }
+
 class GetTerrainLevel(ManagerTermBase):
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
