@@ -23,6 +23,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.terrains.config.rough import ROUGH_ONLY
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 
@@ -228,12 +229,12 @@ class RewardsCfg:
     )
     zero_command_lin_vel_xy_l2 = RewTerm(
         func=mdp.zero_command_lin_vel_xy_l2,
-        weight=-3.0,
+        weight=-1.0,
         params={"command_name": "base_velocity", "command_threshold": 0.1},
     )
     zero_command_ang_vel_xy_l2 = RewTerm(
         func=mdp.zero_command_ang_vel_xy_l2,
-        weight=-0.5,
+        weight=-0.1,
         params={"command_name": "base_velocity", "command_threshold": 0.1},
     )
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
@@ -258,6 +259,10 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_thigh"),
             "threshold": 1.0,
         },
+    )
+    joint_vel_penalty = RewTerm(
+        func=mdp.joint_vel_l2,
+        weight=-1e-3,
     )
 
 
