@@ -229,7 +229,7 @@ class RewardsCfg:
     )
     zero_command_lin_vel_xy_l2 = RewTerm(
         func=mdp.zero_command_lin_vel_xy_l2,
-        weight=-3.0,
+        weight=-1.0,
         params={"command_name": "base_velocity", "command_threshold": 0.1},
     )
     zero_command_ang_vel_xy_l2 = RewTerm(
