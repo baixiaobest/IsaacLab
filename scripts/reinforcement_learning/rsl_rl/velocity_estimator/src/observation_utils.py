@@ -15,6 +15,10 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 
 
+ESTIMATOR_TARGET_GROUP = "ground_truth"
+ESTIMATOR_TARGET_TERM_NAMES = ("base_lin_vel",)
+
+
 @dataclass(frozen=True)
 class ObservationTermSpec:
     """Description of a single flattened observation term."""
@@ -66,6 +70,30 @@ def serialize_observation_specs(specs: dict[str, list[ObservationTermSpec]]) -> 
             ]
         }
     return output
+
+
+def get_estimator_target_term_names() -> tuple[str, ...]:
+    """Return the observation term names predicted by the velocity estimator."""
+    return ESTIMATOR_TARGET_TERM_NAMES
+
+
+def get_estimator_target_paths(
+    specs: dict[str, list[ObservationTermSpec]],
+    target_group: str = ESTIMATOR_TARGET_GROUP,
+) -> list[str]:
+    """Return fully qualified target paths for estimator supervision/inference."""
+    if target_group not in specs:
+        raise RuntimeError(f"The environment must expose the '{target_group}' observation group.")
+
+    target_spec_map = {spec.name: spec for spec in specs[target_group]}
+    missing_terms = [term_name for term_name in ESTIMATOR_TARGET_TERM_NAMES if term_name not in target_spec_map]
+    if missing_terms:
+        missing_terms_str = ", ".join(missing_terms)
+        raise RuntimeError(
+            f"The environment is missing the estimator target term(s) in '{target_group}': {missing_terms_str}"
+        )
+
+    return [f"{target_group}/{term_name}" for term_name in ESTIMATOR_TARGET_TERM_NAMES]
 
 
 def split_observation_groups(

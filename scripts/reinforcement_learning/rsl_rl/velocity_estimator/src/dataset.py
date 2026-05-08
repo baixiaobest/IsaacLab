@@ -175,6 +175,7 @@ class VelocityEstimatorDataset(Dataset):
         observation_group: str = "observations",
         target_group: str = "ground_truth",
         excluded_input_terms: set[str] | None = None,
+        target_term_names: tuple[str, ...] | None = None,
     ) -> None:
         if horizon <= 0:
             raise ValueError("horizon must be greater than zero.")
@@ -184,6 +185,7 @@ class VelocityEstimatorDataset(Dataset):
         self.observation_group = observation_group
         self.target_group = target_group
         self.env_args = _load_env_args(self.dataset_files[0])
+        self.target_term_names = tuple(target_term_names) if target_term_names is not None else None
 
         self.episode_entries: list[EpisodeIndexEntry] = []
         self.episode_offsets: list[int] = []
@@ -273,7 +275,22 @@ class VelocityEstimatorDataset(Dataset):
                     target_group = _require_group(episode_group[self.target_group], self.target_group)
 
                     if not self.target_paths:
-                        self.target_paths = _list_leaf_paths(target_group)
+                        all_target_paths = _list_leaf_paths(target_group)
+                        if self.target_term_names is None:
+                            self.target_paths = all_target_paths
+                        else:
+                            self.target_paths = [
+                                path for path in all_target_paths if Path(path).name in set(self.target_term_names)
+                            ]
+                            missing_target_terms = sorted(
+                                set(self.target_term_names).difference({Path(path).name for path in self.target_paths})
+                            )
+                            if missing_target_terms:
+                                missing_target_terms_str = ", ".join(missing_target_terms)
+                                raise RuntimeError(
+                                    "The rollout dataset is missing the requested estimator target term(s): "
+                                    f"{missing_target_terms_str}"
+                                )
                         target_term_names = {Path(path).name for path in self.target_paths}
                         blocked_terms = set(excluded_input_terms or set()) | target_term_names
                         self.input_paths = [
@@ -335,12 +352,14 @@ def create_estimator_datasets(
     validation_fraction: float,
     seed: int,
     excluded_input_terms: set[str] | None = None,
+    target_term_names: tuple[str, ...] | None = None,
 ) -> tuple[VelocityEstimatorDataset, Subset, Subset]:
     """Build the full dataset and episode-level train/validation splits."""
     dataset = VelocityEstimatorDataset(
         dataset_path=dataset_path,
         horizon=horizon,
         excluded_input_terms=excluded_input_terms,
+        target_term_names=target_term_names,
     )
     train_subset, validation_subset = dataset.get_episode_splits(validation_fraction=validation_fraction, seed=seed)
     return dataset, train_subset, validation_subset

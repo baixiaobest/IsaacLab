@@ -20,6 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.dataset import create_estimator_datasets
 from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.model import VelocityEstimator
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import get_estimator_target_term_names
 
 
 def parse_args() -> argparse.Namespace:
@@ -212,6 +213,7 @@ def main() -> None:
         validation_fraction=args.validation_fraction,
         seed=args.seed,
         excluded_input_terms=set(args.exclude_input_terms or []),
+        target_term_names=get_estimator_target_term_names(),
     )
 
     train_loader = DataLoader(

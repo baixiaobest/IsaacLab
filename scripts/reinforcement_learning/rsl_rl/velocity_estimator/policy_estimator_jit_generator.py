@@ -64,7 +64,7 @@ from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.checkpoint_uti
     resolve_policy_checkpoint,
 )
 from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.model import VelocityEstimator
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import build_observation_term_specs
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import build_observation_term_specs, get_estimator_target_term_names
 
 
 class PolicyEstimatorJitModule(torch.nn.Module):
@@ -299,6 +299,14 @@ def main() -> None:
         observation_specs = build_observation_term_specs(env.unwrapped, "policy estimator JIT generator")
         input_paths = get_checkpoint_string_list(estimator_checkpoint, "input_paths")
         target_paths = get_checkpoint_string_list(estimator_checkpoint, "target_paths")
+        checkpoint_target_terms = {Path(path).name for path in target_paths}
+        expected_target_terms = set(get_estimator_target_term_names())
+        if checkpoint_target_terms != expected_target_terms:
+            raise RuntimeError(
+                "The estimator checkpoint target terms do not match the current policy-estimator contract. "
+                f"expected={sorted(expected_target_terms)}, checkpoint={sorted(checkpoint_target_terms)}. "
+                "Retrain the estimator so it predicts linear velocity only."
+            )
         input_dim = get_checkpoint_int(estimator_checkpoint, "input_dim")
         target_dim = get_checkpoint_int(estimator_checkpoint, "target_dim")
         horizon = get_checkpoint_int(estimator_checkpoint, "horizon")

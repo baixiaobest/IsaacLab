@@ -84,7 +84,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, serialize_observation_specs, split_observation_groups
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, get_estimator_target_paths, get_estimator_target_term_names, serialize_observation_specs, split_observation_groups
 
 
 def _resolve_resume_path(agent_cfg: RslRlOnPolicyRunnerCfg) -> tuple[str, str]:
@@ -108,10 +108,14 @@ def _add_observation_step(
     """Append the current observation snapshot for one environment."""
     extracted_groups = split_observation_groups(obs_dict, observation_specs, env_id)
     ground_truth = extracted_groups.pop("ground_truth", None)
+    estimator_target_terms = get_estimator_target_term_names()
 
     episode.add("observations", extracted_groups)
     if ground_truth is not None:
-        episode.add("ground_truth", ground_truth)
+        episode.add(
+            "ground_truth",
+            {term_name: ground_truth[term_name] for term_name in estimator_target_terms},
+        )
 
 
 def _add_step_transition(
@@ -275,6 +279,7 @@ def main() -> None:
             "checkpoint": resume_path,
             "observation_spec": serialize_observation_specs(observation_specs),
             "ground_truth_group": "ground_truth" if "ground_truth" in observation_specs else "",
+            "estimator_target_paths": get_estimator_target_paths(observation_specs),
             "num_envs": env.num_envs,
             "device": str(agent_cfg.device),
         },

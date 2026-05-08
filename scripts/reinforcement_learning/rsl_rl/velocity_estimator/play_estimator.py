@@ -71,7 +71,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 
 from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.checkpoint_utils import get_checkpoint_string_list, load_estimator_checkpoint, resolve_policy_checkpoint
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, split_observation_groups
+from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, get_estimator_target_paths, split_observation_groups
 
 
 def _get_nested_tensor(mapping: dict[str, dict[str, torch.Tensor]] | dict[str, torch.Tensor], path: str) -> torch.Tensor:
@@ -115,13 +115,12 @@ def _build_target_layout(
 def _infer_jit_schema_paths(observation_specs: dict[str, list[ObservationTermSpec]]) -> tuple[list[str], list[str]]:
     """Infer JIT input and target paths directly from the environment observation layout."""
     policy_specs = observation_specs.get("policy")
-    ground_truth_specs = observation_specs.get("ground_truth")
-    if policy_specs is None or ground_truth_specs is None:
+    if policy_specs is None:
         raise RuntimeError("The environment must expose both 'policy' and 'ground_truth' observation groups.")
 
-    target_term_names = {spec.name for spec in ground_truth_specs}
+    target_paths = get_estimator_target_paths(observation_specs)
+    target_term_names = {Path(path).name for path in target_paths}
     input_paths = sorted(f"policy/{spec.name}" for spec in policy_specs if spec.name not in target_term_names)
-    target_paths = sorted(f"ground_truth/{spec.name}" for spec in ground_truth_specs)
     return input_paths, target_paths
 
 
@@ -198,7 +197,7 @@ def _format_rmse(accumulators: dict[str, dict[str, float]]) -> str:
     return ", ".join(parts)
 
 
-def _load_policy_estimator_jit(jit_path: str, device: torch.device) -> torch.jit.RecursiveScriptModule:
+def _load_policy_estimator_jit(jit_path: str, device: torch.device) -> torch.jit.ScriptModule:
     """Load the exported policy-estimator TorchScript module."""
     scripted_module = torch.jit.load(jit_path, map_location=device)
     scripted_module.eval()
