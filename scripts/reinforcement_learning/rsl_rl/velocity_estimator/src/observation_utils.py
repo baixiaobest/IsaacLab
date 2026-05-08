@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 
-from isaaclab.envs import ManagerBasedRLEnv
+if TYPE_CHECKING:
+    from isaaclab.envs import ManagerBasedRLEnv
 
 
 ESTIMATOR_TARGET_GROUP = "ground_truth"
