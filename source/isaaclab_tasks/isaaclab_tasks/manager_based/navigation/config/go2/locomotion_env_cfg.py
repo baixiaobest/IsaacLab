@@ -188,7 +188,7 @@ class EventCfg:
         mode="reset",
         params={
             "base_torque_range": (-0.0, 0.0),
-            "max_torque_range": (-5.0, 5.0),
+            "max_torque_range": (-2.0, 2.0),
             "start_terrain_level": 5,
             "max_terrain_level": 10,
             "joint_names": [".*"],

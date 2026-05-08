@@ -59,7 +59,10 @@ def terrain_levels_vel(
     # update terrain levels
     terrain.update_env_origins(env_ids, move_up, move_down)
     # return the mean terrain level
-    return torch.mean(terrain.terrain_levels.float())
+    return {
+        "mean": torch.mean(terrain.terrain_levels.float()),
+        "max": torch.max(terrain.terrain_levels.float()),
+    }
 
 def single_terrain_level(
     env: ManagerBasedRLEnv, 
@@ -179,7 +182,6 @@ def command_resampling_time_level(
     command_term.cfg.resampling_time_range = (min_time, max_time)
 
     return {
-        "mean": mean_terrain_level,
         "resampling_time_min": min_time,
         "resampling_time_max": max_time,
     }
