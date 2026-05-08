@@ -262,7 +262,7 @@ class RewardsCfg:
     )
     joint_vel_penalty = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-2e-4,
+        weight=-1e-4,
     )
 
 
