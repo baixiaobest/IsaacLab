@@ -9,7 +9,9 @@ import argparse
 import json
 import os
 import random
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -18,9 +20,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.dataset import create_estimator_datasets
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.model import VelocityEstimator
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import get_estimator_target_term_names
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from src.dataset import create_estimator_datasets
+from src.model import VelocityEstimator
+from src.observation_utils import get_estimator_target_term_names
 
 
 def parse_args() -> argparse.Namespace:

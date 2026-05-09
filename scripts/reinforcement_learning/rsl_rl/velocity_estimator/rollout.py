@@ -15,8 +15,11 @@ from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 # Allow importing shared RSL-RL CLI helpers from the parent script folder.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(SCRIPT_DIR))
 import cli_args  # isort: skip
 
 # Launch Isaac Sim Simulator first.
@@ -84,7 +87,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
-from scripts.reinforcement_learning.rsl_rl.velocity_estimator.src.observation_utils import ObservationTermSpec, build_observation_term_specs, get_estimator_target_paths, get_estimator_target_term_names, serialize_observation_specs, split_observation_groups
+from src.observation_utils import ObservationTermSpec, build_observation_term_specs, get_estimator_target_paths, get_estimator_target_term_names, serialize_observation_specs, split_observation_groups
 
 
 def _resolve_resume_path(agent_cfg: RslRlOnPolicyRunnerCfg) -> tuple[str, str]:
