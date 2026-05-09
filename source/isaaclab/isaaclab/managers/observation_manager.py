@@ -319,7 +319,10 @@ class ObservationManager(ManagerBase):
             # apply post-processing
             if term_cfg.modifiers is not None:
                 for modifier in term_cfg.modifiers:
-                    obs = modifier.func(obs, **modifier.params)
+                    if isinstance(modifier.func, modifiers.ModifierBase):
+                        obs = modifier.func(obs)
+                    else:
+                        obs = modifier.func(obs, **modifier.params)
             if term_cfg.noise:
                 obs = term_cfg.noise.func(obs, term_cfg.noise)
             if term_cfg.clip:

@@ -102,6 +102,18 @@ def lin_vel_w_data(env) -> torch.Tensor:
     return env.data.lin_vel_w
 
 
+class scale_modifier_with_cfg(modifiers.ModifierBase):
+    def __init__(self, cfg: modifiers.ModifierCfg, data_dim: tuple[int, ...], device: str):
+        super().__init__(cfg=cfg, data_dim=data_dim, device=device)
+        self._multiplier = cfg.params["multiplier"]
+
+    def reset(self, env_ids=None):
+        return None
+
+    def __call__(self, data: torch.Tensor) -> torch.Tensor:
+        return data * self._multiplier
+
+
 @pytest.fixture(autouse=True)
 def setup_env():
     dt = 0.01
@@ -666,6 +678,30 @@ def test_modifier_compute(setup_env):
     assert torch.equal(2.0 * (obs_critic["term_1"] + 1.0), obs_critic["term_3"])
     assert torch.min(obs_critic["term_4"]) >= -0.5
     assert torch.max(obs_critic["term_4"]) <= 0.5
+
+
+def test_modifier_class_compute_with_cfg_params(setup_env):
+    env = setup_env
+    """Test class modifiers that store configuration params in __init__ and expect only data in __call__."""
+
+    modifier = modifiers.ModifierCfg(func=scale_modifier_with_cfg, params={"multiplier": 3.0})
+
+    @configclass
+    class MyObservationManagerCfg:
+        @configclass
+        class PolicyCfg(ObservationGroupCfg):
+            concatenate_terms = False
+            term_1 = ObservationTermCfg(func=pos_w_data, modifiers=[])
+            term_2 = ObservationTermCfg(func=pos_w_data, modifiers=[modifier])
+
+        policy: ObservationGroupCfg = PolicyCfg()
+
+    cfg = MyObservationManagerCfg()
+    obs_man = ObservationManager(cfg, env)
+    observations = obs_man.compute()
+    obs_policy: dict[str, torch.Tensor] = observations["policy"]
+
+    torch.testing.assert_close(obs_policy["term_2"], 3.0 * obs_policy["term_1"])
 
 
 def test_serialize(setup_env):

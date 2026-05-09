@@ -13,4 +13,5 @@ from .stairs_rewards import *  # noqa: F401, F403
 from .terminations import *  # noqa: F401, F403
 from .curriculums import *  # noqa: F401, F403
 from .events import *  # noqa: F401, F403
+from .observation_modifiers import *  # noqa: F401, F403
 from .rvo2_crowd import RVO2CrowdManager

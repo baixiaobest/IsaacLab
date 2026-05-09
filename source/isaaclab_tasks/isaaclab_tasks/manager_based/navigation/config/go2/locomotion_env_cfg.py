@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import isaaclab.sim as sim_utils
+import isaaclab.utils.modifiers as modifiers
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -26,6 +27,86 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
+
+
+def _episode_scale(scale_min: tuple[float, ...], scale_max: tuple[float, ...]) -> modifiers.ModifierCfg:
+    return modifiers.ModifierCfg(
+        func=nav_mdp.UniformEpisodeScale,
+        params={"scale_min": scale_min, "scale_max": scale_max},
+    )
+
+
+def _episode_bias(bias_min: tuple[float, ...], bias_max: tuple[float, ...]) -> modifiers.ModifierCfg:
+    return modifiers.ModifierCfg(
+        func=nav_mdp.UniformEpisodeBias,
+        params={"bias_min": bias_min, "bias_max": bias_max},
+    )
+
+
+def _random_walk_bias(
+    step_min: tuple[float, ...],
+    step_max: tuple[float, ...],
+    drift_min: tuple[float, ...],
+    drift_max: tuple[float, ...],
+) -> modifiers.ModifierCfg:
+    return modifiers.ModifierCfg(
+        func=nav_mdp.UniformRandomWalkBias,
+        params={
+            "step_min": step_min,
+            "step_max": step_max,
+            "drift_min": drift_min,
+            "drift_max": drift_max,
+        },
+    )
+
+
+def _dropout(drop_probability: tuple[float, ...], fill_value: float = 0.0) -> modifiers.ModifierCfg:
+    return modifiers.ModifierCfg(
+        func=nav_mdp.ElementwiseDropout,
+        params={"drop_probability": drop_probability, "fill_value": fill_value},
+    )
+
+
+def _policy_base_lin_vel_modifiers() -> list[modifiers.ModifierCfg]:
+    return [
+        _episode_scale((0.92, 0.92, 0.98), (1.08, 1.08, 1.02)),
+        _episode_bias((-0.08, -0.08, -0.02), (0.08, 0.08, 0.02)),
+        _random_walk_bias(
+            step_min=(-0.002, -0.002, -0.0005),
+            step_max=(0.002, 0.002, 0.0005),
+            drift_min=(-0.15, -0.15, -0.03),
+            drift_max=(0.15, 0.15, 0.03),
+        ),
+        _dropout((0.02, 0.02, 0.01)),
+    ]
+
+
+def _policy_imu_ang_vel_modifiers() -> list[modifiers.ModifierCfg]:
+    return [
+        _episode_scale((0.97, 0.97, 0.97), (1.03, 1.03, 1.03)),
+        _episode_bias((-0.08, -0.08, -0.08), (0.08, 0.08, 0.08)),
+        _random_walk_bias(
+            step_min=(-0.003, -0.003, -0.003),
+            step_max=(0.003, 0.003, 0.003),
+            drift_min=(-0.12, -0.12, -0.12),
+            drift_max=(0.12, 0.12, 0.12),
+        ),
+        _dropout((0.03, 0.03, 0.03)),
+    ]
+
+
+def _policy_imu_lin_acc_modifiers() -> list[modifiers.ModifierCfg]:
+    return [
+        _episode_scale((0.92, 0.92, 0.92), (1.08, 1.08, 1.08)),
+        _episode_bias((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)),
+        _random_walk_bias(
+            step_min=(-0.02, -0.02, -0.02),
+            step_max=(0.02, 0.02, 0.02),
+            drift_min=(-1.0, -1.0, -1.0),
+            drift_max=(1.0, 1.0, 1.0),
+        ),
+        _dropout((0.04, 0.04, 0.04)),
+    ]
 
 
 @configclass
@@ -56,6 +137,7 @@ class MySceneCfg(InteractiveSceneCfg):
 
     imu = ImuCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=ImuCfg.OffsetCfg(pos=(-0.02557, 0.0, 0.04232)),
         gravity_bias=(0.0, 0.0, 9.81),
         debug_vis=False,
     )
@@ -110,16 +192,22 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for the policy with inertial sensing."""
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=_policy_base_lin_vel_modifiers(),
+            noise=Unoise(n_min=-0.15, n_max=0.15),
+        )
         imu_ang_vel = ObsTerm(
             func=mdp.imu_ang_vel,
             params={"asset_cfg": SceneEntityCfg("imu")},
-            noise=Unoise(n_min=-0.02, n_max=0.02),
+            modifiers=_policy_imu_ang_vel_modifiers(),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         imu_lin_acc = ObsTerm(
             func=mdp.imu_lin_acc,
             params={"asset_cfg": SceneEntityCfg("imu")},
-            noise=Unoise(n_min=-0.2, n_max=0.2),
+            modifiers=_policy_imu_lin_acc_modifiers(),
+            noise=Unoise(n_min=-0.5, n_max=0.5),
         )
         projected_gravity = ObsTerm(func=mdp.projected_gravity, noise=Unoise(n_min=-0.05, n_max=0.05))
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
@@ -331,6 +419,9 @@ class LocomotionVelEnvCfg_PLAY(LocomotionVelEnvCfg):
         self.scene.num_envs = 16
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
+        self.observations.policy.base_lin_vel.modifiers = None
+        self.observations.policy.imu_ang_vel.modifiers = None
+        self.observations.policy.imu_lin_acc.modifiers = None
         self.commands.base_velocity.resampling_time_range = (10000.0, 10000.0)
 
 @configclass
@@ -338,7 +429,8 @@ class LocomotionVelEnvCfg_ROLLOUT(LocomotionVelEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        ROLLOUT_LENGTH = 3.0
+        ROLLOUT_LENGTH = 10.0
+        self.commands.base_velocity.resampling_time_range = (ROLLOUT_LENGTH/4.0, ROLLOUT_LENGTH)
 
         self.episode_length_s = ROLLOUT_LENGTH
         self.observations.policy.enable_corruption = True
