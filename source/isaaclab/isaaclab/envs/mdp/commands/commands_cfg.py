@@ -57,7 +57,14 @@ class UniformVelocityCommandCfg(CommandTermCfg):
     """Scale factor to convert the heading error to angular velocity command. Defaults to 1.0."""
 
     rel_standing_envs: float = 0.0
-    """The sampled probability of environments that should be standing still. Defaults to 0.0."""
+    """The sampled probability of environments that should be fully stationary. Defaults to 0.0."""
+
+    rel_rotating_standing_envs: float = 0.0
+    """Sampled probability of environments that should rotate in place while holding zero linear velocity.
+
+    This probability is defined independently over the full environment set. If an environment is sampled by both
+    :attr:`rel_standing_envs` and :attr:`rel_rotating_standing_envs`, the rotating-in-place behavior takes precedence.
+    """
 
     rel_heading_envs: float = 1.0
     """The sampled probability of environments where the robots follow the heading-based angular velocity command

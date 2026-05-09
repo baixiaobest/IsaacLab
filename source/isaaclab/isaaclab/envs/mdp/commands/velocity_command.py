@@ -69,7 +69,6 @@ class UniformVelocityCommand(CommandTerm):
                 f"The velocity command has the 'ranges.heading' attribute set to '{self.cfg.ranges.heading}'"
                 " but the heading command is not active. Consider setting the flag for the heading command to True."
             )
-
         # obtain the robot asset
         # -- robot
         self.robot: Articulation = env.scene[cfg.asset_name]
@@ -81,6 +80,7 @@ class UniformVelocityCommand(CommandTerm):
         self.heading_target = torch.zeros(self.num_envs, device=self.device)
         self.is_heading_env = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.is_standing_env = torch.zeros_like(self.is_heading_env)
+        self.is_rotating_standing_env = torch.zeros_like(self.is_heading_env)
         # -- metrics
         self.metrics["error_vel_xy"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_vel_yaw"] = torch.zeros(self.num_envs, device=self.device)
@@ -93,7 +93,8 @@ class UniformVelocityCommand(CommandTerm):
         msg += f"\tHeading command: {self.cfg.heading_command}\n"
         if self.cfg.heading_command:
             msg += f"\tHeading probability: {self.cfg.rel_heading_envs}\n"
-        msg += f"\tStanding probability: {self.cfg.rel_standing_envs}"
+        msg += f"\tStanding probability: {self.cfg.rel_standing_envs}\n"
+        msg += f"\tRotating standing probability: {self.cfg.rel_rotating_standing_envs}"
         return msg
 
     """
@@ -166,8 +167,9 @@ class UniformVelocityCommand(CommandTerm):
                 self.heading_target[env_ids] = r.uniform_(*self.cfg.ranges.heading).clone()
             
             self.is_heading_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_heading_envs
-        # update standing envs
+        # update standing modes independently over the full environment set
         self.is_standing_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_standing_envs
+        self.is_rotating_standing_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_rotating_standing_envs
 
     def _update_command(self):
         """Post-processes the velocity command.
@@ -197,11 +199,16 @@ class UniformVelocityCommand(CommandTerm):
         if self.cfg.world_frame_command:
             self.vel_command_b = self._convert_world_command_to_body(self.vel_command_w)
 
-        # Enforce standing (i.e., zero velocity command) for standing envs
-        # TODO: check if conversion is needed
+        rotating_standing_env_ids = self.is_rotating_standing_env.nonzero(as_tuple=False).flatten()
+        if len(rotating_standing_env_ids) > 0:
+            self.vel_command_b[rotating_standing_env_ids, :2] = 0.0
+            self.vel_command_w[rotating_standing_env_ids, :2] = 0.0
+
+        # Enforce standing (i.e., zero velocity command) for standing envs that are not rotating in place
         standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
-        self.vel_command_b[standing_env_ids, :] = 0.0
-        self.vel_command_w[standing_env_ids, :] = 0.0
+        fully_standing_env_ids = standing_env_ids[~self.is_rotating_standing_env[standing_env_ids]]
+        self.vel_command_b[fully_standing_env_ids, :] = 0.0
+        self.vel_command_w[fully_standing_env_ids, :] = 0.0
 
     def _convert_world_command_to_body(self, vel_command_w: torch.Tensor, env_ids: Sequence[int] | None = None) -> torch.Tensor:
         """Convert velocity commands from world frame to body frame.
