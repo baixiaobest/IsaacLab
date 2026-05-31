@@ -36,7 +36,11 @@ class PreTrainedPolicyAction(ActionTerm):
         # initialize the action term
         super().__init__(cfg, env)
 
+        if len(cfg.action_scales) == 0:
+            raise ValueError("'action_scales' must contain at least one value.")
+
         self.robot: Articulation = env.scene[cfg.asset_name]
+        self._action_scales = torch.tensor(cfg.action_scales, device=self.device)
 
         # load policy
         if not check_file_path(cfg.policy_path):
@@ -73,7 +77,7 @@ class PreTrainedPolicyAction(ActionTerm):
 
     @property
     def action_dim(self) -> int:
-        return 3
+        return len(self.cfg.action_scales)
 
     @property
     def raw_actions(self) -> torch.Tensor:
@@ -88,7 +92,12 @@ class PreTrainedPolicyAction(ActionTerm):
     """
 
     def process_actions(self, actions: torch.Tensor):
-        actions = actions * torch.tensor(self.cfg.action_scales, device=self.device)
+        if actions.shape[-1] != self.action_dim:
+            raise ValueError(
+                f"Action dimension mismatch: expected {self.action_dim}, received {actions.shape[-1]}. "
+                "Set 'action_scales' length to match the high-level command dimension."
+            )
+        actions = actions * self._action_scales
         self._raw_actions[:] = actions
 
     def apply_actions(self):
@@ -185,7 +194,10 @@ class PreTrainedPolicyActionCfg(ActionTermCfg):
     """Low level action configuration."""
     low_level_observations: ObservationGroupCfg = MISSING
     """Low level observation configuration."""
-    action_scales: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    """Scales for the actions."""
+    action_scales: tuple[float, ...] = (1.0, 1.0, 1.0)
+    """Scales for raw high-level actions.
+
+    The tuple length defines the high-level command dimension (e.g., 3 or 4).
+    """
     debug_vis: bool = True
     """Whether to visualize debug information. Defaults to False."""
