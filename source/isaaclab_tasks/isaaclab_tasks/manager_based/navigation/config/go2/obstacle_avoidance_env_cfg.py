@@ -32,7 +32,7 @@ from .locomotion_env_cfg import LocomotionVelEnvCfg, MySceneCfg as LowLevelScene
 from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 
 LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
-LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/EncoderActorCriticGO2/Locomotion/exported/locomotion_policy_jit.pt"
+LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_policy_jit.pt"
 
 NUM_LIDAR_RAYS = 128
 LIDAR_FOV_DEG = 180.0
@@ -112,7 +112,7 @@ class ActionsCfg:
         low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
         low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
-        action_scales=(1.0, 1.0, 1.0, 1.0),
+        action_scales=(1.0, 1.0, 1.0),
         debug_vis=True,
     )
 
@@ -242,6 +242,13 @@ class RewardsCfg:
         },
     )
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.05)
+
+    excessive_velocity = RewTerm(
+        func=mdp.excessive_velocity, 
+        weight=-0.1,
+        params={
+            "speed_threshold": 1.0,
+        })
 
 
 @configclass

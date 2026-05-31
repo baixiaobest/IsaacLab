@@ -14,6 +14,7 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
+from isaaclab.assets import Articulation
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
 from isaaclab.utils.math import quat_rotate_inverse, yaw_quat
@@ -253,3 +254,17 @@ def zero_command_ang_vel_xy_l2(
     command_norm = torch.linalg.norm(env.command_manager.get_command(command_name)[:, :2], dim=1)
     body_ang_vel_sq = torch.sum(torch.square(asset.data.root_ang_vel_b[:, :2]), dim=1)
     return torch.where(command_norm < command_threshold, body_ang_vel_sq, torch.zeros_like(body_ang_vel_sq))
+
+
+def excessive_velocity(
+    env: ManagerBasedRLEnv,
+    speed_threshold: float = 1.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Binary penalty when root linear speed exceeds a threshold.
+
+    Returns 1.0 if ||v|| > speed_threshold, else 0.0.
+    """
+    asset = env.scene[asset_cfg.name]
+    speed = torch.linalg.norm(asset.data.root_lin_vel_w[:, :3], dim=1)
+    return (speed > speed_threshold).to(dtype=torch.float32)
