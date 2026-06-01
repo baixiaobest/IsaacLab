@@ -244,7 +244,7 @@ class RewardsCfg:
             "threshold": 0.5,
         },
     )
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.05)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.2)
 
     excessive_velocity = RewTerm(
         func=mdp.excessive_velocity, 
