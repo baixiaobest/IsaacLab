@@ -30,6 +30,8 @@ parser.add_argument(
 )
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
+parser.add_argument("--timesteps", type=int, default=None, help="Total trainer timesteps override.")
+parser.add_argument("--memory_size", type=int, default=None, help="Replay memory size override for off-policy agents.")
 parser.add_argument(
     "--ml_framework",
     type=str,
@@ -41,8 +43,21 @@ parser.add_argument(
     "--algorithm",
     type=str,
     default="PPO",
-    choices=["AMP", "PPO", "IPPO", "MAPPO"],
+    choices=["AMP", "PPO", "IPPO", "MAPPO", "SAC"],
     help="The RL algorithm used for training the skrl agent.",
+)
+parser.add_argument(
+    "--logger",
+    type=str,
+    default=None,
+    choices=["tensorboard", "wandb", "none"],
+    help="Logger module to use. Set to 'none' to disable TensorBoard and wandb.",
+)
+parser.add_argument(
+    "--log_project_name",
+    type=str,
+    default=None,
+    help="Project name used when --logger wandb is selected.",
 )
 
 # append AppLauncher cli args
@@ -110,6 +125,26 @@ agent_cfg_entry_point = "skrl_cfg_entry_point" if algorithm in ["ppo"] else f"sk
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: dict):
     """Train with skrl agent."""
+    experiment_cfg = agent_cfg.setdefault("agent", {}).setdefault("experiment", {})
+
+    # optional logger overrides from CLI
+    if args_cli.logger == "tensorboard":
+        experiment_cfg["wandb"] = False
+        experiment_cfg["write_interval"] = "auto"
+    elif args_cli.logger == "wandb":
+        experiment_cfg["wandb"] = True
+        experiment_cfg.setdefault("write_interval", "auto")
+        if args_cli.log_project_name:
+            wandb_kwargs = experiment_cfg.setdefault("wandb_kwargs", {})
+            wandb_kwargs["project"] = args_cli.log_project_name
+    elif args_cli.logger == "none":
+        experiment_cfg["wandb"] = False
+        experiment_cfg["write_interval"] = 0
+
+    # optional replay memory size override (e.g. SAC)
+    if args_cli.memory_size is not None and "memory" in agent_cfg:
+        agent_cfg["memory"]["memory_size"] = args_cli.memory_size
+
     # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
@@ -117,9 +152,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # multi-gpu training config
     if args_cli.distributed:
         env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
+    # explicit timesteps override
+    if args_cli.timesteps is not None:
+        agent_cfg["trainer"]["timesteps"] = args_cli.timesteps
     # max iterations for training
-    if args_cli.max_iterations:
-        agent_cfg["trainer"]["timesteps"] = args_cli.max_iterations * agent_cfg["agent"]["rollouts"]
+    elif args_cli.max_iterations:
+        rollouts = agent_cfg["agent"].get("rollouts")
+        if rollouts is None:
+            agent_cfg["trainer"]["timesteps"] = args_cli.max_iterations
+        else:
+            agent_cfg["trainer"]["timesteps"] = args_cli.max_iterations * rollouts
     agent_cfg["trainer"]["close_environment_at_exit"] = False
     # configure the ML framework into the global skrl variable
     if args_cli.ml_framework.startswith("jax"):
