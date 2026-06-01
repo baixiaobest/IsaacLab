@@ -60,7 +60,7 @@ models:
 # https://skrl.readthedocs.io/en/latest/api/memories/random.html
 memory:
   class: RandomMemory
-  memory_size: 100000
+  memory_size: 500000
 
 
 # SAC agent configuration (field names are from SAC_DEFAULT_CONFIG in skrl 1.4.x)
