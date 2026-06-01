@@ -40,7 +40,7 @@ LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
 COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
-HIGH_LEVEL_DECIMATION_FACTOR = 2 # Run the navigation policy at 25hz, which is 1/2 of low-level policy.
+HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is 1/4 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
@@ -241,13 +241,13 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.05,
+        weight=-0.1,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
         }
     )
-    
+
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-4.0,
