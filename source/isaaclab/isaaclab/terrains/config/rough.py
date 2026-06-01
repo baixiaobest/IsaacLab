@@ -208,9 +208,9 @@ ROUGH_ONLY = TerrainGeneratorCfg(
 )
 
 DISCRETE_OBSTACLES_ONLY = TerrainGeneratorCfg(
-    size=(10.0, 10.0),
-    border_width=20.0,
-    num_rows=10,
+    size=(12.0, 12.0),
+    border_width=10.0,
+    num_rows=15,
     num_cols=2,
     horizontal_scale=0.1,
     vertical_scale=0.005,
@@ -223,7 +223,7 @@ DISCRETE_OBSTACLES_ONLY = TerrainGeneratorCfg(
             min_num_low_obstacles=0,
             max_num_low_obstacles=0,
             min_num_high_obstacles=0,
-            max_num_high_obstacles=10,
+            max_num_high_obstacles=15,
             low_obstacle_max_height=0.3,
             high_obstacle_height_range=(1.0, 2.0),
             obstacle_width_range=(0.3, 1.5),

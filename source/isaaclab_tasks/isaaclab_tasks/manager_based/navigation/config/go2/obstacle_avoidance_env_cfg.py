@@ -38,7 +38,7 @@ LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_pol
 NUM_LIDAR_RAYS = 128
 LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
-COMMAND_RESAMPLING_TIME_S = 6.0
+COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 2 # Run the navigation policy at 25hz, which is 1/2 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
@@ -97,7 +97,7 @@ class CommandsCfg:
         stationary_prob=0.1,
         ranges=mdp.TerrainBasedPose2dCommandCfg.Ranges(
             heading=(-math.pi, math.pi),
-            pos_z=(-0.1, 0.5)
+            pos_z=(0.3, 0.4)
         ),
         resampling_time_range=(COMMAND_RESAMPLING_TIME_S, COMMAND_RESAMPLING_TIME_S),
         debug_vis=True
@@ -140,7 +140,7 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
         actions = ObsTerm(func=mdp.last_action)
-        
+
         obstacle_scan = ObsTerm(
             func=mdp.lidar_scan,
             params={
@@ -238,6 +238,16 @@ class RewardsCfg:
             "sensor_radius": 0.2,
         },
     )
+
+    backward_movement_penalty = RewTerm(
+        func=nav_mdp.velocity_heading_error_abs,
+        weight=-0.05,
+        params={
+            "velocity_threshold": 0.1,
+            "heading_deadband": 0.26,  # 15 degrees
+        }
+    )
+    
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-4.0,
