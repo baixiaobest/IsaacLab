@@ -78,6 +78,7 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import gymnasium as gym
+import numpy as np
 import os
 import random
 from datetime import datetime
@@ -120,6 +121,18 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 # config shortcuts
 algorithm = args_cli.algorithm.lower()
 agent_cfg_entry_point = "skrl_cfg_entry_point" if algorithm in ["ppo"] else f"skrl_{algorithm}_cfg_entry_point"
+
+
+def _expand_action_bound(bound, shape: tuple[int, ...], name: str) -> np.ndarray:
+    """Expand scalar/vector bound to match action shape."""
+    bound_array = np.asarray(bound, dtype=np.float32)
+    if bound_array.ndim == 0:
+        return np.full(shape, float(bound_array), dtype=np.float32)
+    if tuple(bound_array.shape) != tuple(shape):
+        raise ValueError(
+            f"Invalid action_space_bounds.{name} shape: {bound_array.shape}. Expected scalar or {shape}."
+        )
+    return bound_array.astype(np.float32, copy=False)
 
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
@@ -207,6 +220,42 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
         env = multi_agent_to_single_agent(env)
+
+    # Isaac Lab manager environments may expose unbounded Box action spaces.
+    # skrl Model.random_act uses Uniform(low, high), which becomes NaN for inf bounds.
+    # Bounds can be provided via agent_cfg["action_space_bounds"], otherwise fallback is [-1, 1].
+    base_env = env.unwrapped if hasattr(env, "unwrapped") else env
+    if isinstance(getattr(base_env, "single_action_space", None), gym.spaces.Box):
+        single_action_space = base_env.single_action_space
+        action_space_bounds_cfg = agent_cfg.get("action_space_bounds", {})
+        override_force = bool(action_space_bounds_cfg.get("force", False))
+        has_unbounded_bounds = not np.isfinite(single_action_space.low).all() or not np.isfinite(single_action_space.high).all()
+
+        if override_force or has_unbounded_bounds:
+            low_bound = _expand_action_bound(action_space_bounds_cfg.get("low", -1.0), single_action_space.shape, "low")
+            high_bound = _expand_action_bound(
+                action_space_bounds_cfg.get("high", 1.0), single_action_space.shape, "high"
+            )
+            if not np.all(high_bound > low_bound):
+                raise ValueError("Invalid action_space_bounds: all elements in 'high' must be greater than 'low'.")
+
+            source = "forced override" if override_force else "unbounded fallback"
+            print(
+                f"[WARNING] Using action-space bounds from config ({source}): "
+                f"low={np.array2string(low_bound, precision=3)}, high={np.array2string(high_bound, precision=3)}"
+            )
+            base_env.single_action_space = gym.spaces.Box(
+                low=low_bound,
+                high=high_bound,
+                shape=single_action_space.shape,
+                dtype=np.float32,
+            )
+            base_env.action_space = gym.vector.utils.batch_space(base_env.single_action_space, base_env.num_envs)
+            # Keep wrapper attributes synchronized when writable.
+            try:
+                env.action_space = base_env.action_space
+            except Exception:
+                pass
 
     # wrap for video recording
     if args_cli.video:

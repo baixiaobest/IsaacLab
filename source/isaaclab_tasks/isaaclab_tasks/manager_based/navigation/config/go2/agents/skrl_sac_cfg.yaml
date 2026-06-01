@@ -63,6 +63,16 @@ memory:
   memory_size: 500000
 
 
+# Optional action-space bounds override used by scripts/reinforcement_learning/skrl/train.py.
+# This is useful when an env reports unbounded Box limits (Inf), which can make skrl random_act produce NaNs.
+# - If omitted, fallback is low=-1.0 and high=1.0 when unbounded limits are detected.
+# - Set force=true to apply these bounds even when env bounds are finite.
+action_space_bounds:
+  low: -1.0
+  high: 1.0
+  force: false
+
+
 # SAC agent configuration (field names are from SAC_DEFAULT_CONFIG in skrl 1.4.x)
 # https://skrl.readthedocs.io/en/latest/api/agents/sac.html
 agent:
