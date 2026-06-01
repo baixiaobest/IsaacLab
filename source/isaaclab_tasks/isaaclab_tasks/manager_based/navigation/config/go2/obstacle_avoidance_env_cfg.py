@@ -139,6 +139,8 @@ class ObservationsCfg:
             modifiers=policy_imu_ang_vel_modifiers(),
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
+        actions = ObsTerm(func=mdp.last_action)
+        
         obstacle_scan = ObsTerm(
             func=mdp.lidar_scan,
             params={
