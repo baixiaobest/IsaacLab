@@ -13,6 +13,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
@@ -41,7 +42,8 @@ COMMAND_RESAMPLING_TIME_S = 6.0
 EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 2 # Run the navigation policy at 25hz, which is 1/2 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
-
+GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
+GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
 
 @configclass
 class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
@@ -142,6 +144,7 @@ class ObservationsCfg:
             params={
                 "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
                 "max": LIDAR_MAX_DISTANCE,
+                "scale_distance": True,
             },
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
@@ -250,6 +253,15 @@ class RewardsCfg:
             "speed_threshold": 1.0,
         })
 
+@configclass
+class CurriculumCfg:
+    """Curriculum terms for the MDP."""
+    terrain_levels = CurrTerm(func=nav_mdp.pose_2d_command_terrain_curriculum,
+                              params={
+                                  "command_name": "pose_2d_command",
+                                  "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
+                                  "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
+                              })
 
 @configclass
 class TerminationsCfg:
@@ -283,6 +295,7 @@ class ObstacleAvoidanceEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         self.decimation = LOW_LEVEL_ENV_CFG.decimation * HIGH_LEVEL_DECIMATION_FACTOR
