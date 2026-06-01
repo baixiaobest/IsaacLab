@@ -139,6 +139,7 @@ def _expand_action_bound(bound, shape: tuple[int, ...], name: str) -> np.ndarray
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: dict):
     """Train with skrl agent."""
     experiment_cfg = agent_cfg.setdefault("agent", {}).setdefault("experiment", {})
+    trainer_cfg = agent_cfg.setdefault("trainer", {})
 
     # optional logger overrides from CLI
     if args_cli.logger == "tensorboard":
@@ -167,15 +168,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
     # explicit timesteps override
     if args_cli.timesteps is not None:
-        agent_cfg["trainer"]["timesteps"] = args_cli.timesteps
+        trainer_cfg["timesteps"] = args_cli.timesteps
     # max iterations for training
     elif args_cli.max_iterations:
         rollouts = agent_cfg["agent"].get("rollouts")
         if rollouts is None:
-            agent_cfg["trainer"]["timesteps"] = args_cli.max_iterations
+            trainer_cfg["timesteps"] = args_cli.max_iterations
         else:
-            agent_cfg["trainer"]["timesteps"] = args_cli.max_iterations * rollouts
-    agent_cfg["trainer"]["close_environment_at_exit"] = False
+            trainer_cfg["timesteps"] = args_cli.max_iterations * rollouts
+    trainer_cfg["close_environment_at_exit"] = False
     # configure the ML framework into the global skrl variable
     if args_cli.ml_framework.startswith("jax"):
         skrl.config.jax.backend = "jax" if args_cli.ml_framework == "jax" else "numpy"

@@ -27,9 +27,54 @@ Or, equivalently, by directly calling the skrl library API as follows:
 # needed to import for type hinting: Agent | list[Agent]
 from __future__ import annotations
 
+from numbers import Number
 from typing import Literal
 
+import torch
+
 from isaaclab.envs import DirectMARLEnv, DirectRLEnv, ManagerBasedRLEnv
+
+
+class _SkrlInfoAdapter:
+    """Adapter to remap Isaac Lab logging info for skrl trainers.
+
+    Isaac Lab publishes environment diagnostics under ``infos["log"]`` while skrl trainers
+    consume ``infos["episode"]`` by default. This mirrors the rsl_rl wrapper behavior.
+    """
+
+    def __init__(self, env, source_key: str = "log", target_key: str = "episode"):
+        self._env = env
+        self._source_key = source_key
+        self._target_key = target_key
+
+    def __getattr__(self, key):
+        return getattr(self._env, key)
+
+    def reset(self):
+        return self._env.reset()
+
+    @staticmethod
+    def _normalize_info_values(info: dict) -> dict:
+        """Convert scalar info values to tensors so skrl can track them."""
+        normalized = {}
+        for key, value in info.items():
+            if isinstance(value, torch.Tensor):
+                if value.numel() == 1:
+                    normalized[key] = value
+            elif isinstance(value, Number):
+                normalized[key] = torch.tensor(float(value), dtype=torch.float32)
+        return normalized
+
+    def step(self, actions):
+        observations, rewards, terminated, truncated, infos = self._env.step(actions)
+        if isinstance(infos, dict) and self._source_key in infos and isinstance(infos[self._source_key], dict):
+            normalized_source = self._normalize_info_values(infos[self._source_key])
+            infos[self._source_key] = normalized_source
+            if self._target_key not in infos:
+                infos[self._target_key] = normalized_source
+            elif isinstance(infos[self._target_key], dict):
+                infos[self._target_key].update(normalized_source)
+        return observations, rewards, terminated, truncated, infos
 
 """
 Vectorized environment wrapper.
@@ -83,4 +128,5 @@ def SkrlVecEnvWrapper(
         )
 
     # wrap and return the environment
-    return wrap_env(env, wrapper)
+    wrapped_env = wrap_env(env, wrapper)
+    return _SkrlInfoAdapter(wrapped_env)
