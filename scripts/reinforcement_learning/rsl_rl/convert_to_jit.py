@@ -26,8 +26,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import torch
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 # Allow importing the CLI helpers residing in the scripts folder.
@@ -37,17 +35,41 @@ import cli_args  # isort: skip
 
 from isaaclab.app import AppLauncher
 
+# ── Argument parsing ──────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser(description="Convert RSL-RL checkpoint to TorchScript module.")
+parser.add_argument("--task", type=str, required=True, help="Gym task name for which the policy was trained.")
+parser.add_argument("--output", type=str, default=None, help="Output JIT path. Defaults to <checkpoint>_jit.pt")
+parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable Fabric (use USD I/O).")
+parser.add_argument("--force_trace", action="store_true", default=False, help="Force torch.jit.trace instead of scripting fallback.")
+cli_args.add_rsl_rl_args(parser)
+AppLauncher.add_app_launcher_args(parser)
+args_cli = parser.parse_args()
+
+# Launch Isaac Sim before any torch/numpy imports — matches train.py pattern so
+# that Isaac Sim's bundled numpy is on sys.path before torch links against it.
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+# ── All heavy imports come AFTER AppLauncher (Isaac Sim configures sys.path first) ──
+import torch
+import gymnasium as gym
+
+from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_single_agent
+from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from isaaclab_tasks.utils import parse_env_cfg
+from rsl_rl.runners import OnPolicyRunner
+
+import isaaclab_tasks  # noqa: F401
+
 
 def _resolve_resume_path(checkpoint_arg: str) -> str:
     """Resolve checkpoint path (prefer local path, fallback to Nucleus retrieval)."""
     if checkpoint_arg is None:
         raise ValueError("--checkpoint is required")
 
-    # Fast path: local file works without Omniverse client modules.
     if os.path.isfile(checkpoint_arg):
         return os.path.abspath(checkpoint_arg)
 
-    # Fallback for Nucleus/remote paths.
     try:
         from isaaclab.utils.assets import retrieve_file_path
     except ModuleNotFoundError as exc:
@@ -60,29 +82,16 @@ def _resolve_resume_path(checkpoint_arg: str) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert RSL-RL checkpoint to TorchScript module.")
-
-    # Basic args
-    parser.add_argument("--task", type=str, required=True, help="Gym task name for which the policy was trained.")
-    parser.add_argument("--output", type=str, default=None, help="Output JIT path. Defaults to <checkpoint>_jit.pt")
-    parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable Fabric (use USD I/O).")
-    parser.add_argument("--force_trace", action="store_true", default=False, help="Force torch.jit.trace instead of scripting fallback.")
-
-    # rsl-rl helpers (adds --checkpoint-like args too but that's okay)
-    cli_args.add_rsl_rl_args(parser)
-    AppLauncher.add_app_launcher_args(parser)
-
-    args_cli = parser.parse_args()
-
-    # Resolve and possibly download checkpoint
     resume_path = _resolve_resume_path(args_cli.checkpoint)
     print(f"[INFO] Resolved checkpoint: {resume_path}")
 
-    # Fast path: if input is already TorchScript, no simulator startup is needed.
+    # Fast path: if input is already TorchScript, skip env construction.
     try:
         _ = torch.jit.load(resume_path, map_location="cpu")
         print("[INFO] Checkpoint appears to be a TorchScript module already.")
-        out = args_cli.output or resume_path if resume_path.endswith("_jit.pt") else resume_path.replace(".pt", "_jit.pt")
+        out = args_cli.output or (
+            resume_path if resume_path.endswith("_jit.pt") else resume_path.replace(".pt", "_jit.pt")
+        )
         if os.path.abspath(resume_path) != os.path.abspath(out):
             shutil.copyfile(resume_path, out)
             print(f"[INFO] Copied existing JIT to: {out}")
@@ -90,24 +99,9 @@ def main() -> None:
             print(f"[INFO] JIT already at: {out}")
         return
     except Exception:
-        # Not a TorchScript module, continue with conversion
         pass
 
-    # Start IsaacLab / Isaac Sim runtime only when checkpoint conversion is required.
-    app_launcher = AppLauncher(args_cli)
-    simulation_app = app_launcher.app
-
-    # Import Isaac-dependent modules only after AppLauncher initialized the runtime.
-    import gymnasium as gym
-
-    from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_single_agent
-    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-    from isaaclab_tasks.utils import parse_env_cfg
-    from rsl_rl.runners import OnPolicyRunner
-
-    import isaaclab_tasks  # noqa: F401
-
-    # Build environment config and instantiate env (matching training) so the runner can construct the policy
+    # Build environment config and instantiate env (matching training) so the runner can construct the policy.
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, use_fabric=not args_cli.disable_fabric)
 
     base_env = gym.make(args_cli.task, cfg=env_cfg)
@@ -117,10 +111,9 @@ def main() -> None:
     if not isinstance(base_env.unwrapped, ManagerBasedRLEnv):
         raise RuntimeError(f"This conversion script supports manager-based RL envs, got {type(base_env.unwrapped)}")
 
-    # Parse the RSL-RL runner config and build the runner
+    # Parse the RSL-RL runner config and build the runner.
     agent_cfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
-    # Wrap the env in the RSL-RL vec wrapper used by the runner
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
@@ -128,21 +121,19 @@ def main() -> None:
     print(f"[INFO] Loading model checkpoint from: {resume_path}")
     runner.load(resume_path)
 
-    # Default output path
+    # Default output path.
     jit_path = args_cli.output or resume_path.replace(".pt", "_jit.pt")
 
-    # If the policy provides a built-in JIT exporter, use it (EncoderActorCritic.save_as_jit_script)
+    # If the policy provides a built-in JIT exporter, use it.
     policy_model = runner.alg.policy
     if hasattr(policy_model, "save_as_jit_script"):
         print("[INFO] Using policy.save_as_jit_script() to export TorchScript.")
         policy_model.save_as_jit_script(jit_path)
         print(f"[INFO] Saved JIT to: {jit_path}")
     else:
-        # Fallback: wrap actor or act_inference and script/trace using a sample observation
         print("[INFO] Policy has no save_as_jit_script. Falling back to scripting/tracing the inference module.")
 
         obs, extras = env.get_observations()
-        # Pick first env observation as a representative sample and ensure batch dim
         sample_obs = obs[:1].to(args_cli.device)
 
         class _PolicyWrapper(torch.nn.Module):
@@ -151,19 +142,15 @@ def main() -> None:
                 self.policy = policy
 
             def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-                # Prefer act_inference if available (deterministic mean)
                 if hasattr(self.policy, "act_inference"):
                     return self.policy.act_inference(x)
-                # Otherwise try to use an `actor` attribute
                 if hasattr(self.policy, "actor"):
                     return self.policy.actor(x)
-                # Last resort: call the module directly
                 return self.policy(x)
 
         wrapper = _PolicyWrapper(policy_model).to(args_cli.device)
         wrapper.eval()
 
-        # Try scripting first unless user forced tracing
         scripted = None
         if not args_cli.force_trace:
             try:
@@ -179,7 +166,7 @@ def main() -> None:
                 traced.save(jit_path)
                 print(f"[INFO] Successfully traced and saved to: {jit_path}")
 
-    # Verify we can load the saved JIT and do a forward pass
+    # Verify we can load the saved JIT and do a forward pass.
     try:
         loaded = torch.jit.load(jit_path, map_location=args_cli.device)
         obs, _ = env.get_observations()
@@ -190,7 +177,6 @@ def main() -> None:
     except Exception as e:
         print(f"[WARN] Verification failed: {e}")
 
-    # Close the environment and simulation
     env.close()
     simulation_app.close()
 
