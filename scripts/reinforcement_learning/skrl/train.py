@@ -277,6 +277,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # https://skrl.readthedocs.io/en/latest/api/utils/runner.html
     runner = Runner(env, agent_cfg)
 
+    # patch write_checkpoint to also upload .pt files to wandb when enabled
+    if agent_cfg.get("agent", {}).get("experiment", {}).get("wandb", False):
+        import wandb as _wandb
+        _orig_write_checkpoint = runner.agent.write_checkpoint
+
+        def _write_checkpoint_with_wandb(timestep, timesteps):
+            _orig_write_checkpoint(timestep, timesteps)
+            checkpoints_dir = os.path.join(runner.agent.experiment_dir, "checkpoints")
+            if _wandb.run is not None and os.path.isdir(checkpoints_dir):
+                _wandb.save(os.path.join(checkpoints_dir, "*.pt"), base_path=runner.agent.experiment_dir)
+
+        runner.agent.write_checkpoint = _write_checkpoint_with_wandb
+
     # load checkpoint (if specified)
     if resume_path:
         print(f"[INFO] Loading model checkpoint from: {resume_path}")
