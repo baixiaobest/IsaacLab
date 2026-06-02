@@ -332,5 +332,6 @@ class ObstacleAvoidanceEnvCfg_PLAY(ObstacleAvoidanceEnvCfg):
         super().__post_init__()
         self.scene.num_envs = 16
         self.scene.env_spacing = 2.5
+        self.scene.terrain.max_init_terrain_level = 10
         self.observations.policy.enable_corruption = False
         self.actions.pre_trained_policy_action.debug_vis = True
