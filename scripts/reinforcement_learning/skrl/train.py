@@ -32,6 +32,7 @@ parser.add_argument("--checkpoint", type=str, default=None, help="Path to model 
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
 parser.add_argument("--timesteps", type=int, default=None, help="Total trainer timesteps override.")
 parser.add_argument("--memory_size", type=int, default=None, help="Replay memory size override for off-policy agents.")
+parser.add_argument("--checkpoint_interval", type=int, default=None, help="Checkpoint save interval override (in timesteps).")
 parser.add_argument(
     "--ml_framework",
     type=str,
@@ -158,6 +159,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # optional replay memory size override (e.g. SAC)
     if args_cli.memory_size is not None and "memory" in agent_cfg:
         agent_cfg["memory"]["memory_size"] = args_cli.memory_size
+
+    # optional checkpoint interval override
+    if args_cli.checkpoint_interval is not None:
+        experiment_cfg["checkpoint_interval"] = args_cli.checkpoint_interval
 
     # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
