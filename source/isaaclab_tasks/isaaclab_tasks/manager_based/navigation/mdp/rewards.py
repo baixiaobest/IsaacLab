@@ -47,16 +47,15 @@ def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torc
     heading_b = command[:, 3]
     return heading_b.abs()
 
-def heading_command_reward_within_range_abs(
+def heading_command_error_within_range_abs(
         env: ManagerBasedRLEnv, 
         command_name: str,
-        range: float,
-        std: float=1.0) -> torch.Tensor:
+        range: float) -> torch.Tensor:
     """Penalize tracking orientation error."""
     command = env.command_manager.get_command(command_name)
     heading_b = command[:, 3]
     in_range = command.norm(dim=1) < range
-    return 1.0 - torch.tanh(heading_b.abs() / std) * in_range.float()
+    return heading_b.abs() * in_range.float()
 
 def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 

@@ -225,12 +225,11 @@ class RewardsCfg:
         params={"std": 0.5, "command_name": "pose_2d_command"},
     )
     orientation_tracking = RewTerm(
-        func=nav_mdp.heading_command_reward_within_range_abs,
-        weight=0.5,
+        func=nav_mdp.heading_command_error_within_range_abs,
+        weight=-0.2,
         params={
             "command_name": "pose_2d_command", 
-            "range": 1.0,
-            "std": 1.0,
+            "range": 4.0,
             },
     )
     obstacle_clearance_penalty = RewTerm(
@@ -245,7 +244,7 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.1,
+        weight=-0.2,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
