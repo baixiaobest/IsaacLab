@@ -225,8 +225,8 @@ class RewardsCfg:
     #     params={"std": 0.5, "command_name": "pose_2d_command"},
     # )
 
-    navigation_progress = RewTerm(
-        func=nav_mdp.navigation_progress,
+    travel_progress = RewTerm(
+        func=nav_mdp.pose_2d_command_travel_progress,
         weight=1.0,
         params={"command_term_name": "pose_2d_command"},
     )

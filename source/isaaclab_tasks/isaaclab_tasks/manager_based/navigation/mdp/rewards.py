@@ -335,6 +335,45 @@ def pose_2d_command_progress_reward(
 
     return torch.sum(robot_vel_b * goal_dir_b, dim=1)
 
+class pose_2d_command_travel_progress(ManagerTermBase):
+    
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        # initialize to -1.0
+        self.prev_distance = torch.full(
+            (env.num_envs,), -1.0, device=env.device
+        )
+
+    def __call__(self, env: ManagerBasedRLEnv, command_name: str, scale: float=1.0) -> torch.Tensor:
+        """Reward for moving towards the goal position."""
+        command = env.command_manager.get_command(command_name)
+        # Goal position is in body frame; norm is rotation-invariant so no transform needed
+        distance_to_goal = torch.norm(command[:, :3], dim=1)
+
+        valid_prev_dist_mask = self.prev_distance > 0.0
+        progress = torch.zeros(env.num_envs, device=env.device)
+
+        if torch.any(valid_prev_dist_mask):
+            # Calculate progress only for valid previous distances
+            progress[valid_prev_dist_mask] = (
+                self.prev_distance[valid_prev_dist_mask] - distance_to_goal[valid_prev_dist_mask]
+            )
+        
+        self.prev_distance = distance_to_goal.clone()
+
+        return torch.tanh(progress * scale)
+    
+    def reset(self, env_ids=None):
+        if env_ids is None:
+            # Reset all environments
+            self.prev_distance = torch.full(
+                (self._env.num_envs,), -1.0, device=self._env.device
+            )
+        elif self.prev_distance is not None:
+            # For partial resets, set distances to invalid values
+            # We use -1.0 which will be detected as invalid in the next call
+            self.prev_distance[env_ids] = -1.0
+
 def pose_2d_goal_callback_reward(
         env: ManagerBasedRLEnv,
         func: callable,
