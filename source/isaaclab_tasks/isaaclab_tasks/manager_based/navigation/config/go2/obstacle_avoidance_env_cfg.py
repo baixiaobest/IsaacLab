@@ -226,7 +226,7 @@ class RewardsCfg:
     )
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
-        weight=-1.0,
+        weight=-0.5,
         params={
             "command_name": "pose_2d_command", 
             "range": 1.0,
