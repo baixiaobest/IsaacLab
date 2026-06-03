@@ -214,16 +214,23 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for obstacle-aware goal reaching."""
 
-    pose_2d_command_progress_reward = RewTerm(
-        func=nav_mdp.pose_2d_command_progress_reward,
+    # pose_2d_command_progress_reward = RewTerm(
+    #     func=nav_mdp.pose_2d_command_progress_reward,
+    #     weight=1.0,
+    #     params={"command_name": "pose_2d_command"},
+    # )
+    # position_tracking_fine = RewTerm(
+    #     func=nav_mdp.position_command_error_tanh,
+    #     weight=1.0,
+    #     params={"std": 0.5, "command_name": "pose_2d_command"},
+    # )
+
+    navigation_progress = RewTerm(
+        func=nav_mdp.navigation_progress,
         weight=1.0,
-        params={"command_name": "pose_2d_command"},
+        params={"command_term_name": "pose_2d_command"},
     )
-    position_tracking_fine = RewTerm(
-        func=nav_mdp.position_command_error_tanh,
-        weight=1.0,
-        params={"std": 0.5, "command_name": "pose_2d_command"},
-    )
+
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
         weight=-0.5,
