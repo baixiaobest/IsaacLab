@@ -43,7 +43,7 @@ EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is 1/4 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
-GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
+GOAL_REACHED_ANGULAR_THRESHOLD = math.pi / 2.0 # large tolerance
 
 @configclass
 class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
@@ -226,10 +226,10 @@ class RewardsCfg:
     )
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
-        weight=-3.0,
+        weight=-0.5,
         params={
             "command_name": "pose_2d_command", 
-            "range": 1.0,
+            "range": 2.0,
             },
     )
     obstacle_clearance_penalty = RewTerm(
@@ -244,7 +244,7 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_outside_goal_abs,
-        weight=-0.5,
+        weight=-0.2,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
