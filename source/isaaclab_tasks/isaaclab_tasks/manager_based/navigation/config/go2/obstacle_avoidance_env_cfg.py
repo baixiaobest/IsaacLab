@@ -226,7 +226,7 @@ class RewardsCfg:
     )
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
-        weight=-1.0,
+        weight=-3.0,
         params={
             "command_name": "pose_2d_command", 
             "range": 1.0,
@@ -244,7 +244,7 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_outside_goal_abs,
-        weight=-0.2,
+        weight=-0.5,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
