@@ -47,6 +47,16 @@ def heading_command_error_abs(env: ManagerBasedRLEnv, command_name: str) -> torc
     heading_b = command[:, 3]
     return heading_b.abs()
 
+def heading_command_error_within_range_abs(
+        env: ManagerBasedRLEnv, 
+        command_name: str,
+        range: float) -> torch.Tensor:
+    """Penalize tracking orientation error."""
+    command = env.command_manager.get_command(command_name)
+    heading_b = command[:, 3]
+    in_range = command.norm(dim=1) < range
+    return heading_b.abs() * in_range.float()
+
 def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -266,7 +276,7 @@ class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
 
         return new_goal_reached
 
-def pose_2d_command_progress_reward(
+def pose_2d_command_progress_tanh_reward(
         env: ManagerBasedRLEnv,
         command_name: str,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -281,6 +291,21 @@ def pose_2d_command_progress_reward(
     robot_vel_b = robot.data.root_lin_vel_b
 
     return torch.tanh(torch.sum(robot_vel_b * goal_dir_b, dim=1) / std)
+
+def pose_2d_command_progress_reward(
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward for velocity toward the goal position"""
+
+    command = env.command_manager.get_command(command_name)
+    goal_pos_b = command[:, :3]
+    goal_dir_b = goal_pos_b / (torch.norm(goal_pos_b, dim=1, keepdim=True) + 1e-6)
+    robot: Articulation = env.scene[asset_cfg.name]
+    robot_vel_b = robot.data.root_lin_vel_b
+
+    return torch.sum(robot_vel_b * goal_dir_b, dim=1)
 
 def pose_2d_goal_callback_reward(
         env: ManagerBasedRLEnv,

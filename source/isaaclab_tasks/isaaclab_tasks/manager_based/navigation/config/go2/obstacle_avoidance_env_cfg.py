@@ -72,7 +72,7 @@ class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
             channels=1,
             vertical_fov_range=(0.0, 0.0),
             horizontal_fov_range=(-LIDAR_FOV_DEG / 2.0, LIDAR_FOV_DEG / 2.0),
-            horizontal_res=LIDAR_FOV_DEG / NUM_LIDAR_RAYS - 1.0e-3,
+            horizontal_res=LIDAR_FOV_DEG / NUM_LIDAR_RAYS,
         ),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
@@ -215,7 +215,7 @@ class RewardsCfg:
     """Reward terms for obstacle-aware goal reaching."""
 
     position_tracking = RewTerm(
-        func=nav_mdp.position_command_error_tanh,
+        func=nav_mdp.pose_2d_command_progress_reward,
         weight=1.0,
         params={"std": 2.0, "command_name": "pose_2d_command"},
     )
@@ -225,9 +225,9 @@ class RewardsCfg:
         params={"std": 0.5, "command_name": "pose_2d_command"},
     )
     orientation_tracking = RewTerm(
-        func=nav_mdp.heading_command_error_abs,
+        func=nav_mdp.heading_command_error_within_range_abs,
         weight=-0.2,
-        params={"command_name": "pose_2d_command"},
+        params={"command_name": "pose_2d_command", "range": 1.0},
     )
     obstacle_clearance_penalty = RewTerm(
         func=nav_mdp.obstacle_clearance_penalty,
