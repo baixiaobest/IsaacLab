@@ -228,7 +228,7 @@ class RewardsCfg:
     travel_progress = RewTerm(
         func=nav_mdp.pose_2d_command_travel_progress,
         weight=1.0,
-        params={"command_term_name": "pose_2d_command"},
+        params={"command_name": "pose_2d_command"},
     )
 
     orientation_tracking = RewTerm(
