@@ -229,7 +229,7 @@ class RewardsCfg:
         weight=-0.2,
         params={
             "command_name": "pose_2d_command", 
-            "range": 4.0,
+            "range": 3.0,
             },
     )
     obstacle_clearance_penalty = RewTerm(
@@ -244,7 +244,7 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_abs,
-        weight=-0.2,
+        weight=-0.4,
         params={
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
@@ -253,7 +253,7 @@ class RewardsCfg:
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-4.0,
+        weight=-10.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=GOAL_CONTACT_BODY_NAMES),
             "threshold": 0.5,
