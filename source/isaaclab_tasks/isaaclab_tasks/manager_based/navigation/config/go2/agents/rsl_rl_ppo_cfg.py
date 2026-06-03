@@ -480,6 +480,22 @@ class UnitreeGo2LocomotionVelPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     wandb_project="locomotion"
     logger="wandb"
 
+
+ObstacleAvoidancePPOConfig = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.995,
+        lam=0.995,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
+
 @configclass
 class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
@@ -493,6 +509,6 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
     )
-    algorithm = NavPPOConfig
+    algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
