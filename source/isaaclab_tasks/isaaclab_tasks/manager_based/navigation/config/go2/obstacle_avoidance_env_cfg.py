@@ -226,7 +226,7 @@ class RewardsCfg:
     )
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
-        weight=-0.5,
+        weight=-1.0,
         params={
             "command_name": "pose_2d_command", 
             "range": 2.0,
@@ -249,7 +249,7 @@ class RewardsCfg:
             "velocity_threshold": 0.1,
             "heading_deadband": 0.26,  # 15 degrees
             "command_name": "pose_2d_command",
-            "goal_range": 1.0,
+            "goal_range": 2.0,
         }
     )
 
