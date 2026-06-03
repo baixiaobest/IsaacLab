@@ -61,7 +61,7 @@ def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
         velocity_threshold: float = 0.1,
-        heading_deadband: float = 0.0 # in rad
+        heading_deadband: float = 0.0, # in rad
         ) -> torch.Tensor:
     """Penalize the difference between the direction of velocity and the robot's heading."""
     asset = env.scene[asset_cfg.name]
@@ -79,6 +79,34 @@ def velocity_heading_error_abs(
         rewards[has_vel] = heading_diff / torch.pi  # Normalize to [0, 1]
     
     return rewards
+
+def velocity_heading_error_outside_goal_abs(
+        env: ManagerBasedRLEnv, 
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        velocity_threshold: float = 0.1,
+        heading_deadband: float = 0.0, # in rad
+        command_name: str = "pose_2d_command",
+        goal_range: float = 1.0,
+        ) -> torch.Tensor:
+    """Penalize the difference between the direction of velocity and the robot's heading."""
+    asset = env.scene[asset_cfg.name]
+    robot_heading = asset.data.heading_w
+    robot_vel = asset.data.root_lin_vel_w
+    has_vel = torch.norm(robot_vel, dim=1) > velocity_threshold
+
+    rewards = torch.zeros(env.num_envs, device=env.device)
+
+    command = env.command_manager.get_command(command_name)
+    outside_goal = command.norm(dim=1) > goal_range
+
+    if has_vel.any():
+        vel_heading = torch.atan2(robot_vel[has_vel, 1], robot_vel[has_vel, 0])
+        # Calculate the absolute difference between the robot's heading and the velocity heading
+        heading_diff = torch.abs(math_utils.wrap_to_pi(robot_heading[has_vel] - vel_heading))
+        heading_diff = torch.clamp(heading_diff - heading_deadband, min=0.0)  # Apply deadband
+        rewards[has_vel] = heading_diff / torch.pi  # Normalize to [0, 1]
+    
+    return rewards * outside_goal.float()
 
 def position_command_error_rational(
         env: ManagerBasedRLEnv,
