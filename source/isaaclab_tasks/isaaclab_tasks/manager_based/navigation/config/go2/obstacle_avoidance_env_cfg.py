@@ -229,7 +229,7 @@ class RewardsCfg:
         weight=-0.2,
         params={
             "command_name": "pose_2d_command", 
-            "range": 4.0,
+            "range": 1.0,
             },
     )
     obstacle_clearance_penalty = RewTerm(
