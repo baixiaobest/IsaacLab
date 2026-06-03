@@ -54,7 +54,7 @@ def heading_command_error_within_range_abs(
     """Penalize tracking orientation error."""
     command = env.command_manager.get_command(command_name)
     heading_b = command[:, 3]
-    in_range = command.norm(dim=1) < range
+    in_range = command[:2].norm(dim=1) < range
     return heading_b.abs() * in_range.float()
 
 def velocity_heading_error_abs(

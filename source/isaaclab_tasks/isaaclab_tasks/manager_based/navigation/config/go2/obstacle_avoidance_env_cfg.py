@@ -43,7 +43,7 @@ EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is 1/4 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
-GOAL_REACHED_ANGULAR_THRESHOLD = math.pi / 2.0 # large tolerance
+GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
 
 @configclass
 class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
