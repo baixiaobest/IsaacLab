@@ -214,10 +214,10 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for obstacle-aware goal reaching."""
 
-    position_tracking = RewTerm(
+    pose_2d_command_progress_reward = RewTerm(
         func=nav_mdp.pose_2d_command_progress_reward,
         weight=1.0,
-        params={"std": 2.0, "command_name": "pose_2d_command"},
+        params={"command_name": "pose_2d_command"},
     )
     position_tracking_fine = RewTerm(
         func=nav_mdp.position_command_error_tanh,
