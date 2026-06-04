@@ -358,5 +358,20 @@ class LocomotionVelEnvCfg_ROLLOUT(LocomotionVelEnvCfg):
 
         self.episode_length_s = ROLLOUT_LENGTH
         self.observations.policy.enable_corruption = True
-        self.commands.base_velocity.resampling_time_range = (ROLLOUT_LENGTH, ROLLOUT_LENGTH)
+        self.commands.base_velocity = mdp.UniformVelocityCommandCfg(
+            asset_name="robot",
+            resampling_time_range=(ROLLOUT_LENGTH, ROLLOUT_LENGTH),
+            rel_standing_envs=0.10,
+            rel_rotating_standing_envs=0.10,
+            rel_heading_envs=1.0,
+            heading_command=True,
+            heading_control_stiffness=0.5,
+            debug_vis=True,
+            ranges=mdp.UniformVelocityCommandCfg.Ranges(
+                lin_vel_x=(-1.0, 1.0),
+                lin_vel_y=(-1.0, 1.0),
+                ang_vel_z=(-1.0, 1.0),
+                heading=(-math.pi, math.pi),
+            ),
+        )
 
