@@ -35,8 +35,8 @@ from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang
 LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
 LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_policy_jit.pt"
 
-NUM_LIDAR_RAYS = 128
-LIDAR_FOV_DEG = 180.0
+NUM_LIDAR_RAYS = 192
+LIDAR_FOV_DEG = 270.0
 LIDAR_MAX_DISTANCE = 20.0
 COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
