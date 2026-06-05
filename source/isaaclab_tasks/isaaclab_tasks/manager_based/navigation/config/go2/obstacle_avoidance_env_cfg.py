@@ -236,7 +236,7 @@ class RewardsCfg:
     
     obstacle_clearance_penalty = RewTerm(
         func=nav_mdp.obstacle_clearance_penalty,
-        weight=-0.2,
+        weight=-0.0,
         params={
             "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
             "SOI": 0.6,
@@ -257,7 +257,7 @@ class RewardsCfg:
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-100.0,
+        weight=-200.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=GOAL_CONTACT_BODY_NAMES),
             "threshold": 0.5,
