@@ -219,7 +219,7 @@ ROUGH_AND_GRIDS = TerrainGeneratorCfg(
     curriculum=True,
     sub_terrains={
         "random_grid": terrain_gen.MeshRandomGridTerrainCfg(
-            proportion=1.0, grid_width=0.4, grid_height_range=(0.01, 0.1), platform_width=2.0,
+            proportion=1.0, grid_width=0.4, grid_height_range=(0.0, 0.05), platform_width=2.0,
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
