@@ -207,6 +207,28 @@ ROUGH_ONLY = TerrainGeneratorCfg(
     },
 )
 
+ROUGH_AND_GRIDS = TerrainGeneratorCfg(
+    size=(10.0, 10.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=2,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    curriculum=True,
+    sub_terrains={
+        "random_grid": terrain_gen.MeshRandomGridTerrainCfg(
+            proportion=1.0, grid_width=0.4, grid_height_range=(0.01, 0.1), platform_width=2.0,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=1.0, noise_range=(0.02, 0.06), noise_step=0.01, border_width=0.25,
+            flat_patch_sampling={"target": FLAT_PATCH_CFG}
+        ),
+    },
+)
+
 DISCRETE_OBSTACLES_ONLY = TerrainGeneratorCfg(
     size=(12.0, 12.0),
     border_width=10.0,

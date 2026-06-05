@@ -844,8 +844,8 @@ def random_grid_terrain(
     # initialize list of meshes
     meshes_list = list()
     # compute the number of boxes in each direction
-    num_boxes_x = int(cfg.size[0] / cfg.grid_width)
-    num_boxes_y = int(cfg.size[1] / cfg.grid_width)
+    num_boxes_x = int((cfg.size[0] - 2.0*cfg.border_width) / cfg.grid_width)
+    num_boxes_y = int((cfg.size[1] - 2.0*cfg.border_width) / cfg.grid_width)
     # constant parameters
     terrain_height = 1.0
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
