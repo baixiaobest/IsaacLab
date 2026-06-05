@@ -211,7 +211,7 @@ ROUGH_AND_GRIDS = TerrainGeneratorCfg(
     size=(10.0, 10.0),
     border_width=20.0,
     num_rows=10,
-    num_cols=2,
+    num_cols=3,
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
@@ -219,11 +219,11 @@ ROUGH_AND_GRIDS = TerrainGeneratorCfg(
     curriculum=True,
     sub_terrains={
         "random_grid": terrain_gen.MeshRandomGridTerrainCfg(
-            proportion=1.0, grid_width=0.4, grid_height_range=(0.0, 0.05), platform_width=2.0,
+            proportion=1.0, grid_width=0.4, grid_height_range=(0.0, 0.03), platform_width=2.0,
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=1.0, noise_range=(0.02, 0.06), noise_step=0.01, border_width=0.25,
+            proportion=2.0, noise_range=(0.02, 0.06), noise_step=0.01, border_width=0.25,
             flat_patch_sampling={"target": FLAT_PATCH_CFG}
         ),
     },
