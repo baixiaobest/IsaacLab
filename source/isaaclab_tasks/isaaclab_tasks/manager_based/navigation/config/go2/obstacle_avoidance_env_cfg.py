@@ -44,6 +44,7 @@ HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
 GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 GOAL_REACHED_ANGULAR_THRESHOLD = 0.2
+CONTACT_PENALTY_MAX_LEVEL = 9  # terrain level at which undesired_contacts weight reaches its final value
 
 @configclass
 class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
@@ -258,7 +259,7 @@ class RewardsCfg:
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-2000.0,
+        weight=-200.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=GOAL_CONTACT_BODY_NAMES),
             "threshold": 0.5,
@@ -282,6 +283,16 @@ class CurriculumCfg:
                                   "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
                                   "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD
                               })
+
+    undesired_contacts_weight = CurrTerm(
+        func=nav_mdp.terrain_level_contact_penalty_curriculum,
+        params={
+            "max_level": CONTACT_PENALTY_MAX_LEVEL,
+            "reward_term_name": "undesired_contacts",
+            "weight_initial": -200.0,
+            "weight_final": -1000.0,
+        },
+    )
 
 @configclass
 class TerminationsCfg:

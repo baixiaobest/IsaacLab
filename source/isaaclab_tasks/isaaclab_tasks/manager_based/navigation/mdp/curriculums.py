@@ -9,10 +9,10 @@ from isaaclab.envs import ManagerBasedRLEnv
 
 
 def pose_2d_command_terrain_curriculum(
-        env: ManagerBasedRLEnv, 
-        env_ids: Sequence[int], 
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
         command_name: str,
-        distance_threshold: float = 0.5, 
+        distance_threshold: float = 0.5,
         angular_threshold: float = 0.1):
     """ When pose 2d command is within threshold, goal is considered reached. Then the terrain level is increased."""
     command = env.command_manager.get_command(command_name)[env_ids]
@@ -30,12 +30,12 @@ def pose_2d_command_terrain_curriculum(
     return {"mean": torch.mean(terrain.terrain_levels.float()), "max": torch.max(terrain.terrain_levels.float())}
 
 def pose_2d_command_terrain_curriculum_with_threshold(
-        env: ManagerBasedRLEnv, 
-        env_ids: Sequence[int], 
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
         command_name: str,
         min_level_thresholds: int,
         max_level_thresholds: int,
-        distance_threshold: float = 0.5, 
+        distance_threshold: float = 0.5,
         angular_threshold: float = 0.1
 ):
     """When the level is beyond a threshold, the level cannot be decreased."""
@@ -60,3 +60,25 @@ def pose_2d_command_terrain_curriculum_with_threshold(
 
     # return the mean terrain level
     return {"mean": torch.mean(terrain.terrain_levels.float()), "max": torch.max(terrain.terrain_levels.float())}
+
+
+def terrain_level_contact_penalty_curriculum(
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
+        max_level: int,
+        reward_term_name: str = "undesired_contacts",
+        weight_initial: float = -200.0,
+        weight_final: float = -1000.0,
+):
+    """Scales a contact-penalty reward weight linearly from weight_initial to weight_final
+    as the mean terrain level rises from 0 to max_level."""
+    terrain: TerrainImporter = env.scene.terrain
+    mean_level = torch.mean(terrain.terrain_levels.float()).item()
+
+    t = min(mean_level / max(max_level, 1), 1.0)
+    new_weight = weight_initial + t * (weight_final - weight_initial)
+
+    term_cfg = env.reward_manager.get_term_cfg(reward_term_name)
+    term_cfg.weight = new_weight
+
+    return {"weight": new_weight}
