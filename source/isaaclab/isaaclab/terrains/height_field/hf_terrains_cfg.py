@@ -197,6 +197,35 @@ class HfSteppingStonesTerrainCfg(HfTerrainBaseCfg):
     """The width of the square platform at the center of the terrain. Defaults to 1.0."""
 
 @configclass
+class HfDiscreteObstacleMazeTerrainCfg(HfTerrainBaseCfg):
+    """Configuration for a discrete obstacle maze terrain with fence-like obstacles.
+
+    Each fence is a thin flat wall whose large face is oriented toward the center of the terrain,
+    with a random angular offset. The number of fences scales with difficulty.
+    """
+
+    function = hf_terrains.discrete_obstacle_maze_terrain
+
+    min_num_fences: int = MISSING
+    """The minimum number of fences to generate (at difficulty=0)."""
+
+    max_num_fences: int = MISSING
+    """The maximum number of fences to generate (at difficulty=1)."""
+
+    fence_length_range: tuple[float, float] = MISSING
+    """The minimum and maximum length of a fence (in m)."""
+
+    fence_thickness_range: tuple[float, float] = MISSING
+    """The minimum and maximum thickness of a fence (in m)."""
+
+    fence_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of a fence (in m)."""
+
+    platform_width: float = 1.0
+    """The width of the square platform at the center of the terrain. Defaults to 1.0."""
+
+
+@configclass
 class HfMountainTerrainCfg(HfTerrainBaseCfg):
     """Configuration for a mountain height field terrain."""
 

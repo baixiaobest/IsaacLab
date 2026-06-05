@@ -21,7 +21,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.sensors import RayCasterCfg, patterns
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab.terrains.config.rough import DISCRETE_OBSTACLES_ONLY
+from isaaclab.terrains.config.rough import DISCRETE_OBSTACLES_ONLY, DISCRETE_OBSTACLES_MAZE
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
@@ -35,8 +35,8 @@ from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang
 LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
 LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_policy_jit.pt"
 
-NUM_LIDAR_RAYS = 256
-LIDAR_FOV_DEG = 360.0
+NUM_LIDAR_RAYS = 128
+LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
 COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
@@ -52,7 +52,7 @@ class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=DISCRETE_OBSTACLES_ONLY,
+        terrain_generator=DISCRETE_OBSTACLES_MAZE,
         max_init_terrain_level=0,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -258,7 +258,7 @@ class RewardsCfg:
 
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-200.0,
+        weight=-2000.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=GOAL_CONTACT_BODY_NAMES),
             "threshold": 0.5,

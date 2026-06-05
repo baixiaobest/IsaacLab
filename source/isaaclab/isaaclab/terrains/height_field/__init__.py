@@ -27,6 +27,7 @@ the corresponding x and y coordinates.
 
 from .hf_terrains_cfg import (
     HfDiscreteObstaclesTerrainCfg,
+    HfDiscreteObstacleMazeTerrainCfg,
     HfDiscretePositiveObstaclesTerrainCfg,
     HfInvertedPyramidSlopedTerrainCfg,
     HfInvertedPyramidStairsTerrainCfg,
@@ -36,5 +37,5 @@ from .hf_terrains_cfg import (
     HfSteppingStonesTerrainCfg,
     HfTerrainBaseCfg,
     HfWaveTerrainCfg,
-    HfMountainTerrainCfg
+    HfMountainTerrainCfg,
 )

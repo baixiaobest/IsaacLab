@@ -581,3 +581,53 @@ def mountain_terrain(difficulty: float, cfg: hf_terrains_cfg.HfMountainTerrainCf
     height_map = min_height + (max_height - min_height) * (noise + 1.0) / 2.0
 
     return np.rint(height_map).astype(np.int16)
+
+
+@height_field_to_mesh
+def discrete_obstacle_maze_terrain(difficulty: float, cfg: hf_terrains_cfg.HfDiscreteObstacleMazeTerrainCfg) -> np.ndarray:
+    """Generate a terrain with randomly placed axis-aligned fence obstacles.
+
+    Each fence is a thin flat wall oriented either horizontally (along x) or vertically (along y),
+    chosen at random. Fences are placed randomly across the subterrain; the center platform is
+    always cleared afterward. The number of fences scales linearly with difficulty.
+
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        The height field of the terrain as a 2D numpy array with discretized heights.
+        The shape of the array is (width, length), where width and length are the number of points
+        along the x and y axis, respectively.
+    """
+    num_fences = int(cfg.min_num_fences + difficulty * (cfg.max_num_fences - cfg.min_num_fences))
+
+    width_pixels = int(cfg.size[0] / cfg.horizontal_scale)
+    length_pixels = int(cfg.size[1] / cfg.horizontal_scale)
+    platform_width = int(cfg.platform_width / cfg.horizontal_scale)
+
+    hf_raw = np.zeros((width_pixels, length_pixels))
+
+    for _ in range(num_fences):
+        length_px = max(1, int(np.random.uniform(cfg.fence_length_range[0], cfg.fence_length_range[1]) / cfg.horizontal_scale))
+        thick_px = max(1, int(np.random.uniform(cfg.fence_thickness_range[0], cfg.fence_thickness_range[1]) / cfg.horizontal_scale))
+        height_px = int(np.random.uniform(cfg.fence_height_range[0], cfg.fence_height_range[1]) / cfg.vertical_scale)
+
+        # randomly choose horizontal (long axis along x) or vertical (long axis along y)
+        if np.random.rand() < 0.5:
+            fence_w, fence_l = length_px, thick_px
+        else:
+            fence_w, fence_l = thick_px, length_px
+
+        x_start = np.random.randint(0, max(1, width_pixels - fence_w))
+        y_start = np.random.randint(0, max(1, length_pixels - fence_l))
+        hf_raw[x_start : x_start + fence_w, y_start : y_start + fence_l] = height_px
+
+    # clear the center platform
+    x1 = (width_pixels - platform_width) // 2
+    x2 = (width_pixels + platform_width) // 2
+    y1 = (length_pixels - platform_width) // 2
+    y2 = (length_pixels + platform_width) // 2
+    hf_raw[x1:x2, y1:y2] = 0
+
+    return np.rint(hf_raw).astype(np.int16)
