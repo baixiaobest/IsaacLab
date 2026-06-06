@@ -125,6 +125,16 @@ gym.register(
 )
 
 gym.register(
+    id="Isaac-Locomotion-Vel-Unitree-Go2-LidarTest-v0",
+    entry_point=f"{__name__}.locomotion_env_cfg:LocomotionLidarVizEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.locomotion_env_cfg:LocomotionVelEnvCfg_LIDAR_TEST",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2LocomotionVelPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
     id="Isaac-Locomotion-Vel-Unitree-Go2-Rollout-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
