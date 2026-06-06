@@ -150,7 +150,7 @@ class ObservationsCfg:
                 "max": LIDAR_MAX_DISTANCE,
                 "scale_distance": True,
             },
-            noise=Unoise(n_min=-0.05, n_max=0.05),
+            noise=Unoise(n_min=-0.15, n_max=0.15),
         )
 
         def __post_init__(self):
