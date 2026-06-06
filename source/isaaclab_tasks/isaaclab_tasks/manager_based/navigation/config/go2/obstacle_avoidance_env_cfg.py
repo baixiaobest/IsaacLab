@@ -157,7 +157,37 @@ class ObservationsCfg:
             self.enable_corruption = True
             self.concatenate_terms = True
 
+    @configclass
+    class CriticCfg(ObsGroup):
+        """Privileged critic observations — same terms as policy but without noise."""
+
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+
+        obstacle_scan = ObsTerm(
+            func=mdp.lidar_scan,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+                "max": LIDAR_MAX_DISTANCE,
+                "scale_distance": True,
+            },
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
     policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
 
 
 @configclass
