@@ -226,6 +226,39 @@ class HfDiscreteObstacleMazeTerrainCfg(HfTerrainBaseCfg):
 
 
 @configclass
+class HfConcentricMazeTerrainCfg(HfTerrainBaseCfg):
+    """Configuration for a concentric square maze terrain.
+
+    Multiple concentric square fence rings surround the central platform. Each ring has random
+    openings. Difficulty reduces both the spacing between rings and the size/count of openings,
+    making it harder to navigate outward.
+    """
+
+    function = hf_terrains.concentric_maze_terrain
+
+    fence_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the fence walls (in m). Scales with difficulty."""
+
+    fence_thickness: float = 0.1
+    """The thickness of each fence wall (in m). Defaults to 0.1."""
+
+    fence_spacing_range: tuple[float, float] = MISSING
+    """The (min, max) gap between consecutive concentric rings (in m).
+    At difficulty=0 the maximum spacing is used; at difficulty=1 the minimum spacing is used."""
+
+    opening_width_range: tuple[float, float] = MISSING
+    """The (min, max) width of each opening cut into a fence wall (in m).
+    At difficulty=0 openings are widest; at difficulty=1 openings are narrowest."""
+
+    num_openings_range: tuple[int, int] = MISSING
+    """The (min, max) number of openings cut per side per ring.
+    At difficulty=0 the maximum count is used; at difficulty=1 the minimum count is used."""
+
+    platform_width: float = 1.0
+    """The width of the square platform at the center of the terrain. Defaults to 1.0."""
+
+
+@configclass
 class HfMountainTerrainCfg(HfTerrainBaseCfg):
     """Configuration for a mountain height field terrain."""
 

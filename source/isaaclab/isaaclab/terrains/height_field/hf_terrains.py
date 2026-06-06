@@ -540,6 +540,85 @@ def stepping_stones_terrain(difficulty: float, cfg: hf_terrains_cfg.HfSteppingSt
     return np.rint(hf_raw).astype(np.int16)
 
 
+@height_field_to_mesh
+def concentric_maze_terrain(difficulty: float, cfg: hf_terrains_cfg.HfConcentricMazeTerrainCfg) -> np.ndarray:
+    """Generate a terrain with concentric square fence rings around a central platform.
+
+    Each ring has random openings cut into all four sides. Difficulty reduces both the spacing
+    between rings and the width/count of openings, making navigation progressively harder.
+
+    Args:
+        difficulty: The difficulty of the terrain. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        The height field of the terrain as a 2D numpy array with discretized heights.
+        The shape of the array is (width, length).
+    """
+    width_pixels = int(cfg.size[0] / cfg.horizontal_scale)
+    length_pixels = int(cfg.size[1] / cfg.horizontal_scale)
+    platform_half = int(cfg.platform_width / cfg.horizontal_scale) // 2
+    thick_px = max(1, int(cfg.fence_thickness / cfg.horizontal_scale))
+
+    cx = width_pixels // 2
+    cy = length_pixels // 2
+
+    # High difficulty → min spacing; low difficulty → max spacing
+    spacing = cfg.fence_spacing_range[1] - difficulty * (cfg.fence_spacing_range[1] - cfg.fence_spacing_range[0])
+    spacing_px = max(thick_px + 1, int(spacing / cfg.horizontal_scale))
+
+    # High difficulty → fewer openings; low difficulty → more openings
+    num_openings = int(round(cfg.num_openings_range[1] - difficulty * (cfg.num_openings_range[1] - cfg.num_openings_range[0])))
+    num_openings = max(0, num_openings)
+
+    # High difficulty → narrower openings; low difficulty → wider openings
+    opening_width = cfg.opening_width_range[1] - difficulty * (cfg.opening_width_range[1] - cfg.opening_width_range[0])
+    opening_px = max(0, int(opening_width / cfg.horizontal_scale))
+
+    # High difficulty → taller fences
+    fence_height = cfg.fence_height_range[0] + difficulty * (cfg.fence_height_range[1] - cfg.fence_height_range[0])
+    height_px = max(1, int(fence_height / cfg.vertical_scale))
+
+    hf_raw = np.zeros((width_pixels, length_pixels))
+
+    ring_half = platform_half + spacing_px
+    while ring_half < cx and ring_half < cy:
+        xl = cx - ring_half
+        xr = cx + ring_half
+        yl = cy - ring_half
+        yr = cy + ring_half
+
+        # Draw all four sides as solid fence walls
+        hf_raw[xl:xr, yl : yl + thick_px] = height_px       # north wall
+        hf_raw[xl:xr, yr - thick_px : yr] = height_px       # south wall
+        hf_raw[xl : xl + thick_px, yl:yr] = height_px       # west wall
+        hf_raw[xr - thick_px : xr, yl:yr] = height_px       # east wall
+
+        if num_openings > 0 and opening_px > 0:
+            # North and south walls: openings span along the x-axis
+            for y0, y1 in [(yl, yl + thick_px), (yr - thick_px, yr)]:
+                span = xr - xl
+                for _ in range(num_openings):
+                    if span > opening_px:
+                        ox = xl + np.random.randint(0, span - opening_px)
+                        hf_raw[ox : ox + opening_px, y0:y1] = 0
+
+            # West and east walls: openings span along the y-axis
+            for x0, x1 in [(xl, xl + thick_px), (xr - thick_px, xr)]:
+                span = yr - yl
+                for _ in range(num_openings):
+                    if span > opening_px:
+                        oy = yl + np.random.randint(0, span - opening_px)
+                        hf_raw[x0:x1, oy : oy + opening_px] = 0
+
+        ring_half += spacing_px
+
+    # Keep center platform clear
+    hf_raw[cx - platform_half : cx + platform_half, cy - platform_half : cy + platform_half] = 0
+
+    return np.rint(hf_raw).astype(np.int16)
+
+
 @height_field_to_mesh2
 def mountain_terrain(difficulty: float, cfg: hf_terrains_cfg.HfMountainTerrainCfg) -> np.ndarray:
     """Generate a terrain with a mountain pattern.

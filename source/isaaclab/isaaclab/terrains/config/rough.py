@@ -276,15 +276,23 @@ DISCRETE_OBSTACLES_MAZE = TerrainGeneratorCfg(
             obstacle_width_range=(0.3, 1.5),
             platform_width=1.1,
             flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG}),
-        "discrete_obstacle_maze": terrain_gen.HfDiscreteObstacleMazeTerrainCfg(
+        'concentric_maze': terrain_gen.HfConcentricMazeTerrainCfg(
             proportion=1.0,
-            min_num_fences=2,
-            max_num_fences=15,
-            fence_length_range=(1.0, 3.0),
-            fence_thickness_range=(0.05, 0.15),
             fence_height_range=(0.5, 1.5),
-            platform_width=1.5,
-            flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG})
+            fence_spacing_range=(2.0, 3.0),
+            opening_width_range=(1.0, 2.0),
+            num_openings_range=(1, 3),
+            flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG}),
+        
+        # "discrete_obstacle_maze": terrain_gen.HfDiscreteObstacleMazeTerrainCfg(
+        #     proportion=1.0,
+        #     min_num_fences=2,
+        #     max_num_fences=15,
+        #     fence_length_range=(1.0, 3.0),
+        #     fence_thickness_range=(0.05, 0.15),
+        #     fence_height_range=(0.5, 1.5),
+        #     platform_width=1.5,
+        #     flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG})
     },
 )
 

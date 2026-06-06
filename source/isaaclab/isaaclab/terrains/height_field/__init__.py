@@ -38,4 +38,5 @@ from .hf_terrains_cfg import (
     HfTerrainBaseCfg,
     HfWaveTerrainCfg,
     HfMountainTerrainCfg,
+    HfConcentricMazeTerrainCfg,
 )
