@@ -253,13 +253,13 @@ class RewardsCfg:
     )
     position_tracking_fine = RewTerm(
         func=nav_mdp.position_command_error_tanh,
-        weight=1.0,
+        weight=0.2,
         params={"std": 0.5, "command_name": "pose_2d_command"},
     )
 
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
-        weight=-0.5,
+        weight=-0.2,
         params={
             "command_name": "pose_2d_command", 
             "range": 1.0,
