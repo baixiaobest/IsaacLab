@@ -537,23 +537,40 @@ from ..temporal_lidar_env_cfg import (
 
 # CNN over the (C, H, fov_bins) lidar tensor, where C is 1 or 2 channels depending
 # on the observation term's include_validity flag. The first conv omits in_channels
-# so LidarActorCritic supplies the inferred channel count. The H (height) dimension
-# is kept at 1 throughout via kernel/padding choices, so the same config works for
-# any horizon: a kernel of 3 with padding 1 over H=1 stays 1; over larger H it mixes
-# adjacent timesteps. The final adaptive_pool collapses to (1, 2) → 64 latent.
+# so LidarActorCritic supplies the inferred channel count.
+# Spatial progression (width): 128 → 128 → 64 → 32 → 16 → 2 (adaptive)
+# The first layer uses stride 1 to extract local features before any downsampling.
 TemporalLidarCNNConfig = [
-    # Input: (B, C, H, fov_bins) — C channels, H rows, fov_bins cols
-    {"type": "conv", "out_channels": 8,  "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
-    # width: fov_bins → fov_bins/2
-    {"type": "conv", "out_channels": 32, "kernel_size": (3, 5), "stride": (1, 2), "padding": (1, 2)},
-    # width: → fov_bins/4
-    {"type": "conv", "out_channels": 64, "kernel_size": (3, 3), "stride": (2, 2), "padding": (1, 1)},
-    # width: → fov_bins/8
-    {"type": "adaptive_pool", "output_size": (1, 2)},
-    # → (B, 64, 1, 2) → flatten → 128
-]
-# lidar latent: 128  |  other latent: 16  |  combined: 144
+    # 128
+    {"type": "conv",
+     "out_channels": 16,
+     "kernel_size": (1, 5),
+     "stride": (1, 1),
+     "padding": (0, 2)},
 
+    # 128 → 64
+    {"type": "conv",
+     "out_channels": 32,
+     "kernel_size": (1, 5),
+     "stride": (1, 2),
+     "padding": (0, 2)},
+
+    # 64 → 32
+    {"type": "conv",
+     "out_channels": 32,
+     "kernel_size": (1, 3),
+     "stride": (1, 2),
+     "padding": (0, 1)},
+
+    # 32 → 16
+    {"type": "conv",
+     "out_channels": 32,
+     "kernel_size": (1, 3),
+     "stride": (1, 2),
+     "padding": (0, 1)},
+]
+
+# (32, H, 16) = 512
 
 @configclass
 class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
@@ -565,8 +582,8 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     policy = RslRlPpoLidarActorCriticCfg(
         init_noise_std=1.0,
         noise_clip=1.0,
-        actor_hidden_dims=[128, 64],
-        critic_hidden_dims=[128, 64],
+        actor_hidden_dims=[256, 128, 64],
+        critic_hidden_dims=[256, 128, 64],
         activation="elu",
         lidar_obs_size=TEMPORAL_LIDAR_OBS_SIZE,
         lidar_horizon=TEMPORAL_LIDAR_HORIZON,

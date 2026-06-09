@@ -25,7 +25,7 @@ from .obstacle_avoidance_env_cfg import (
 # ---------------------------------------------------------------------------
 
 TEMPORAL_LIDAR_HORIZON = 1       # H – number of historical timesteps
-TEMPORAL_LIDAR_NUM_BINS = 128    # B – total 360° world-aligned bins
+TEMPORAL_LIDAR_NUM_BINS = 256    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
 TEMPORAL_LIDAR_POS_NOISE_STD = 0.05   # odometry noise (metres)
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = False  # emit the per-bin validity channel alongside distance
