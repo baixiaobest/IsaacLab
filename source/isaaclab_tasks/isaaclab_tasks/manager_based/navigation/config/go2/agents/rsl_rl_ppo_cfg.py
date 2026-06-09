@@ -536,13 +536,16 @@ _TEMPORAL_LIDAR_OBS_SIZE = 2 * _TEMPORAL_LIDAR_HORIZON * _TEMPORAL_LIDAR_FOV_BIN
 
 _TemporalLidarCNNConfig = [
     # Input: (B, 2, 5, 64) — 2 channels, H rows, fov_bins cols
-    {"type": "conv", "in_channels": 2,  "out_channels": 8, "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
+    {"type": "conv", "in_channels": 2,  "out_channels": 8,  "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
     # → (B, 8, 5, 32)
     {"type": "conv", "out_channels": 16, "kernel_size": (3, 5), "stride": (1, 2), "padding": (1, 2)},
     # → (B, 16, 5, 16)
     {"type": "conv", "out_channels": 32, "kernel_size": (3, 3), "stride": (2, 2), "padding": (1, 1)},
-    # → (B, 32, 3, 8)  → flatten → 768
+    # → (B, 32, 3, 8)
+    {"type": "adaptive_pool", "output_size": (1, 2)},
+    # → (B, 32, 1, 2) → flatten → 64
 ]
+# lidar latent: 64  |  other latent: 64  |  combined: 128
 
 
 @configclass
@@ -555,8 +558,8 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     policy = RslRlPpoLidarActorCriticCfg(
         init_noise_std=1.0,
         noise_clip=1.0,
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
+        actor_hidden_dims=[128, 64],
+        critic_hidden_dims=[128, 64],
         activation="elu",
         lidar_obs_size=_TEMPORAL_LIDAR_OBS_SIZE,
         lidar_horizon=_TEMPORAL_LIDAR_HORIZON,
