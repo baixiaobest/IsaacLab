@@ -552,7 +552,7 @@ TemporalLidarCNNConfig = [
     {"type": "adaptive_pool", "output_size": (1, 2)},
     # → (B, 64, 1, 2) → flatten → 128
 ]
-# lidar latent: 64  |  other latent: 64  |  combined: 128
+# lidar latent: 128  |  other latent: 16  |  combined: 144
 
 
 @configclass
@@ -572,7 +572,7 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         lidar_horizon=TEMPORAL_LIDAR_HORIZON,
         lidar_fov_bins=TEMPORAL_LIDAR_FOV_BINS,
         lidar_cnn_dims=TemporalLidarCNNConfig,
-        other_mlp_dims=[64, 32],
+        other_mlp_dims=[16, 16],
     )
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
