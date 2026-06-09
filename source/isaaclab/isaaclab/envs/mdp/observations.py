@@ -838,16 +838,23 @@ class TemporalLidarScan(ManagerTermBase):
 
         # World-frame hit positions history: index 0 = most recent
         self._hit_pos_buffer = torch.zeros(horizon, num_envs, num_rays, 3, device=device)
-        # Per-ray validity (True = the ray physically struck a surface)
+        # Per-ray surface-hit flag (True = the ray physically struck a surface;
+        # False = the ray reached max range without hitting anything, i.e. free space)
         self._ray_hit_valid_buffer = torch.zeros(horizon, num_envs, num_rays, dtype=torch.bool, device=device)
+        # Per-ray "real measurement" flag (True = this entry is an actual scanned ray;
+        # False = an uninitialised slot left by a reset). Distinguishes observed free
+        # space from genuinely unobserved history.
+        self._ray_real_buffer = torch.zeros(horizon, num_envs, num_rays, dtype=torch.bool, device=device)
 
     def reset(self, env_ids=None):
         if env_ids is None:
             self._hit_pos_buffer[:] = 0.0
             self._ray_hit_valid_buffer[:] = False
+            self._ray_real_buffer[:] = False
         else:
             self._hit_pos_buffer[:, env_ids] = 0.0
             self._ray_hit_valid_buffer[:, env_ids] = False
+            self._ray_real_buffer[:, env_ids] = False
 
     def __call__(
         self,
@@ -885,8 +892,10 @@ class TemporalLidarScan(ManagerTermBase):
         # --- Push new scan into front of rolling buffers ---
         self._hit_pos_buffer[1:] = self._hit_pos_buffer[:-1].clone()
         self._ray_hit_valid_buffer[1:] = self._ray_hit_valid_buffer[:-1].clone()
+        self._ray_real_buffer[1:] = self._ray_real_buffer[:-1].clone()
         self._hit_pos_buffer[0] = ray_hits_w
         self._ray_hit_valid_buffer[0] = ray_hit_valid
+        self._ray_real_buffer[0] = True  # every ray of the current scan is a real measurement
 
         # --- Extract current yaw for FOV selection ---
         _, _, cur_yaw = math_utils.euler_xyz_from_quat(quat_w)   # (num_envs,)
@@ -904,8 +913,9 @@ class TemporalLidarScan(ManagerTermBase):
         import math as _math
 
         for h in range(horizon):
-            hits = self._hit_pos_buffer[h]          # (num_envs, num_rays, 3)
-            hit_mask = self._ray_hit_valid_buffer[h]  # (num_envs, num_rays)
+            hits = self._hit_pos_buffer[h]            # (num_envs, num_rays, 3)
+            hit_mask = self._ray_hit_valid_buffer[h]  # surface hit vs free-space ray
+            real_mask = self._ray_real_buffer[h]      # real measurement vs reset placeholder
 
             # Position noise on projection centre (simulate cumulative odometry error)
             if pos_noise_std > 0.0 and h > 0:
@@ -924,23 +934,28 @@ class TemporalLidarScan(ManagerTermBase):
             # Map angle [-π, π] → bin index [0, B)
             bin_idx = ((angle + _math.pi) / (2.0 * _math.pi) * num_bins).long() % num_bins
 
-            # Redirect invalid rays to a dummy overflow bin (B) so they cannot
-            # pollute valid bins — their distance is set above max_distance.
-            safe_dist = dist.clone()
-            safe_dist[~hit_mask] = max_distance + 1.0
-            safe_bin_idx = bin_idx.clone()
-            safe_bin_idx[~hit_mask] = num_bins  # overflow bucket
+            # Distance per ray: surface hits contribute their reprojected distance;
+            # free-space (max-range) rays contribute max_distance. The latter must NOT
+            # use the reprojected distance — the stored point is fictitious, so once the
+            # robot moves toward it the reprojection would fabricate a close obstacle.
+            ray_dist = torch.where(hit_mask, dist, torch.full_like(dist, max_distance))
 
-            # Allocate B+1 bins; drop overflow column afterward
+            # Both surface hits and free-space rays are real observations: route only
+            # reset placeholders to the overflow bin (B), which is dropped afterward.
+            safe_dist = ray_dist.clone()
+            safe_dist[~real_mask] = max_distance + 1.0
+            safe_bin_idx = bin_idx.clone()
+            safe_bin_idx[~real_mask] = num_bins  # overflow bucket
+
+            # Allocate B+1 bins; drop overflow column afterward. amin keeps the closest
+            # contribution, so a real hit (< max) overrides a free-space ray (== max).
             bin_dist_h = torch.full((num_envs, num_bins + 1), max_distance, device=device)
             bin_dist_h.scatter_reduce_(1, safe_bin_idx, safe_dist, reduce="amin", include_self=True)
             bin_dist_all[:, h, :] = bin_dist_h[:, :num_bins]
 
-            # Validity: a bin is valid when at least one surface-hit ray lands in it
-            bin_valid_h = torch.zeros(num_envs, num_bins + 1, dtype=torch.bool, device=device)
-            # scatter_ accepts uint8 source; convert bool mask to uint8
-            ones_src = hit_mask.byte()
-            # scatter_reduce_ amax: a bin becomes 1 if any valid ray points there
+            # Validity: a bin is valid when at least one real ray (hit OR free-space)
+            # lands in it — i.e. the direction was actually observed this frame.
+            ones_src = real_mask.byte()
             bin_valid_h_u8 = torch.zeros(num_envs, num_bins + 1, dtype=torch.uint8, device=device)
             bin_valid_h_u8.scatter_reduce_(1, safe_bin_idx, ones_src, reduce="amax", include_self=True)
             bin_valid_all[:, h, :] = bin_valid_h_u8[:, :num_bins].bool()
