@@ -50,19 +50,19 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
 
     @configclass
     class PolicyCfg(ObservationsCfg.PolicyCfg):
-        obstacle_scan = ObsTerm(
-            func=mdp.TemporalLidarScan,
-            params={
-                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-                "horizon": TEMPORAL_LIDAR_HORIZON,
-                "num_bins": TEMPORAL_LIDAR_NUM_BINS,
-                "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
-                "max_distance": LIDAR_MAX_DISTANCE,
-                "pos_noise_std": TEMPORAL_LIDAR_POS_NOISE_STD,
-                "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
-            },
-            noise=Unoise(n_min=-0.05, n_max=0.05),
-        )
+        # obstacle_scan = ObsTerm(
+        #     func=mdp.TemporalLidarScan,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+        #         "horizon": TEMPORAL_LIDAR_HORIZON,
+        #         "num_bins": TEMPORAL_LIDAR_NUM_BINS,
+        #         "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
+        #         "max_distance": LIDAR_MAX_DISTANCE,
+        #         "pos_noise_std": TEMPORAL_LIDAR_POS_NOISE_STD,
+        #         "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
+        #     },
+        #     noise=Unoise(n_min=-0.05, n_max=0.05),
+        # )
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -72,18 +72,18 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
     class CriticCfg(ObservationsCfg.CriticCfg):
         """Critic receives noiseless temporal lidar projection (privileged obs)."""
 
-        obstacle_scan = ObsTerm(
-            func=mdp.TemporalLidarScan,
-            params={
-                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-                "horizon": TEMPORAL_LIDAR_HORIZON,
-                "num_bins": TEMPORAL_LIDAR_NUM_BINS,
-                "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
-                "max_distance": LIDAR_MAX_DISTANCE,
-                "pos_noise_std": 0.0,
-                "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
-            },
-        )
+        # obstacle_scan = ObsTerm(
+        #     func=mdp.TemporalLidarScan,
+        #     params={
+        #         "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+        #         "horizon": TEMPORAL_LIDAR_HORIZON,
+        #         "num_bins": TEMPORAL_LIDAR_NUM_BINS,
+        #         "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
+        #         "max_distance": LIDAR_MAX_DISTANCE,
+        #         "pos_noise_std": 0.0,
+        #         "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
+        #     },
+        # )
 
         def __post_init__(self):
             self.enable_corruption = False
