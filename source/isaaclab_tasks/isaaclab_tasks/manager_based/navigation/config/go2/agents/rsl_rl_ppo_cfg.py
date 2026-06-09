@@ -580,7 +580,7 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "go2_temporal_lidar_obstacle_avoidance"
     empirical_normalization = False
     policy = RslRlPpoLidarActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.6,
         noise_clip=1.0,
         actor_hidden_dims=[256, 128, 64],
         critic_hidden_dims=[256, 128, 64],
