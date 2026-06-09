@@ -545,12 +545,12 @@ TemporalLidarCNNConfig = [
     # Input: (B, C, H, fov_bins) — C channels, H rows, fov_bins cols
     {"type": "conv", "out_channels": 8,  "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
     # width: fov_bins → fov_bins/2
-    {"type": "conv", "out_channels": 16, "kernel_size": (3, 5), "stride": (1, 2), "padding": (1, 2)},
+    {"type": "conv", "out_channels": 32, "kernel_size": (3, 5), "stride": (1, 2), "padding": (1, 2)},
     # width: → fov_bins/4
-    {"type": "conv", "out_channels": 32, "kernel_size": (3, 3), "stride": (2, 2), "padding": (1, 1)},
+    {"type": "conv", "out_channels": 64, "kernel_size": (3, 3), "stride": (2, 2), "padding": (1, 1)},
     # width: → fov_bins/8
     {"type": "adaptive_pool", "output_size": (1, 2)},
-    # → (B, 32, 1, 2) → flatten → 64
+    # → (B, 64, 1, 2) → flatten → 128
 ]
 # lidar latent: 64  |  other latent: 64  |  combined: 128
 
@@ -572,7 +572,7 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         lidar_horizon=TEMPORAL_LIDAR_HORIZON,
         lidar_fov_bins=TEMPORAL_LIDAR_FOV_BINS,
         lidar_cnn_dims=TemporalLidarCNNConfig,
-        other_mlp_dims=[64, 64],
+        other_mlp_dims=[64, 32],
     )
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
