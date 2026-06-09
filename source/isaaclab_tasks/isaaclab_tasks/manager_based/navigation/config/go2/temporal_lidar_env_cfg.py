@@ -28,14 +28,16 @@ TEMPORAL_LIDAR_HORIZON = 1       # H – number of historical timesteps
 TEMPORAL_LIDAR_NUM_BINS = 128    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
 TEMPORAL_LIDAR_POS_NOISE_STD = 0.05   # odometry noise (metres)
+TEMPORAL_LIDAR_INCLUDE_VALIDITY = False  # emit the per-bin validity channel alongside distance
 
-# Derived obs size: 2 channels × H × fov_bins
+# Derived obs size: C channels × H × fov_bins, where C = 2 with validity else 1
 TEMPORAL_LIDAR_FOV_BINS = int(round(TEMPORAL_LIDAR_NUM_BINS * TEMPORAL_LIDAR_FOV_DEG / 360.0))
 # Keep even
 if TEMPORAL_LIDAR_FOV_BINS % 2 != 0:
     TEMPORAL_LIDAR_FOV_BINS -= 1
 
-TEMPORAL_LIDAR_OBS_SIZE = 2 * TEMPORAL_LIDAR_HORIZON * TEMPORAL_LIDAR_FOV_BINS
+TEMPORAL_LIDAR_CHANNELS = 2 if TEMPORAL_LIDAR_INCLUDE_VALIDITY else 1
+TEMPORAL_LIDAR_OBS_SIZE = TEMPORAL_LIDAR_CHANNELS * TEMPORAL_LIDAR_HORIZON * TEMPORAL_LIDAR_FOV_BINS
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
                 "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
                 "max_distance": LIDAR_MAX_DISTANCE,
                 "pos_noise_std": TEMPORAL_LIDAR_POS_NOISE_STD,
+                "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
             },
             noise=Unoise(n_min=-0.05, n_max=0.05),
         )
@@ -78,6 +81,7 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
                 "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
                 "max_distance": LIDAR_MAX_DISTANCE,
                 "pos_noise_std": 0.0,
+                "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
             },
         )
 

@@ -524,24 +524,31 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 # ---------------------------------------------------------------------------
 # Temporal-lidar obstacle avoidance (LidarActorCritic)
 # ---------------------------------------------------------------------------
-# Hyper-parameters must match temporal_lidar_env_cfg.py:
-#   TEMPORAL_LIDAR_HORIZON = 5, TEMPORAL_LIDAR_NUM_BINS = 128,
-#   TEMPORAL_LIDAR_FOV_DEG = 180 → fov_bins = 64
-#   lidar_obs_size = 2 * 5 * 64 = 640
+# These dimensions MUST match the observation term. Import them from the env
+# cfg (single source of truth) so the policy and the observation can never
+# drift out of sync — a mismatch produces a negative-dimension crash at policy
+# construction.
 # ---------------------------------------------------------------------------
+from ..temporal_lidar_env_cfg import (
+    TEMPORAL_LIDAR_HORIZON as TEMPORAL_LIDAR_HORIZON,
+    TEMPORAL_LIDAR_FOV_BINS as TEMPORAL_LIDAR_FOV_BINS,
+    TEMPORAL_LIDAR_OBS_SIZE as TEMPORAL_LIDAR_OBS_SIZE,
+)
 
-_TEMPORAL_LIDAR_HORIZON = 1
-_TEMPORAL_LIDAR_FOV_BINS = 64     # 128 bins * 180° / 360°
-_TEMPORAL_LIDAR_OBS_SIZE = 2 * _TEMPORAL_LIDAR_HORIZON * _TEMPORAL_LIDAR_FOV_BINS  # 640
-
-_TemporalLidarCNNConfig = [
-    # Input: (B, 2, 5, 64) — 2 channels, H rows, fov_bins cols
-    {"type": "conv", "in_channels": 2,  "out_channels": 8,  "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
-    # → (B, 8, 5, 32)
+# CNN over the (C, H, fov_bins) lidar tensor, where C is 1 or 2 channels depending
+# on the observation term's include_validity flag. The first conv omits in_channels
+# so LidarActorCritic supplies the inferred channel count. The H (height) dimension
+# is kept at 1 throughout via kernel/padding choices, so the same config works for
+# any horizon: a kernel of 3 with padding 1 over H=1 stays 1; over larger H it mixes
+# adjacent timesteps. The final adaptive_pool collapses to (1, 2) → 64 latent.
+TemporalLidarCNNConfig = [
+    # Input: (B, C, H, fov_bins) — C channels, H rows, fov_bins cols
+    {"type": "conv", "out_channels": 8,  "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
+    # width: fov_bins → fov_bins/2
     {"type": "conv", "out_channels": 16, "kernel_size": (3, 5), "stride": (1, 2), "padding": (1, 2)},
-    # → (B, 16, 5, 16)
+    # width: → fov_bins/4
     {"type": "conv", "out_channels": 32, "kernel_size": (3, 3), "stride": (2, 2), "padding": (1, 1)},
-    # → (B, 32, 3, 8)
+    # width: → fov_bins/8
     {"type": "adaptive_pool", "output_size": (1, 2)},
     # → (B, 32, 1, 2) → flatten → 64
 ]
@@ -561,10 +568,10 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         actor_hidden_dims=[128, 64],
         critic_hidden_dims=[128, 64],
         activation="elu",
-        lidar_obs_size=_TEMPORAL_LIDAR_OBS_SIZE,
-        lidar_horizon=_TEMPORAL_LIDAR_HORIZON,
-        lidar_fov_bins=_TEMPORAL_LIDAR_FOV_BINS,
-        lidar_cnn_dims=_TemporalLidarCNNConfig,
+        lidar_obs_size=TEMPORAL_LIDAR_OBS_SIZE,
+        lidar_horizon=TEMPORAL_LIDAR_HORIZON,
+        lidar_fov_bins=TEMPORAL_LIDAR_FOV_BINS,
+        lidar_cnn_dims=TemporalLidarCNNConfig,
         other_mlp_dims=[64, 64],
     )
     algorithm = ObstacleAvoidancePPOConfig

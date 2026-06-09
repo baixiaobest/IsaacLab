@@ -820,8 +820,9 @@ class TemporalLidarScan(ManagerTermBase):
     returned, giving the policy an ego-centric but temporally consistent view of the
     surrounding scene without coupling the representation to the robot's heading.
 
-    Output shape: ``(num_envs, 2 * horizon * fov_bins)``
-    where the two channels per (timestep, bin) are [normalised distance, validity].
+    Output shape: ``(num_envs, C * horizon * fov_bins)`` where ``C`` is 2 when
+    ``include_validity`` is True (channels = [normalised distance, validity]) and
+    1 otherwise (distance only).
     """
 
     def __init__(self, cfg, env: "ManagerBasedEnv"):
@@ -865,6 +866,7 @@ class TemporalLidarScan(ManagerTermBase):
         fov_degrees: float,
         max_distance: float,
         pos_noise_std: float = 0.0,
+        include_validity: bool = True,
     ) -> torch.Tensor:
         """Compute the temporal lidar observation.
 
@@ -876,6 +878,9 @@ class TemporalLidarScan(ManagerTermBase):
             max_distance: Maximum lidar range (used for normalisation and hit detection).
             pos_noise_std: Std-dev of Gaussian position noise (metres) added to the
                 projection centre for timesteps h > 0 to simulate odometry drift.
+            include_validity: If True (default), output both a normalised-distance and a
+                validity channel. If False, output the distance channel only, halving the
+                observation size. The validity computation is skipped entirely when disabled.
         """
         sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
         ray_hits_w = sensor.data.ray_hits_w          # (num_envs, num_rays, 3)
@@ -906,9 +911,10 @@ class TemporalLidarScan(ManagerTermBase):
         if fov_bins % 2 != 0:
             fov_bins -= 1  # keep even for symmetry
 
-        # --- Accumulate per-timestep bin distances and validity ---
+        # --- Accumulate per-timestep bin distances and (optionally) validity ---
         bin_dist_all = torch.full((num_envs, horizon, num_bins), max_distance, device=device)
-        bin_valid_all = torch.zeros(num_envs, horizon, num_bins, dtype=torch.bool, device=device)
+        if include_validity:
+            bin_valid_all = torch.zeros(num_envs, horizon, num_bins, dtype=torch.bool, device=device)
 
         import math as _math
 
@@ -955,10 +961,11 @@ class TemporalLidarScan(ManagerTermBase):
 
             # Validity: a bin is valid when at least one real ray (hit OR free-space)
             # lands in it — i.e. the direction was actually observed this frame.
-            ones_src = real_mask.byte()
-            bin_valid_h_u8 = torch.zeros(num_envs, num_bins + 1, dtype=torch.uint8, device=device)
-            bin_valid_h_u8.scatter_reduce_(1, safe_bin_idx, ones_src, reduce="amax", include_self=True)
-            bin_valid_all[:, h, :] = bin_valid_h_u8[:, :num_bins].bool()
+            if include_validity:
+                ones_src = real_mask.byte()
+                bin_valid_h_u8 = torch.zeros(num_envs, num_bins + 1, dtype=torch.uint8, device=device)
+                bin_valid_h_u8.scatter_reduce_(1, safe_bin_idx, ones_src, reduce="amax", include_self=True)
+                bin_valid_all[:, h, :] = bin_valid_h_u8[:, :num_bins].bool()
 
         # --- Select FOV arc centred on current yaw ---
         import math as _math2
@@ -971,11 +978,15 @@ class TemporalLidarScan(ManagerTermBase):
         indices_exp = indices.unsqueeze(1).expand(-1, horizon, -1)
 
         fov_dist = torch.gather(bin_dist_all, 2, indices_exp)    # (num_envs, horizon, fov_bins)
-        fov_valid = torch.gather(bin_valid_all, 2, indices_exp)  # (num_envs, horizon, fov_bins)
 
         # Normalise distances to [0, 1]
         fov_dist = fov_dist / max_distance
 
-        # Stack channels: (num_envs, 2, horizon, fov_bins) → flatten
-        output = torch.stack([fov_dist, fov_valid.float()], dim=1)
+        if include_validity:
+            fov_valid = torch.gather(bin_valid_all, 2, indices_exp)  # (num_envs, horizon, fov_bins)
+            # Stack channels: (num_envs, 2, horizon, fov_bins) → flatten
+            output = torch.stack([fov_dist, fov_valid.float()], dim=1)
+        else:
+            # Distance only: (num_envs, 1, horizon, fov_bins) → flatten
+            output = fov_dist.unsqueeze(1)
         return output.view(num_envs, -1)
