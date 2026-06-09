@@ -530,7 +530,7 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 #   lidar_obs_size = 2 * 5 * 64 = 640
 # ---------------------------------------------------------------------------
 
-_TEMPORAL_LIDAR_HORIZON = 5
+_TEMPORAL_LIDAR_HORIZON = 1
 _TEMPORAL_LIDAR_FOV_BINS = 64     # 128 bins * 180° / 360°
 _TEMPORAL_LIDAR_OBS_SIZE = 2 * _TEMPORAL_LIDAR_HORIZON * _TEMPORAL_LIDAR_FOV_BINS  # 640
 
