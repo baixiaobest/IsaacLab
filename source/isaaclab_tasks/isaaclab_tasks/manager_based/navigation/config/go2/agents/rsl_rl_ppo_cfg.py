@@ -1,7 +1,14 @@
 from isaaclab.utils import configclass
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, \
-  RslRlPpoEncoderActorCriticCfg, RslRlSymmetryCfg, RslRlRndCfg
+from isaaclab_rl.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+    RslRlPpoEncoderActorCriticCfg,
+    RslRlPpoLidarActorCriticCfg,
+    RslRlSymmetryCfg,
+    RslRlRndCfg,
+)
 import torch
 
 NavPPOConfig = RslRlPpoAlgorithmCfg(
@@ -508,6 +515,54 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         actor_hidden_dims=[256, 128, 64],
         critic_hidden_dims=[256, 128, 64],
         activation="elu",
+    )
+    algorithm = ObstacleAvoidancePPOConfig
+    wandb_project="obstacle_avoidance_navigation"
+    logger="wandb"
+
+
+# ---------------------------------------------------------------------------
+# Temporal-lidar obstacle avoidance (LidarActorCritic)
+# ---------------------------------------------------------------------------
+# Hyper-parameters must match temporal_lidar_env_cfg.py:
+#   TEMPORAL_LIDAR_HORIZON = 5, TEMPORAL_LIDAR_NUM_BINS = 128,
+#   TEMPORAL_LIDAR_FOV_DEG = 180 → fov_bins = 64
+#   lidar_obs_size = 2 * 5 * 64 = 640
+# ---------------------------------------------------------------------------
+
+_TEMPORAL_LIDAR_HORIZON = 5
+_TEMPORAL_LIDAR_FOV_BINS = 64     # 128 bins * 180° / 360°
+_TEMPORAL_LIDAR_OBS_SIZE = 2 * _TEMPORAL_LIDAR_HORIZON * _TEMPORAL_LIDAR_FOV_BINS  # 640
+
+_TemporalLidarCNNConfig = [
+    # Input: (B, 2, 5, 64) — 2 channels, H rows, fov_bins cols
+    {"type": "conv", "in_channels": 2,  "out_channels": 8, "kernel_size": (1, 5), "stride": (1, 2), "padding": (0, 2)},
+    # → (B, 8, 5, 32)
+    {"type": "conv", "out_channels": 16, "kernel_size": (3, 5), "stride": (1, 2), "padding": (1, 2)},
+    # → (B, 16, 5, 16)
+    {"type": "conv", "out_channels": 32, "kernel_size": (3, 3), "stride": (2, 2), "padding": (1, 1)},
+    # → (B, 32, 3, 8)  → flatten → 768
+]
+
+
+@configclass
+class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 3000
+    save_interval = 100
+    experiment_name = "go2_temporal_lidar_obstacle_avoidance"
+    empirical_normalization = False
+    policy = RslRlPpoLidarActorCriticCfg(
+        init_noise_std=1.0,
+        noise_clip=1.0,
+        actor_hidden_dims=[256, 128, 64],
+        critic_hidden_dims=[256, 128, 64],
+        activation="elu",
+        lidar_obs_size=_TEMPORAL_LIDAR_OBS_SIZE,
+        lidar_horizon=_TEMPORAL_LIDAR_HORIZON,
+        lidar_fov_bins=_TEMPORAL_LIDAR_FOV_BINS,
+        lidar_cnn_dims=_TemporalLidarCNNConfig,
+        other_mlp_dims=[64, 64],
     )
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"

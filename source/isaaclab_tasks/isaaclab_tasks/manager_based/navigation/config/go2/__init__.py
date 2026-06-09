@@ -160,6 +160,26 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Isaac-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.temporal_lidar_env_cfg:TemporalLidarObstacleAvoidanceEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
+    id="Isaac-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.temporal_lidar_env_cfg:TemporalLidarObstacleAvoidanceEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
+    },
+)
+
 ###############
 # RVO2 Crowd Navigation
 ###############

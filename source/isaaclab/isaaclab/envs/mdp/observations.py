@@ -798,7 +798,7 @@ def count_down(env: ManagerBasedRLEnv, episode_length: float) -> torch.Tensor:
     Args:
         env: The environment.
         episode_length: The length of the episode in seconds.
-        
+
     Returns:
         Time remaining in the episode, shape is [num_envs, 1].
     """
@@ -809,3 +809,158 @@ def count_down(env: ManagerBasedRLEnv, episode_length: float) -> torch.Tensor:
         return time_remaining.unsqueeze(1)
     else:
         return torch.ones((env.num_envs, 1), device=env.device) * episode_length
+
+
+class TemporalLidarScan(ManagerTermBase):
+    """Temporal lidar observation that stores H historical scans in world-frame coordinates.
+
+    At each call the latest ray-hit positions are pushed into a rolling buffer.  All H
+    historical scans are then projected into 360° world-aligned bins relative to the
+    robot's current position.  A FOV-sized arc centred on the robot's current yaw is
+    returned, giving the policy an ego-centric but temporally consistent view of the
+    surrounding scene without coupling the representation to the robot's heading.
+
+    Output shape: ``(num_envs, 2 * horizon * fov_bins)``
+    where the two channels per (timestep, bin) are [normalised distance, validity].
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedEnv"):
+        super().__init__(cfg, env)
+
+        params = cfg.params
+        horizon: int = params["horizon"]
+        sensor_cfg: SceneEntityCfg = params["sensor_cfg"]
+
+        sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+        num_rays: int = sensor.data.ray_hits_w.shape[1]
+        num_envs: int = env.num_envs
+        device: str = env.device
+
+        # World-frame hit positions history: index 0 = most recent
+        self._hit_pos_buffer = torch.zeros(horizon, num_envs, num_rays, 3, device=device)
+        # Per-ray validity (True = the ray physically struck a surface)
+        self._ray_hit_valid_buffer = torch.zeros(horizon, num_envs, num_rays, dtype=torch.bool, device=device)
+
+    def reset(self, env_ids=None):
+        if env_ids is None:
+            self._hit_pos_buffer[:] = 0.0
+            self._ray_hit_valid_buffer[:] = False
+        else:
+            self._hit_pos_buffer[:, env_ids] = 0.0
+            self._ray_hit_valid_buffer[:, env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedEnv",
+        sensor_cfg: SceneEntityCfg,
+        horizon: int,
+        num_bins: int,
+        fov_degrees: float,
+        max_distance: float,
+        pos_noise_std: float = 0.0,
+    ) -> torch.Tensor:
+        """Compute the temporal lidar observation.
+
+        Args:
+            sensor_cfg: Scene entity config for the RayCaster sensor.
+            horizon: Number of historical timesteps H.
+            num_bins: Total number of 360° world-aligned bins B.
+            fov_degrees: Arc (degrees) centred on current robot yaw returned to policy.
+            max_distance: Maximum lidar range (used for normalisation and hit detection).
+            pos_noise_std: Std-dev of Gaussian position noise (metres) added to the
+                projection centre for timesteps h > 0 to simulate odometry drift.
+        """
+        sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+        ray_hits_w = sensor.data.ray_hits_w          # (num_envs, num_rays, 3)
+        pos_w = sensor.data.pos_w                    # (num_envs, 3)
+        quat_w = sensor.data.quat_w                  # (num_envs, 4)
+
+        num_envs = env.num_envs
+        device = env.device
+
+        # --- Determine which rays physically struck a surface ---
+        sensor_dist = torch.norm(ray_hits_w - pos_w.unsqueeze(1), dim=-1)  # (num_envs, num_rays)
+        ray_hit_valid = sensor_dist < (max_distance * 0.99)
+
+        # --- Push new scan into front of rolling buffers ---
+        self._hit_pos_buffer[1:] = self._hit_pos_buffer[:-1].clone()
+        self._ray_hit_valid_buffer[1:] = self._ray_hit_valid_buffer[:-1].clone()
+        self._hit_pos_buffer[0] = ray_hits_w
+        self._ray_hit_valid_buffer[0] = ray_hit_valid
+
+        # --- Extract current yaw for FOV selection ---
+        _, _, cur_yaw = math_utils.euler_xyz_from_quat(quat_w)   # (num_envs,)
+        cur_xy = pos_w[:, :2]                                     # (num_envs, 2)
+
+        # --- Compute fov_bins (symmetric around centre yaw) ---
+        fov_bins = int(round(num_bins * fov_degrees / 360.0))
+        if fov_bins % 2 != 0:
+            fov_bins -= 1  # keep even for symmetry
+
+        # --- Accumulate per-timestep bin distances and validity ---
+        bin_dist_all = torch.full((num_envs, horizon, num_bins), max_distance, device=device)
+        bin_valid_all = torch.zeros(num_envs, horizon, num_bins, dtype=torch.bool, device=device)
+
+        import math as _math
+
+        for h in range(horizon):
+            hits = self._hit_pos_buffer[h]          # (num_envs, num_rays, 3)
+            hit_mask = self._ray_hit_valid_buffer[h]  # (num_envs, num_rays)
+
+            # Position noise on projection centre (simulate cumulative odometry error)
+            if pos_noise_std > 0.0 and h > 0:
+                pos_noise = torch.randn(num_envs, 2, device=device) * pos_noise_std * _math.sqrt(h)
+                ref_xy = cur_xy + pos_noise
+            else:
+                ref_xy = cur_xy
+
+            # Relative position in world XY plane
+            dx = hits[..., 0] - ref_xy[:, 0:1]   # (num_envs, num_rays)
+            dy = hits[..., 1] - ref_xy[:, 1:2]
+
+            dist = torch.clamp(torch.sqrt(dx * dx + dy * dy), 0.0, max_distance)
+            angle = torch.atan2(dy, dx)            # (num_envs, num_rays)
+
+            # Map angle [-π, π] → bin index [0, B)
+            bin_idx = ((angle + _math.pi) / (2.0 * _math.pi) * num_bins).long() % num_bins
+
+            # Redirect invalid rays to a dummy overflow bin (B) so they cannot
+            # pollute valid bins — their distance is set above max_distance.
+            safe_dist = dist.clone()
+            safe_dist[~hit_mask] = max_distance + 1.0
+            safe_bin_idx = bin_idx.clone()
+            safe_bin_idx[~hit_mask] = num_bins  # overflow bucket
+
+            # Allocate B+1 bins; drop overflow column afterward
+            bin_dist_h = torch.full((num_envs, num_bins + 1), max_distance, device=device)
+            bin_dist_h.scatter_reduce_(1, safe_bin_idx, safe_dist, reduce="amin", include_self=True)
+            bin_dist_all[:, h, :] = bin_dist_h[:, :num_bins]
+
+            # Validity: a bin is valid when at least one surface-hit ray lands in it
+            bin_valid_h = torch.zeros(num_envs, num_bins + 1, dtype=torch.bool, device=device)
+            # scatter_ accepts uint8 source; convert bool mask to uint8
+            ones_src = hit_mask.byte()
+            # scatter_reduce_ amax: a bin becomes 1 if any valid ray points there
+            bin_valid_h_u8 = torch.zeros(num_envs, num_bins + 1, dtype=torch.uint8, device=device)
+            bin_valid_h_u8.scatter_reduce_(1, safe_bin_idx, ones_src, reduce="amax", include_self=True)
+            bin_valid_all[:, h, :] = bin_valid_h_u8[:, :num_bins].bool()
+
+        # --- Select FOV arc centred on current yaw ---
+        import math as _math2
+        center_bin = ((cur_yaw + _math2.pi) / (2.0 * _math2.pi) * num_bins).long() % num_bins
+        half = fov_bins // 2
+        offsets = torch.arange(-half, fov_bins - half, device=device)  # (fov_bins,)
+        # indices: (num_envs, fov_bins)
+        indices = (center_bin.unsqueeze(1) + offsets.unsqueeze(0)) % num_bins
+        # Expand to (num_envs, horizon, fov_bins) for gather
+        indices_exp = indices.unsqueeze(1).expand(-1, horizon, -1)
+
+        fov_dist = torch.gather(bin_dist_all, 2, indices_exp)    # (num_envs, horizon, fov_bins)
+        fov_valid = torch.gather(bin_valid_all, 2, indices_exp)  # (num_envs, horizon, fov_bins)
+
+        # Normalise distances to [0, 1]
+        fov_dist = fov_dist / max_distance
+
+        # Stack channels: (num_envs, 2, horizon, fov_bins) → flatten
+        output = torch.stack([fov_dist, fov_valid.float()], dim=1)
+        return output.view(num_envs, -1)

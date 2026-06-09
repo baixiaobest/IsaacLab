@@ -66,6 +66,32 @@ class RslRlPpoEncoderActorCriticCfg(RslRlPpoActorCriticCfg):
     """The clipping value for the noise standard deviation."""
 
 @configclass
+class RslRlPpoLidarActorCriticCfg(RslRlPpoActorCriticCfg):
+    """Configuration for the two-stream lidar actor-critic."""
+
+    class_name: str = "LidarActorCritic"
+    """The policy class name."""
+
+    lidar_obs_size: int = MISSING
+    """Flattened size of the lidar observation: ``2 * horizon * fov_bins``."""
+
+    lidar_horizon: int = MISSING
+    """Number of historical lidar timesteps H."""
+
+    lidar_fov_bins: int = MISSING
+    """Number of FOV bins passed to the policy."""
+
+    lidar_cnn_dims: list[dict] = MISSING
+    """CNN layer configs (list of dicts) applied to ``(2, H, fov_bins)`` lidar input."""
+
+    other_mlp_dims: list[int] = MISSING
+    """Hidden + output dims for the other-obs MLP encoder, e.g. ``[128, 64]``."""
+
+    noise_clip: float = 1.0
+    """Tanh-clipping scale for action noise."""
+
+
+@configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
     """Configuration for the PPO actor-critic networks with recurrent layers."""
 
