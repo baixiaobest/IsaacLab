@@ -666,8 +666,8 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
     lidar_prediction_cfg=RslRlLidarPredictionCfg(
         weight=0.2,
         learning_rate=1.0e-4,
-        num_iterations=4,
-        batch_size=1024,
+        num_iterations=1,
+        batch_size=4096,
     ),
 )
 
