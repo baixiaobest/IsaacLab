@@ -529,7 +529,7 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 # drift out of sync — a mismatch produces a negative-dimension crash at policy
 # construction.
 # ---------------------------------------------------------------------------
-from ..temporal_lidar_env_cfg import (
+from ..obstacle_avoidance.temporal_lidar_env_cfg import (
     TEMPORAL_LIDAR_HORIZON as TEMPORAL_LIDAR_HORIZON,
     TEMPORAL_LIDAR_FOV_BINS as TEMPORAL_LIDAR_FOV_BINS,
     TEMPORAL_LIDAR_OBS_SIZE as TEMPORAL_LIDAR_OBS_SIZE,
