@@ -668,6 +668,7 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
         learning_rate=1.0e-4,
         num_iterations=1,
         batch_size=4096,
+        distance_weight_sigma=0.3,
     ),
 )
 

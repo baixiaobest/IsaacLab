@@ -149,6 +149,16 @@ class RslRlLidarPredictionCfg:
     batch_size: int = 4096
     """Number of (obs, target) pairs per auxiliary minibatch."""
 
+    distance_weight_sigma: float | None = None
+    """Decay factor for near-field loss weighting.
+
+    When set, each element of the prediction MSE is weighted by ``1 - tanh(d / sigma)``,
+    where ``d`` is the ground-truth (normalized) target distance. This emphasizes accurate
+    prediction of nearby obstacles (small ``d``) over distant/free-space ones (large ``d``).
+    Smaller ``sigma`` sharpens the emphasis on the near field. If ``None``, the prediction
+    loss is unweighted (uniform MSE).
+    """
+
 
 @configclass
 class RslRlPpoAlgorithmCfg:
