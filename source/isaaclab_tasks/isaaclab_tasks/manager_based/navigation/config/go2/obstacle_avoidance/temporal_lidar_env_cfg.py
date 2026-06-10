@@ -29,7 +29,6 @@ TEMPORAL_LIDAR_NUM_BINS = 256    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
 TEMPORAL_LIDAR_POS_NOISE_STD = 0.05   # odometry noise (metres)
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = True  # emit the per-bin validity channel alongside distance
-TEMPORAL_LIDAR_ENABLE_PREDICTION = False  # emit the next-frame prediction target group (world-model head)
 
 # Derived obs size: C channels × H × fov_bins, where C = 2 with validity else 1
 TEMPORAL_LIDAR_FOV_BINS = int(round(TEMPORAL_LIDAR_NUM_BINS * TEMPORAL_LIDAR_FOV_DEG / 360.0))
@@ -121,9 +120,6 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
 
     policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
-    # Only instantiate the prediction group when enabled — disabled runs pay zero extra
-    # compute. The observation manager skips non-ObservationGroupCfg (None) members.
-    prediction: PredictionCfg | None = PredictionCfg() if TEMPORAL_LIDAR_ENABLE_PREDICTION else None
 
 
 # ---------------------------------------------------------------------------
