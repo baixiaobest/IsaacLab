@@ -86,3 +86,13 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Isaac-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.temporal_lidar_env_cfg:TemporalLidarPredictionObstacleAvoidanceEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPredictionPPORunnerCfg_v0",
+    },
+)
+

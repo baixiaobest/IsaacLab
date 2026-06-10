@@ -6,6 +6,7 @@ from isaaclab_rl.rsl_rl import (
     RslRlPpoAlgorithmCfg,
     RslRlPpoEncoderActorCriticCfg,
     RslRlPpoLidarActorCriticCfg,
+    RslRlLidarPredictionCfg,
     RslRlSymmetryCfg,
     RslRlRndCfg,
 )
@@ -631,3 +632,69 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
+
+
+# ---------------------------------------------------------------------------
+# Temporal-lidar with optional next-frame prediction head (world-model aux task)
+# ---------------------------------------------------------------------------
+# ConvTranspose1d stack upsampling the deconv input (C0=64, W0=8) back to the
+# target arc width (fov_bins). Each {k=4, s=2, p=1} layer exactly doubles width:
+# 8 -> 16 -> 32 -> 64 -> 128. Channels taper 64 -> 64 -> 32 -> 16 -> 1.
+TemporalLidarPredictionDeconvConfig = [
+    {"in_channels": 64, "out_channels": 64, "kernel_size": 4, "stride": 2, "padding": 1},  # 8 -> 16
+    {"out_channels": 32, "kernel_size": 4, "stride": 2, "padding": 1},                     # 16 -> 32
+    {"out_channels": 16, "kernel_size": 4, "stride": 2, "padding": 1},                     # 32 -> 64
+    {"out_channels": 1,  "kernel_size": 4, "stride": 2, "padding": 1},                     # 64 -> 128
+]
+
+# Dedicated algorithm config (a copy of ObstacleAvoidancePPOConfig) that also enables
+# the auxiliary prediction phase. Kept separate so the base task's shared config object
+# is never mutated.
+ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
+    value_loss_coef=1.0,
+    use_clipped_value_loss=True,
+    clip_param=0.2,
+    entropy_coef=0.005,
+    num_learning_epochs=5,
+    num_mini_batches=4,
+    learning_rate=1.0e-3,
+    schedule="adaptive",
+    gamma=0.995,
+    lam=0.995,
+    desired_kl=0.01,
+    max_grad_norm=1.0,
+    lidar_prediction_cfg=RslRlLidarPredictionCfg(
+        weight=1.0,
+        learning_rate=1.0e-3,
+        num_iterations=4,
+        batch_size=4096,
+    ),
+)
+
+
+@configclass
+class UnitreeGo2TemporalLidarPredictionPPORunnerCfg_v0(UnitreeGo2TemporalLidarPPORunnerCfg_v0):
+    """Temporal-lidar runner with the next-frame lidar prediction head enabled.
+
+    Requires the matching prediction-enabled env cfg (which instantiates the
+    ``prediction`` observation group).
+    """
+
+    experiment_name = "go2_temporal_lidar_obstacle_avoidance_prediction"
+    policy = RslRlPpoLidarActorCriticCfg(
+        init_noise_std=0.6,
+        noise_clip=1.0,
+        actor_hidden_dims=[256, 128, 64],
+        critic_hidden_dims=[256, 128, 64],
+        activation="elu",
+        lidar_obs_size=TEMPORAL_LIDAR_OBS_SIZE,
+        lidar_horizon=TEMPORAL_LIDAR_HORIZON,
+        lidar_fov_bins=TEMPORAL_LIDAR_FOV_BINS,
+        lidar_cnn_dims=TemporalLidarHorizonCNNConfig,
+        other_mlp_dims=[16, 16],
+        enable_prediction_head=True,
+        pred_cnn_dims=TemporalLidarPredictionDeconvConfig,
+        pred_cnn_input_width=8,
+        pred_target_channels=1,
+    )
+    algorithm = ObstacleAvoidancePredictionPPOConfig

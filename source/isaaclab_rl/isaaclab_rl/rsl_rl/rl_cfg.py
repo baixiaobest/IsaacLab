@@ -90,6 +90,19 @@ class RslRlPpoLidarActorCriticCfg(RslRlPpoActorCriticCfg):
     noise_clip: float = 1.0
     """Tanh-clipping scale for action noise."""
 
+    enable_prediction_head: bool = False
+    """Whether to build the optional next-frame lidar prediction head. Default is False."""
+
+    pred_cnn_dims: list[dict] | None = None
+    """ConvTranspose1d layer configs that upsample the deconv input back to ``fov_bins``.
+    The first layer must specify ``in_channels``. Only used when the head is enabled."""
+
+    pred_cnn_input_width: int = 8
+    """Initial width fed into the deconv stack (reshaped from the MLP output)."""
+
+    pred_target_channels: int = 1
+    """Number of channels in the prediction target (1 = distance only)."""
+
 
 @configclass
 class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
@@ -111,6 +124,30 @@ class RslRlPpoActorCriticRecurrentCfg(RslRlPpoActorCriticCfg):
 ############################
 # Algorithm configurations #
 ############################
+
+
+@configclass
+class RslRlLidarPredictionCfg:
+    """Configuration for the auxiliary next-frame lidar prediction training phase.
+
+    When set on :class:`RslRlPpoAlgorithmCfg`, after each PPO update a separate auxiliary
+    phase trains the shared lidar encoder + prediction head to predict the next lidar
+    frame (see ``LidarActorCritic.predict_next``). Requires the policy to be a
+    ``LidarActorCritic`` with ``enable_prediction_head=True`` and the environment to emit
+    a ``prediction`` observation group.
+    """
+
+    weight: float = 1.0
+    """Scaling factor applied to the prediction MSE loss."""
+
+    learning_rate: float = 1.0e-3
+    """Learning rate of the dedicated prediction optimizer."""
+
+    num_iterations: int = 4
+    """Number of auxiliary minibatch updates performed per PPO iteration."""
+
+    batch_size: int = 4096
+    """Number of (obs, target) pairs per auxiliary minibatch."""
 
 
 @configclass
@@ -169,6 +206,11 @@ class RslRlPpoAlgorithmCfg:
     rnd_cfg: RslRlRndCfg | None = None
     """The configuration for the Random Network Distillation (RND) module. Default is None,
     in which case RND is not used.
+    """
+
+    lidar_prediction_cfg: RslRlLidarPredictionCfg | None = None
+    """The configuration for the auxiliary next-frame lidar prediction head. Default is
+    None, in which case the prediction head is not trained.
     """
 
 
