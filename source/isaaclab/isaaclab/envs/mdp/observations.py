@@ -837,25 +837,28 @@ class TemporalLidarScan(ManagerTermBase):
         num_envs: int = env.num_envs
         device: str = env.device
 
-        # World-frame hit positions history: index 0 = most recent
-        self._hit_pos_buffer = torch.zeros(horizon, num_envs, num_rays, 3, device=device)
-        # Per-ray surface-hit flag (True = the ray physically struck a surface;
-        # False = the ray reached max range without hitting anything, i.e. free space)
-        self._ray_hit_valid_buffer = torch.zeros(horizon, num_envs, num_rays, dtype=torch.bool, device=device)
-        # Per-ray "real measurement" flag (True = this entry is an actual scanned ray;
-        # False = an uninitialised slot left by a reset). Distinguishes observed free
-        # space from genuinely unobserved history.
-        self._ray_real_buffer = torch.zeros(horizon, num_envs, num_rays, dtype=torch.bool, device=device)
+        self._horizon = horizon
+        # Circular write head: slot the most recent scan currently lives in. Advancing
+        # this pointer instead of shifting the whole tensor avoids a full-buffer clone
+        # (a large transient allocation) and O(H) copies on every step.
+        self._head = 0
+
+        # World-frame hit positions history. Only the XY plane is ever consumed by the
+        # projection below, so the unused Z component is not stored (saves 1/3 of the
+        # dominant buffer).
+        self._hit_pos_buffer = torch.zeros(horizon, num_envs, num_rays, 2, device=device)
+        # Per-ray state encoding three cases in a single uint8 (replaces two bool
+        # buffers): 0 = reset placeholder (unobserved), 1 = free-space ray (reached max
+        # range without hitting a surface), 2 = surface hit.
+        self._ray_state_buffer = torch.zeros(horizon, num_envs, num_rays, dtype=torch.uint8, device=device)
 
     def reset(self, env_ids=None):
         if env_ids is None:
             self._hit_pos_buffer[:] = 0.0
-            self._ray_hit_valid_buffer[:] = False
-            self._ray_real_buffer[:] = False
+            self._ray_state_buffer[:] = 0
         else:
             self._hit_pos_buffer[:, env_ids] = 0.0
-            self._ray_hit_valid_buffer[:, env_ids] = False
-            self._ray_real_buffer[:, env_ids] = False
+            self._ray_state_buffer[:, env_ids] = 0
 
     def __call__(
         self,
@@ -894,13 +897,12 @@ class TemporalLidarScan(ManagerTermBase):
         sensor_dist = torch.norm(ray_hits_w - pos_w.unsqueeze(1), dim=-1)  # (num_envs, num_rays)
         ray_hit_valid = sensor_dist < (max_distance * 0.99)
 
-        # --- Push new scan into front of rolling buffers ---
-        self._hit_pos_buffer[1:] = self._hit_pos_buffer[:-1].clone()
-        self._ray_hit_valid_buffer[1:] = self._ray_hit_valid_buffer[:-1].clone()
-        self._ray_real_buffer[1:] = self._ray_real_buffer[:-1].clone()
-        self._hit_pos_buffer[0] = ray_hits_w
-        self._ray_hit_valid_buffer[0] = ray_hit_valid
-        self._ray_real_buffer[0] = True  # every ray of the current scan is a real measurement
+        # --- Push new scan into the rolling buffers (circular, no shift/clone) ---
+        # Advance the head one slot back so it points at the new most-recent entry.
+        self._head = (self._head - 1) % self._horizon
+        self._hit_pos_buffer[self._head] = ray_hits_w[..., :2]  # store XY only
+        # State: 2 where a surface was struck, else 1 (free-space real measurement).
+        self._ray_state_buffer[self._head] = torch.where(ray_hit_valid, 2, 1).to(torch.uint8)
 
         # --- Extract current yaw for FOV selection ---
         _, _, cur_yaw = math_utils.euler_xyz_from_quat(quat_w)   # (num_envs,)
@@ -919,9 +921,12 @@ class TemporalLidarScan(ManagerTermBase):
         import math as _math
 
         for h in range(horizon):
-            hits = self._hit_pos_buffer[h]            # (num_envs, num_rays, 3)
-            hit_mask = self._ray_hit_valid_buffer[h]  # surface hit vs free-space ray
-            real_mask = self._ray_real_buffer[h]      # real measurement vs reset placeholder
+            # h is the age in steps (0 = most recent); map it to the circular slot.
+            slot = (self._head + h) % self._horizon
+            hits = self._hit_pos_buffer[slot]         # (num_envs, num_rays, 2) — XY only
+            state = self._ray_state_buffer[slot]      # 0=placeholder, 1=free-space, 2=hit
+            hit_mask = state == 2                      # surface hit vs free-space ray
+            real_mask = state > 0                      # real measurement vs reset placeholder
 
             # Position noise on projection centre (simulate cumulative odometry error)
             if pos_noise_std > 0.0 and h > 0:

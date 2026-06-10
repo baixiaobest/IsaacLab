@@ -586,14 +586,14 @@ TemporalLidarHorizonCNNConfig = [
      "stride": (1, 2),
      "padding": (0, 2)},
 
-    # Horizon: H->H/2 Lidar: 64 → 32
+    # Horizon: H → H/2 Lidar: 64 → 32
     {"type": "conv",
      "out_channels": 64,
      "kernel_size": (3, 3),
      "stride": (2, 2),
      "padding": (1, 1)},
 
-    # Horizon: H/2->H/4 Lidar: 32 → 16
+    # Horizon: H/2 → H/4 Lidar: 32 → 16
     {"type": "conv",
      "out_channels": 64,
      "kernel_size": (3, 3),
