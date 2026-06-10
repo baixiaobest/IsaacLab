@@ -569,8 +569,45 @@ TemporalLidarCNNConfig = [
      "stride": (1, 2),
      "padding": (0, 1)},
 ]
+# (32, H, 16) = 512 * H
 
-# (32, H, 16) = 512
+TemporalLidarHorizonCNNConfig = [
+    # Horizon: H Lidar: 128
+    {"type": "conv",
+     "out_channels": 16,
+     "kernel_size": (1, 5),
+     "stride": (1, 1),
+     "padding": (0, 2)},
+
+    # Horizon: H Lidar: 128 → 64
+    {"type": "conv",
+     "out_channels": 32,
+     "kernel_size": (1, 5),
+     "stride": (1, 2),
+     "padding": (0, 2)},
+
+    # Horizon: H->H/2 Lidar: 64 → 32
+    {"type": "conv",
+     "out_channels": 64,
+     "kernel_size": (3, 3),
+     "stride": (2, 2),
+     "padding": (1, 1)},
+
+    # Horizon: H/2->H/4 Lidar: 32 → 16
+    {"type": "conv",
+     "out_channels": 64,
+     "kernel_size": (3, 3),
+     "stride": (2, 2),
+     "padding": (1, 1)},
+
+     # Horizon: H/4 Lidar: 16 → 8
+    {"type": "conv",
+     "out_channels": 64,
+     "kernel_size": (1, 3),
+     "stride": (1, 2),
+     "padding": (0, 1)},
+]
+# (64, H/4, 8) = 512 * H/4
 
 @configclass
 class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
@@ -588,7 +625,7 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         lidar_obs_size=TEMPORAL_LIDAR_OBS_SIZE,
         lidar_horizon=TEMPORAL_LIDAR_HORIZON,
         lidar_fov_bins=TEMPORAL_LIDAR_FOV_BINS,
-        lidar_cnn_dims=TemporalLidarCNNConfig,
+        lidar_cnn_dims=TemporalLidarHorizonCNNConfig,
         other_mlp_dims=[16, 16],
     )
     algorithm = ObstacleAvoidancePPOConfig
