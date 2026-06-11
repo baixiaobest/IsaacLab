@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -12,11 +12,9 @@ simulation_app = AppLauncher(headless=True).app
 
 """Rest everything follows."""
 
+import pytest
 import torch
 
-import isaacsim.core.utils.prims as prim_utils
-import isaacsim.core.utils.stage as stage_utils
-import pytest
 from isaacsim.core.cloner import GridCloner
 
 import isaaclab.sim as sim_utils
@@ -41,7 +39,7 @@ from isaaclab_assets import FRANKA_PANDA_HIGH_PD_CFG, UR10_CFG  # isort:skip
 def sim():
     """Create a simulation context for testing."""
     # Wait for spawning
-    stage_utils.create_new_stage()
+    stage = sim_utils.create_new_stage()
     # Constants
     num_envs = 128
     # Load kit helper
@@ -59,7 +57,7 @@ def sim():
     cloner.define_base_env("/World/envs")
     env_prim_paths = cloner.generate_paths("/World/envs/env", num_envs)
     # create source prim
-    prim_utils.define_prim(env_prim_paths[0], "Xform")
+    stage.DefinePrim(env_prim_paths[0], "Xform")
     # clone the env xform
     cloner.clone(
         source_prim_path=env_prim_paths[0],
@@ -159,8 +157,8 @@ def _run_ik_controller(
     ee_pose_b_des = torch.zeros(num_envs, diff_ik_controller.action_dim, device=sim.device)
     ee_pose_b_des[:] = ee_pose_b_des_set[current_goal_idx]
     # Compute current pose of the end-effector
-    ee_pose_w = robot.data.body_state_w[:, ee_frame_idx, 0:7]
-    root_pose_w = robot.data.root_state_w[:, 0:7]
+    ee_pose_w = robot.data.body_pose_w[:, ee_frame_idx]
+    root_pose_w = robot.data.root_pose_w
     ee_pos_b, ee_quat_b = subtract_frame_transforms(
         root_pose_w[:, 0:3], root_pose_w[:, 3:7], ee_pose_w[:, 0:3], ee_pose_w[:, 3:7]
     )
@@ -207,8 +205,8 @@ def _run_ik_controller(
             # so we MUST skip the first step
             # obtain quantities from simulation
             jacobian = robot.root_physx_view.get_jacobians()[:, ee_jacobi_idx, :, arm_joint_ids]
-            ee_pose_w = robot.data.body_state_w[:, ee_frame_idx, 0:7]
-            root_pose_w = robot.data.root_state_w[:, 0:7]
+            ee_pose_w = robot.data.body_pose_w[:, ee_frame_idx]
+            root_pose_w = robot.data.root_pose_w
             base_rot = root_pose_w[:, 3:7]
             base_rot_matrix = matrix_from_quat(quat_inv(base_rot))
             jacobian[:, :3, :] = torch.bmm(base_rot_matrix, jacobian[:, :3, :])

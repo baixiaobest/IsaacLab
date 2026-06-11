@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -7,8 +7,9 @@
 
 import isaaclab.terrains as terrain_gen
 
-from ..terrain_generator_cfg import TerrainGeneratorCfg, FlatPatchSamplingCfg
+from ..terrain_generator_cfg import TerrainGeneratorCfg
 from ..single_terrain_generator_cfg import SingleTerrainGeneratorCfg
+from ..sub_terrain_cfg import FlatPatchSamplingCfg
 
 FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     num_patches=1000,
@@ -16,7 +17,6 @@ FLAT_PATCH_CFG = FlatPatchSamplingCfg(
     x_range=(-10, 10.0),
     y_range=(-10.0, 10.0),
     max_height_diff=0.2,
-    min_distance=0.0
 )
 
 FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
@@ -26,7 +26,6 @@ FLAT_PATCH_HEIGHT_LIMITTED_CFG = FlatPatchSamplingCfg(
     y_range=(-10.0, 10.0),
     z_range=(-0.4, 0.4),  # Limit the height to a small range
     max_height_diff=0.2,
-    min_distance=0.0
 )
 
 ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(

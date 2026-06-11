@@ -4,13 +4,47 @@ from isaaclab_rl.rsl_rl import (
     RslRlOnPolicyRunnerCfg,
     RslRlPpoActorCriticCfg,
     RslRlPpoAlgorithmCfg,
-    RslRlPpoEncoderActorCriticCfg,
-    RslRlPpoLidarActorCriticCfg,
+    RslRlEncoderModelCfg,
+    RslRlMLPModelCfg,
+    RslRlLidarModelCfg,
     RslRlLidarPredictionCfg,
     RslRlSymmetryCfg,
     RslRlRndCfg,
 )
 import torch
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the encoder-model navigation configs (migrated from EncoderActorCritic).
+# The actor encodes the tail of the flat "policy" observation; the critic either shares that encoder
+# (share_cnn_encoders=True on the algorithm) or, when not shared, is a plain MLP over the full observation.
+# ---------------------------------------------------------------------------
+def _enc_actor(hidden_dims, init_std, encoder_dims=None, encoder_type="mlp",
+               encoder_obs_normalize=False, tanh_output=True):
+    return RslRlEncoderModelCfg(
+        hidden_dims=hidden_dims,
+        activation="elu",
+        distribution_cfg=RslRlEncoderModelCfg.GaussianDistributionCfg(init_std=init_std, std_type="scalar"),
+        encoder_dims=encoder_dims,
+        encoder_type=encoder_type,
+        encoder_obs_normalize=encoder_obs_normalize,
+        tanh_output=tanh_output,
+    )
+
+
+def _enc_critic_shared(hidden_dims, encoder_dims, encoder_type="cnn", encoder_obs_normalize=False):
+    return RslRlEncoderModelCfg(
+        hidden_dims=hidden_dims,
+        activation="elu",
+        distribution_cfg=None,
+        encoder_dims=encoder_dims,
+        encoder_type=encoder_type,
+        encoder_obs_normalize=encoder_obs_normalize,
+    )
+
+
+def _mlp_critic(hidden_dims):
+    return RslRlMLPModelCfg(hidden_dims=hidden_dims, activation="elu", distribution_cfg=None)
 
 NavPPOConfig = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
@@ -34,15 +68,10 @@ class UnitreeGo2NavigationPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     save_interval = 100
     experiment_name = "unitree_go2_navigation_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
-        encoder_dims=[1066, 128, 64, 32],
-        actor_hidden_dims=[64, 64, 64, 32],
-        critic_hidden_dims=[256, 256, 128],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([64, 64, 64, 32], init_std=0.8, encoder_dims=[1066, 128, 64, 32], encoder_type="mlp",
+                       tanh_output=True)
+    critic = _mlp_critic([256, 256, 128])
     algorithm = NavPPOConfig
     logger="wandb"
     wandb_project="navigation"
@@ -54,15 +83,9 @@ class UnitreeGo2NavigationNoScandotsPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     save_interval = 100
     experiment_name = "unitree_go2_navigation_no_scandots_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.5,
-        noise_clip=1.0,
-        encoder_dims=None,
-        actor_hidden_dims=[128, 128],
-        critic_hidden_dims=[128, 128],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128], init_std=0.5, encoder_dims=None, tanh_output=True)
+    critic = _mlp_critic([128, 128])
     algorithm = NavPPOConfig
     logger="wandb"
     wandb_project="navigation"
@@ -103,6 +126,23 @@ cnn_config = [
     }
 ]
 
+# NavPPOConfig variant that shares the actor's CNN encoder with the critic (share_encoder_with_critic=True).
+NavPPOShareCNNConfig = RslRlPpoAlgorithmCfg(
+    value_loss_coef=1.0,
+    use_clipped_value_loss=True,
+    clip_param=0.2,
+    entropy_coef=0.005,
+    num_learning_epochs=5,
+    num_mini_batches=4,
+    learning_rate=1.0e-3,
+    schedule="adaptive",
+    gamma=0.99,
+    lam=0.95,
+    desired_kl=0.01,
+    max_grad_norm=1.0,
+    share_cnn_encoders=True,
+)
+
 @configclass
 class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
@@ -110,19 +150,11 @@ class UnitreeGo2NavigationCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     save_interval = 100
     experiment_name = "unitree_go2_navigation_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.5,
-        noise_clip=1.0,
-        encoder_dims=cnn_config,
-        encoder_type="cnn",
-        encoder_obs_normalize=False,
-        share_encoder_with_critic=True,
-        actor_hidden_dims=[128, 128, 64],
-        critic_hidden_dims=[128, 128, 64],
-        activation="elu",
-        tanh_output=True,
-    )
-    algorithm = NavPPOConfig
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128, 64], init_std=0.5, encoder_dims=cnn_config, encoder_type="cnn",
+                       encoder_obs_normalize=False, tanh_output=True)
+    critic = _enc_critic_shared([128, 128, 64], encoder_dims=cnn_config, encoder_type="cnn")
+    algorithm = NavPPOShareCNNConfig
     logger="wandb"
     wandb_project="navigation"
 
@@ -232,6 +264,8 @@ NavE2EPPOConfig = RslRlPpoAlgorithmCfg(
         lam=0.995,
         desired_kl=0.01,
         max_grad_norm=1.0,
+        # All users of this config share the actor's CNN encoder with the critic.
+        share_cnn_encoders=True,
     )
 
 def no_encoder_augmentation(
@@ -332,18 +366,10 @@ class UnitreeGo2NavigationEnd2EndEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     save_jit = True
     experiment_name = "unitree_go2_navigation_end2end_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
-        encoder_dims=e2e_cnn_config,
-        encoder_type="cnn",
-        encoder_obs_normalize=False,
-        share_encoder_with_critic=True,
-        actor_hidden_dims=[128, 128, 64, 64],
-        critic_hidden_dims=[128, 128, 64, 64],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128, 64, 64], init_std=0.8, encoder_dims=e2e_cnn_config, encoder_type="cnn",
+                       encoder_obs_normalize=False, tanh_output=True)
+    critic = _enc_critic_shared([128, 128, 64, 64], encoder_dims=e2e_cnn_config, encoder_type="cnn")
     algorithm = NavE2EPPOConfig
     logger="wandb"
     wandb_project="e2e_navigation"
@@ -356,16 +382,9 @@ class UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0(RslRlOnPolicyRun
     save_jit = True
     experiment_name = "unitree_go2_navigation_end2end_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
-        encoder_dims=None,
-        encoder_obs_normalize=False,
-        actor_hidden_dims=[128, 128, 64],
-        critic_hidden_dims=[128, 128],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128, 64], init_std=0.8, encoder_dims=None, tanh_output=True)
+    critic = _mlp_critic([128, 128])
     algorithm = NavE2EObstacleScanNoEncoderPPOConfig
     logger="wandb"
     wandb_project="e2e_navigation"
@@ -378,16 +397,9 @@ class UnitreeGo2NavigationEnd2EndNoEncoderStairsOnlyEnvCfgPPORunnerCfg_v0(RslRlO
     save_jit = True
     experiment_name = "unitree_go2_navigation_stairs_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
-        encoder_dims=None,
-        encoder_obs_normalize=False,
-        actor_hidden_dims=[128, 128, 64],
-        critic_hidden_dims=[128, 128, 64],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128, 64], init_std=0.8, encoder_dims=None, tanh_output=True)
+    critic = _mlp_critic([128, 128, 64])
     algorithm = NavE2EObstacleScanNoEncoderPPOConfig
     wandb_project="stairs_climbing"
 
@@ -399,18 +411,10 @@ class UnitreeGo2NavigationEnd2EndCNNPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     save_jit = True
     experiment_name = "unitree_go2_navigation_stairs_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
-        encoder_dims=e2e_cnn_config,
-        encoder_type="cnn",
-        encoder_obs_normalize=False,
-        share_encoder_with_critic=True,
-        actor_hidden_dims=[128, 128, 64],
-        critic_hidden_dims=[128, 128, 64],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128, 64], init_std=0.8, encoder_dims=e2e_cnn_config, encoder_type="cnn",
+                       encoder_obs_normalize=False, tanh_output=True)
+    critic = _enc_critic_shared([128, 128, 64], encoder_dims=e2e_cnn_config, encoder_type="cnn")
     algorithm = NavE2EPPOConfig
     wandb_project="stairs_climbing"
     logger="wandb"
@@ -442,6 +446,8 @@ NavRNDPPOConfig = RslRlPpoAlgorithmCfg(
         lam=0.995,
         desired_kl=0.01,
         max_grad_norm=1.0,
+        # The only user of this config shares the actor's CNN encoder with the critic.
+        share_cnn_encoders=True,
     )
 
 @configclass
@@ -452,18 +458,10 @@ class UnitreeGo2NavigationEnd2End_CNN_RND_PPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
     save_jit = True
     experiment_name = "unitree_go2_navigation_stairs_v0"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.8,
-        noise_clip=1.0,
-        encoder_dims=e2e_cnn_config,
-        encoder_type="cnn",
-        encoder_obs_normalize=False,
-        share_encoder_with_critic=True,
-        actor_hidden_dims=[128, 128, 64],
-        critic_hidden_dims=[128, 128, 64],
-        activation="elu",
-        tanh_output=True,
-    )
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = _enc_actor([128, 128, 64], init_std=0.8, encoder_dims=e2e_cnn_config, encoder_type="cnn",
+                       encoder_obs_normalize=False, tanh_output=True)
+    critic = _enc_critic_shared([128, 128, 64], encoder_dims=e2e_cnn_config, encoder_type="cnn")
     disable_rnd_load=True
     algorithm = NavRNDPPOConfig
     wandb_project="stairs_climbing"
@@ -523,11 +521,11 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
 
 
 # ---------------------------------------------------------------------------
-# Temporal-lidar obstacle avoidance (LidarActorCritic)
+# Temporal-lidar obstacle avoidance (LidarModel)
 # ---------------------------------------------------------------------------
 # These dimensions MUST match the observation term. Import them from the env
-# cfg (single source of truth) so the policy and the observation can never
-# drift out of sync — a mismatch produces a negative-dimension crash at policy
+# cfg (single source of truth) so the model and the observation can never
+# drift out of sync — a mismatch produces a negative-dimension crash at model
 # construction.
 # ---------------------------------------------------------------------------
 from ..obstacle_avoidance.temporal_lidar_env_cfg import (
@@ -538,7 +536,7 @@ from ..obstacle_avoidance.temporal_lidar_env_cfg import (
 
 # CNN over the (C, H, fov_bins) lidar tensor, where C is 1 or 2 channels depending
 # on the observation term's include_validity flag. The first conv omits in_channels
-# so LidarActorCritic supplies the inferred channel count.
+# so LidarModel supplies the inferred channel count.
 # Spatial progression (width): 128 → 128 → 64 → 32 → 16 → 2 (adaptive)
 # The first layer uses stride 1 to extract local features before any downsampling.
 TemporalLidarCNNConfig = [
@@ -610,18 +608,33 @@ TemporalLidarHorizonCNNConfig = [
 ]
 # (64, H/4, 8) = 512 * H/4
 
-@configclass
-class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 24
-    max_iterations = 3000
-    save_interval = 100
-    experiment_name = "go2_temporal_lidar_obstacle_avoidance"
-    empirical_normalization = False
-    policy = RslRlPpoLidarActorCriticCfg(
-        init_noise_std=0.6,
-        noise_clip=1.0,
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
+# Dedicated algorithm config (a copy of ObstacleAvoidancePPOConfig) that shares the lidar CNN encoder between the
+# actor and critic LidarModels. Kept separate so the base task's shared config object is never mutated.
+ObstacleAvoidanceLidarPPOConfig = RslRlPpoAlgorithmCfg(
+    value_loss_coef=1.0,
+    use_clipped_value_loss=True,
+    clip_param=0.2,
+    entropy_coef=0.005,
+    num_learning_epochs=5,
+    num_mini_batches=4,
+    learning_rate=1.0e-3,
+    schedule="adaptive",
+    gamma=0.995,
+    lam=0.995,
+    desired_kl=0.01,
+    max_grad_norm=1.0,
+    share_cnn_encoders=True,
+)
+
+
+def _temporal_lidar_model_cfg(**overrides) -> RslRlLidarModelCfg:
+    """Build a LidarModel config for the temporal-lidar obstacle-avoidance task.
+
+    Defaults match the actor; pass ``distribution_cfg=None`` for the (deterministic) critic and the prediction-head
+    fields for the actor when the auxiliary head is enabled.
+    """
+    base = dict(
+        hidden_dims=[256, 128, 64],
         activation="elu",
         lidar_obs_size=TEMPORAL_LIDAR_OBS_SIZE,
         lidar_horizon=TEMPORAL_LIDAR_HORIZON,
@@ -629,7 +642,24 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
         lidar_cnn_dims=TemporalLidarHorizonCNNConfig,
         other_mlp_dims=[16, 16],
     )
-    algorithm = ObstacleAvoidancePPOConfig
+    base.update(overrides)
+    return RslRlLidarModelCfg(**base)
+
+
+@configclass
+class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 3000
+    save_interval = 100
+    experiment_name = "go2_temporal_lidar_obstacle_avoidance"
+    empirical_normalization = False
+    # actor reads the (noisy) "policy" lidar group; critic reads the privileged noiseless "critic" group.
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
+    actor = _temporal_lidar_model_cfg(
+        distribution_cfg=RslRlLidarModelCfg.GaussianDistributionCfg(init_std=0.6, std_type="scalar"),
+    )
+    critic = _temporal_lidar_model_cfg(distribution_cfg=None)
+    algorithm = ObstacleAvoidanceLidarPPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
 
@@ -663,6 +693,9 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
     lam=0.995,
     desired_kl=0.01,
     max_grad_norm=1.0,
+    # Share the lidar CNN encoder between actor and critic so the auxiliary prediction phase shapes the same
+    # encoder the policy uses.
+    share_cnn_encoders=True,
     lidar_prediction_cfg=RslRlLidarPredictionCfg(
         weight=0.2,
         learning_rate=1.0e-4,
@@ -682,20 +715,13 @@ class UnitreeGo2TemporalLidarPredictionPPORunnerCfg_v0(UnitreeGo2TemporalLidarPP
     """
 
     experiment_name = "go2_temporal_lidar_obstacle_avoidance_prediction"
-    policy = RslRlPpoLidarActorCriticCfg(
-        init_noise_std=0.6,
-        noise_clip=1.0,
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
-        activation="elu",
-        lidar_obs_size=TEMPORAL_LIDAR_OBS_SIZE,
-        lidar_horizon=TEMPORAL_LIDAR_HORIZON,
-        lidar_fov_bins=TEMPORAL_LIDAR_FOV_BINS,
-        lidar_cnn_dims=TemporalLidarHorizonCNNConfig,
-        other_mlp_dims=[16, 16],
+    # Only the actor carries the prediction head; the critic shares its CNN encoder via ``share_cnn_encoders``.
+    actor = _temporal_lidar_model_cfg(
+        distribution_cfg=RslRlLidarModelCfg.GaussianDistributionCfg(init_std=0.6, std_type="scalar"),
         enable_prediction_head=True,
         pred_cnn_dims=TemporalLidarPredictionDeconvConfig,
         pred_cnn_input_width=8,
         pred_target_channels=1,
     )
+    critic = _temporal_lidar_model_cfg(distribution_cfg=None)
     algorithm = ObstacleAvoidancePredictionPPOConfig

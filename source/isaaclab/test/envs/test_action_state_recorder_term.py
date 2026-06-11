@@ -1,8 +1,7 @@
-# Copyright (c) 2024-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
-
 """Launch Isaac Sim Simulator first."""
 
 from isaaclab.app import AppLauncher
@@ -13,15 +12,16 @@ simulation_app = AppLauncher(headless=True).app
 
 """Rest everything follows."""
 
-import gymnasium as gym
 import shutil
 import tempfile
-import torch
 import uuid
+
+import gymnasium as gym
+import pytest
+import torch
 
 import carb
 import omni.usd
-import pytest
 
 from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
 
