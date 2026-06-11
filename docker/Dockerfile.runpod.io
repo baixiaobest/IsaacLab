@@ -14,10 +14,13 @@ RUN yes | apt-get install pip
 
 # Clone the repository and initialize submodules
 WORKDIR /code
-RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git \
-    && cd IsaacLab \
-    && git submodule update --init --recursive
+RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git
 
+WORKDIR /code/IsaacLab
+RUN git checkout upstream_merge_2026_6
+RUN git submodule update --init --recursive
+
+WORKDIR /code
 RUN git clone https://github.com/baixiaobest/occupancy_prediction.git
 
 # Set the working directory to IsaacLab and make the script executable
