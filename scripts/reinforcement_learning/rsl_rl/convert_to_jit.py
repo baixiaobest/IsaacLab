@@ -40,7 +40,6 @@ parser = argparse.ArgumentParser(description="Convert RSL-RL checkpoint to Torch
 parser.add_argument("--task", type=str, required=True, help="Gym task name for which the policy was trained.")
 parser.add_argument("--output", type=str, default=None, help="Output JIT path. Defaults to <checkpoint>_jit.pt")
 parser.add_argument("--disable_fabric", action="store_true", default=False, help="Disable Fabric (use USD I/O).")
-parser.add_argument("--force_trace", action="store_true", default=False, help="Force torch.jit.trace instead of scripting fallback.")
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -124,53 +123,19 @@ def main() -> None:
     # Default output path.
     jit_path = args_cli.output or resume_path.replace(".pt", "_jit.pt")
 
-    # If the policy provides a built-in JIT exporter, use it.
-    policy_model = runner.alg.policy
-    if hasattr(policy_model, "save_as_jit_script"):
-        print("[INFO] Using policy.save_as_jit_script() to export TorchScript.")
-        policy_model.save_as_jit_script(jit_path)
-        print(f"[INFO] Saved JIT to: {jit_path}")
-    else:
-        print("[INFO] Policy has no save_as_jit_script. Falling back to scripting/tracing the inference module.")
-
-        obs, extras = env.get_observations()
-        sample_obs = obs[:1].to(args_cli.device)
-
-        class _PolicyWrapper(torch.nn.Module):
-            def __init__(self, policy):
-                super().__init__()
-                self.policy = policy
-
-            def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-                if hasattr(self.policy, "act_inference"):
-                    return self.policy.act_inference(x)
-                if hasattr(self.policy, "actor"):
-                    return self.policy.actor(x)
-                return self.policy(x)
-
-        wrapper = _PolicyWrapper(policy_model).to(args_cli.device)
-        wrapper.eval()
-
-        scripted = None
-        if not args_cli.force_trace:
-            try:
-                scripted = torch.jit.script(wrapper)
-                scripted.save(jit_path)
-                print(f"[INFO] Successfully scripted and saved to: {jit_path}")
-            except Exception as e:
-                print(f"[WARN] Scripting failed ({e}). Trying to trace...")
-
-        if scripted is None:
-            with torch.inference_mode():
-                traced = torch.jit.trace(wrapper, sample_obs.to(args_cli.device))
-                traced.save(jit_path)
-                print(f"[INFO] Successfully traced and saved to: {jit_path}")
+    # Export the actor via the runner's built-in TorchScript exporter (rsl_rl >= 5.0).
+    policy_model = runner.alg.actor
+    export_dir = os.path.dirname(jit_path) or "."
+    export_filename = os.path.basename(jit_path)
+    runner.export_policy_to_jit(path=export_dir, filename=export_filename)
+    print(f"[INFO] Saved JIT to: {jit_path}")
 
     # Verify we can load the saved JIT and do a forward pass.
     try:
         loaded = torch.jit.load(jit_path, map_location=args_cli.device)
-        obs, _ = env.get_observations()
-        test_in = obs[:1].to(args_cli.device)
+        obs = env.get_observations()
+        flat_obs = torch.cat([obs[group] for group in policy_model.obs_groups], dim=-1)
+        test_in = flat_obs[:1].to(args_cli.device)
         with torch.inference_mode():
             out = loaded(test_in)
         print(f"[INFO] Verification pass succeeded, output shape: {tuple(out.shape)}")

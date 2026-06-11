@@ -56,7 +56,6 @@ from isaaclab.utils.assets import retrieve_file_path
 from isaaclab_tasks.utils import parse_env_cfg
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
-from isaaclab_rl.rsl_rl.exporter import _TorchPolicyExporter
 
 import isaaclab_tasks  # noqa: F401
 
@@ -148,17 +147,6 @@ def _resolve_output_path(policy_checkpoint: str) -> str:
         return os.path.abspath(args_cli.output)
     export_dir = os.path.join(os.path.dirname(policy_checkpoint), "exported")
     return os.path.join(export_dir, "policy_estimator.pt")
-
-
-def _extract_policy_module(ppo_runner: OnPolicyRunner) -> torch.nn.Module:
-    """Extract the policy module in a version-compatible way."""
-    try:
-        policy_module = ppo_runner.alg.policy
-    except AttributeError:
-        policy_module = getattr(ppo_runner.alg, "actor_critic", None)
-    if not isinstance(policy_module, torch.nn.Module):
-        raise RuntimeError(f"Unsupported policy module type: {type(policy_module)}")
-    return policy_module
 
 
 def _split_schema_path(path: str) -> tuple[str, str]:
@@ -326,8 +314,8 @@ def main() -> None:
             policy_obs_dim,
         ) = _build_wrapper_layout(observation_specs, input_paths, target_paths, input_dim, target_dim)
 
-        policy_module = _extract_policy_module(ppo_runner)
-        exported_policy = _TorchPolicyExporter(policy_module, ppo_runner.obs_normalizer).to(export_device)
+        policy_module = ppo_runner.get_inference_policy(device=export_device)
+        exported_policy = policy_module.as_jit().to(export_device)
         exported_policy.eval()
         estimator = estimator.to(export_device)
         estimator.eval()

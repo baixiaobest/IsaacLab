@@ -251,8 +251,7 @@ def main() -> None:
     if "policy" not in observation_specs or "ground_truth" not in observation_specs:
         raise RuntimeError("The environment must expose both 'policy' and 'ground_truth' observation groups.")
 
-    obs, extras = env.get_observations()
-    current_obs_dict = extras["observations"]
+    current_obs_dict = env.get_observations()
     expanded_obs = split_observation_groups(current_obs_dict, observation_specs)
 
     estimator = None
@@ -324,14 +323,17 @@ def main() -> None:
                     )
                     if policy is None:
                         raise RuntimeError("Policy callable is not initialized.")
-                    actions = policy(policy_obs)
+                    policy_obs_dict = current_obs_dict.clone()
+                    policy_obs_dict["policy"] = policy_obs
+                    actions = policy(policy_obs_dict)
 
             _update_rmse_accumulators(rmse_accumulators, estimator_output, ground_truth, target_layout)
 
             with torch.inference_mode():
-                _, _, dones, extras = env.step(actions)
+                next_obs_dict, _, dones, _ = env.step(actions)
+                if policy is not None:
+                    policy.reset(dones)
 
-            next_obs_dict = extras["observations"]
             next_expanded_obs = split_observation_groups(next_obs_dict, observation_specs)
             next_features = _gather_estimator_inputs(next_expanded_obs, input_paths)
             history = _advance_history(history, next_features, dones.to(dtype=torch.bool))

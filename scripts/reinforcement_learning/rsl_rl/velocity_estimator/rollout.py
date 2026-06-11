@@ -288,8 +288,8 @@ def main() -> None:
         },
     )
 
-    obs, extras = env.get_observations()
-    current_obs_dict = extras["observations"]
+    obs = env.get_observations()
+    current_obs_dict = obs
     episode_buffers = [EpisodeData() for _ in range(env.num_envs)]
     episode_step_counts = [0 for _ in range(env.num_envs)]
 
@@ -322,9 +322,10 @@ def main() -> None:
 
             with torch.inference_mode():
                 obs, rewards, dones, extras = env.step(actions)
+                policy.reset(dones)
 
             time_outs = extras.get("time_outs", torch.zeros_like(dones, dtype=torch.bool))
-            next_obs_dict = extras["observations"]
+            next_obs_dict = obs
 
             for env_id, episode in enumerate(episode_buffers):
                 _add_step_outcome(episode, rewards, dones, time_outs, env_id)
