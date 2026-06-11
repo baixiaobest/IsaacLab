@@ -1,5 +1,5 @@
 # Use the NVIDIA Isaac Sim 4.5.0 base image
-# (touch to trigger CI build)
+# (touch to trigger CI build+)
 FROM nvcr.io/nvidia/isaac-sim:4.5.0
 
 # Set EULA acceptance environment variable
