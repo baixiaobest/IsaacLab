@@ -39,10 +39,12 @@ env:
   CRON_BRANCHES: develop,release/3.0.0-beta2
 
 on:
-  schedule:
-    # Run nightly at 5 AM UTC (one hour after daily-compatibility, so we
-    # don't compete for runner capacity).
-    - cron: '0 5 * * *'
+  # Scheduled run disabled on this fork (pushes back to upstream branches
+  # not relevant here, and requires the isaaclab-bot App installation).
+  # schedule:
+  #   # Run nightly at 5 AM UTC (one hour after daily-compatibility, so we
+  #   # don't compete for runner capacity).
+  #   - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       branch:
