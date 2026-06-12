@@ -39,6 +39,10 @@ RUN ./isaaclab.sh -p -m pip install numpy==1.26.0
 # Run the installation script with the -i flag (install mode)
 RUN bash ./isaaclab.sh -i
 
+# Install the local rsl_rl source in editable mode, replacing the prebuilt
+# rsl-rl-lib package pulled in by isaaclab.sh -i
+RUN ./isaaclab.sh -p -m pip install -e ./source/rsl_rl
+
 RUN ./isaaclab.sh -p -m pip install wandb==0.23.1
 
 RUN ./isaaclab.sh -p -m pip install noise
