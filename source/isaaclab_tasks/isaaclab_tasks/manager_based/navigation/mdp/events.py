@@ -54,3 +54,32 @@ class activate_event_terrain_level_reached(ManagerTermBase):
             func(env, env_ids, **callback_params)
         else:
             return
+
+
+def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir: float = 1.0):
+    """(Re)spawn the social-force pedestrian crowd for ``env_ids``.
+
+    Derives the per-env corridor geometry (origin, length, width) from the env's current
+    sub-terrain (``terrain.terrain_origins[terrain.terrain_levels, terrain.terrain_types]`` plus
+    the terrain generator's ``size``), then calls ``env.crowd_manager.reset_idx`` — preserving
+    the active pedestrian count and speed range last set by :func:`pedestrian_crowd_curriculum`.
+
+    Must be declared after ``reset_base`` (mode="reset") so ``terrain_origins``/``terrain_levels``
+    reflect this episode's terrain assignment before being read here.
+    """
+    terrain: TerrainImporter = env.scene.terrain
+
+    levels = terrain.terrain_levels[env_ids]
+    types = terrain.terrain_types[env_ids]
+    corridor_origin = terrain.terrain_origins[levels, types][:, :2]
+
+    size = terrain.cfg.terrain_generator.size
+    corridor_length = torch.full((len(env_ids),), size[0], device=env.device)
+    corridor_width = torch.full((len(env_ids),), size[1], device=env.device)
+    flow_dir_t = torch.full((len(env_ids),), flow_dir, device=env.device)
+
+    crowd_manager = env.crowd_manager
+    num_active = crowd_manager.active_mask[env_ids].sum(dim=1)
+    speed_range = crowd_manager._speed_range[env_ids]
+
+    crowd_manager.reset_idx(env_ids, corridor_origin, flow_dir_t, corridor_length, corridor_width, num_active, speed_range)

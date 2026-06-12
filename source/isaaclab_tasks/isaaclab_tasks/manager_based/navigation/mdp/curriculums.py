@@ -62,6 +62,46 @@ def pose_2d_command_terrain_curriculum_with_threshold(
     return {"mean": torch.mean(terrain.terrain_levels.float()), "max": torch.max(terrain.terrain_levels.float())}
 
 
+def pedestrian_crowd_curriculum(
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
+        max_level: int,
+        count_range_low: tuple[int, int],
+        count_range_high: tuple[int, int],
+        speed_range_low: tuple[float, float],
+        speed_range_high: tuple[float, float],
+):
+    """Ramp the active pedestrian count and preferred-speed range with terrain level.
+
+    For each env in ``env_ids``, linearly interpolates ``count_range``/``speed_range``
+    between the "low" (terrain level 0) and "high" (terrain level == ``max_level``)
+    settings according to ``env.scene.terrain.terrain_levels[env_id] / max_level``, then
+    forwards the result to ``env.crowd_manager`` (a :class:`SocialForceCrowdManager`).
+
+    This term must be declared AFTER ``terrain_levels`` (``pose_2d_command_terrain_curriculum``)
+    in the curriculum config so ``terrain.terrain_levels`` reflects this episode's update
+    before being read here.
+    """
+    env_ids_t = torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
+
+    terrain: TerrainImporter = env.scene.terrain
+    levels = terrain.terrain_levels[env_ids_t].float()
+    t = (levels / max(max_level, 1)).clamp(0.0, 1.0)
+
+    count_min = count_range_low[0] + t * (count_range_high[0] - count_range_low[0])
+    count_max = count_range_low[1] + t * (count_range_high[1] - count_range_low[1])
+    num_active = (count_min + torch.rand_like(t) * (count_max - count_min)).round().long()
+
+    speed_min = speed_range_low[0] + t * (speed_range_high[0] - speed_range_low[0])
+    speed_max = speed_range_low[1] + t * (speed_range_high[1] - speed_range_low[1])
+    speed_range = torch.stack([speed_min, speed_max], dim=-1)
+
+    env.crowd_manager.set_active_count(env_ids_t, num_active)
+    env.crowd_manager.set_speed_range(env_ids_t, speed_range)
+
+    return {"mean_active": num_active.float().mean(), "mean_speed": speed_max.mean()}
+
+
 def terrain_level_contact_penalty_curriculum(
         env: ManagerBasedRLEnv,
         env_ids: Sequence[int],
