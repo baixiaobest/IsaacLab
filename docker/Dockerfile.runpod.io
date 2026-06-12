@@ -18,7 +18,6 @@ WORKDIR /code
 RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git
 
 WORKDIR /code/IsaacLab
-RUN git checkout upstream_merge_2026_6
 RUN git submodule update --init --recursive
 
 WORKDIR /code
