@@ -43,6 +43,7 @@ jobs:
       - name: Extract git tag
         id: vars
         run: |
+          git fetch --tags --force
           TAG=$(git describe --tags --abbrev=0)
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
