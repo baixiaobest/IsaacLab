@@ -71,7 +71,7 @@ from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_singl
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab_tasks.utils import parse_env_cfg
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
 
 installed_version = metadata.version("rsl-rl-lib")
 
@@ -222,7 +222,7 @@ def main() -> None:
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
     # handle deprecated configurations (e.g. `policy` -> `actor`/`critic`)
-    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
+    agent_cfg: RslRlBaseRunnerCfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
 
     estimator_checkpoint_path = retrieve_file_path(args_cli.estimator_checkpoint) if args_cli.estimator_checkpoint else None
     policy_estimator_jit_path = retrieve_file_path(args_cli.policy_estimator_jit) if args_cli.policy_estimator_jit else None
