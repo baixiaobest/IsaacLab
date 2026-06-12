@@ -415,8 +415,8 @@ def height_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: float 
     # height scan: height = sensor_height - hit_point_z - offset
     return sensor.data.pos_w[:, 2].unsqueeze(1) - sensor.data.ray_hits_w[..., 2] - offset
 
-def lidar_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, 
-               max: float=20.0, 
+def lidar_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg,
+               max: float=20.0,
                scale_distance: bool=False) -> torch.Tensor:
     """Lidar scan from the given sensor w.r.t. the sensor's frame."""
     # extract the used quantities (to enable type-hinting)
@@ -428,6 +428,63 @@ def lidar_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg,
         distances = distances / max
 
     return distances.view(env.num_envs, -1)
+
+
+def occupancy_grid_from_lidar(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    grid_resolution: float = 0.2,
+    grid_size: int = 64,
+    min_height_rel: float = -0.1,
+    max_height_rel: float = 1.5,
+    max_range: float = 10.0,
+) -> torch.Tensor:
+    """2D binary occupancy grid (ego-centric) from a lidar sensor.
+
+    Projects lidar hits onto the XY plane. Cells within ``max_range`` that
+    receive a hit between ``min_height_rel`` and ``max_height_rel`` (both
+    relative to the sensor origin) are marked 1.0; all other cells are 0.0.
+
+    Returns shape ``(num_envs, grid_size * grid_size)``, row-major (X = row).
+    The robot/sensor sits at the grid centre.
+
+    Args:
+        sensor_cfg: Scene entity pointing to a :class:`RayCaster` sensor.
+        grid_resolution: Metres per cell.
+        grid_size: Number of cells per side (square grid).
+        min_height_rel: Minimum hit height relative to sensor to count as an obstacle.
+            Typically set so that ground returns are excluded (sensor is ~0.6 m above
+            ground on Go2, so -0.3 keeps near-ground objects while rejecting the floor).
+        max_height_rel: Maximum hit height relative to sensor to count as an obstacle.
+        max_range: Rays that travel farther than this (i.e. missed rays) are ignored.
+    """
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+    ray_hits = sensor.data.ray_hits_w  # (N, R, 3)
+    sensor_pos = sensor.data.pos_w    # (N, 3)
+    N = ray_hits.shape[0]
+
+    rel = ray_hits - sensor_pos.unsqueeze(1)  # (N, R, 3) — hit positions relative to sensor
+    dists = torch.norm(rel, dim=-1)           # (N, R)
+
+    valid = (
+        (dists < max_range * 0.99)        # exclude max-range misses
+        & (rel[..., 2] >= min_height_rel)
+        & (rel[..., 2] <= max_height_rel)
+    )
+
+    half = grid_size // 2
+    ix = (rel[..., 0] / grid_resolution + half).long()  # (N, R)
+    iy = (rel[..., 1] / grid_resolution + half).long()  # (N, R)
+    in_bounds = (ix >= 0) & (ix < grid_size) & (iy >= 0) & (iy < grid_size)
+    valid = valid & in_bounds
+
+    flat_idx = (ix * grid_size + iy).clamp(0, grid_size * grid_size - 1)
+    flat_idx_safe = torch.where(valid, flat_idx, torch.zeros_like(flat_idx))
+
+    grid = torch.zeros(N, grid_size * grid_size, dtype=torch.float32, device=ray_hits.device)
+    # amax reduce: a cell stays 1 even if a later invalid ray maps to the same index
+    grid.scatter_reduce_(1, flat_idx_safe, valid.float(), reduce="amax", include_self=True)
+    return grid
 
 
 def body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
