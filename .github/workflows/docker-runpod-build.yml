@@ -16,6 +16,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@main
@@ -40,7 +43,7 @@ jobs:
       - name: Extract git tag
         id: vars
         run: |
-          TAG=$(git rev-parse --short HEAD)
+          TAG=$(git describe --tags --abbrev=0)
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build and push image
@@ -50,7 +53,7 @@ jobs:
           file: docker/Dockerfile.runpod.io
           push: true
           tags: |
-            baixiaobest/isaaclab-${{ steps.vars.outputs.TAG }}
-            baixiaobest/isaaclab-latest
+            baixiaobest/isaaclab:${{ steps.vars.outputs.TAG }}
+            baixiaobest/isaaclab:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
