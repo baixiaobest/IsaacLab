@@ -1,19 +1,21 @@
-"""Pedestrian-flow / pedestrian-crossing scenarios for Go2 obstacle avoidance.
+"""Unified pedestrian scenario for Go2 obstacle avoidance (co-trains flow + crossing).
 
-Combines the corridor terrains (:mod:`pedestrian_terrains`), pedestrian rigid-object
-collections (:mod:`pedestrian_scene`), corridor goal commands and pedestrian-crowd
-events/curriculum (``mdp.pedestrian_commands`` / ``mdp.events`` / ``mdp.curriculums``) with
-each of the three existing observation variants (base / temporal-lidar / temporal-lidar +
-prediction) via multiple inheritance — mirroring how :mod:`temporal_lidar_env_cfg` overrides
-only ``observations`` on top of :class:`ObstacleAvoidanceEnvCfg`.
-
-Two scenario families:
+A single corridor terrain (:mod:`pedestrian_terrains`) hosts BOTH scenario families on the
+same envs, with the per-episode scenario selected per-env at reset:
 
 - **Flow** (scenarios a/b: with/against pedestrian flow): goal is sampled up- or downstream of
-  the robot's spawn along the corridor's flow axis — whichever direction is sampled relative to
-  the crowd's flow direction determines whether the episode is "with-flow" or "against-flow".
-- **Crossing** (scenario c): robot spawns on one side of a perpendicular pedestrian-flow
-  corridor, goal is on the opposite side.
+  the robot's spawn along the corridor's flow axis (local-x) — whichever direction is sampled
+  relative to the crowd's flow direction makes the episode "with-flow" or "against-flow".
+- **Crossing** (scenario c): robot spawns near one edge of the corridor and the goal is placed
+  on the opposite side, so it must thread across the perpendicular pedestrian flow.
+
+The pedestrian crowd is scenario-independent (it always flows along local-x), so both scenarios
+share one crowd, one terrain, one curriculum, and one set of env configs — only the robot's
+spawn pose (``reset_pedestrian_scenario_robot``) and goal sampling
+(:class:`CorridorPedestrianPose2dCommand`) branch on the sampled scenario mode. This halves the
+number of mixins/registrations versus separate flow and crossing families while keeping both
+scenarios explicit. The three observation variants (base / temporal-lidar / temporal-lidar +
+prediction) are layered on top via inheritance, mirroring :mod:`temporal_lidar_env_cfg`.
 """
 
 from __future__ import annotations
@@ -42,39 +44,55 @@ from .pedestrian_scene import (
     PedestrianCollectionCfg,
     PedestrianVisualCollectionCfg,
 )
-from .pedestrian_terrains import (
-    PEDESTRIAN_CROSSING_CORRIDOR,
-    PEDESTRIAN_CURRICULUM_MAX_LEVEL,
-    PEDESTRIAN_FLOW_CORRIDOR,
-)
+from .pedestrian_terrains import PEDESTRIAN_CORRIDOR, PEDESTRIAN_CURRICULUM_MAX_LEVEL
 from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
 
 # ---------------------------------------------------------------------------
-# Pedestrian curriculum ranges
+# Pedestrian curriculum ranges (merged across flow + crossing scenarios)
 # ---------------------------------------------------------------------------
+# Both scenarios share one crowd, so one count/speed ramp covers both. The high end is taken
+# from the denser crossing scenario; the low end keeps early training sparse/slow.
+PED_COUNT_RANGE_LOW = (2, 4)
+PED_COUNT_RANGE_HIGH = (9, 12)
+PED_SPEED_RANGE_LOW = (0.3, 0.7)
+PED_SPEED_RANGE_HIGH = (0.9, 1.5)
 
-# Flow corridor (scenarios a/b): moderate density, ramps from a sparse/slow crowd to a
-# dense/fast one as terrain_levels increases.
-FLOW_COUNT_RANGE_LOW = (2, 4)
-FLOW_COUNT_RANGE_HIGH = (8, 12)
-FLOW_SPEED_RANGE_LOW = (0.3, 0.6)
-FLOW_SPEED_RANGE_HIGH = (0.8, 1.4)
+# Probability that a given reset spawns a *crossing* episode (vs. a flow episode).
+CROSSING_PROB = 0.5
 
-# Crossing corridor (scenario c): denser flow since the robot must thread across it.
-CROSSING_COUNT_RANGE_LOW = (3, 6)
-CROSSING_COUNT_RANGE_HIGH = (10, 12)
-CROSSING_SPEED_RANGE_LOW = (0.4, 0.7)
-CROSSING_SPEED_RANGE_HIGH = (1.0, 1.6)
+# Robot spawn pose ranges (corridor-local, relative to the env/terrain origin).
+_FLOW_SPAWN_POSE_RANGE = {"x": (-1.0, 1.0), "y": (-1.5, 1.5), "yaw": (-math.pi, math.pi)}
+# Crossing south start: spawn near the south edge facing +y (north). Crossing north start:
+# spawn near the north edge facing -y (south). Randomizing the crossing direction lets the
+# robot see the crowd (which always flows along +x) sweep across its path from both sides.
+_CROSSING_SOUTH_SPAWN_POSE_RANGE = {
+    "x": (-1.5, 1.5),
+    "y": (-5.5, -4.5),
+    "yaw": (math.pi / 2 - 0.5, math.pi / 2 + 0.5),
+}
+_CROSSING_NORTH_SPAWN_POSE_RANGE = {
+    "x": (-1.5, 1.5),
+    "y": (4.5, 5.5),
+    "yaw": (-math.pi / 2 - 0.5, -math.pi / 2 + 0.5),
+}
+_ZERO_VELOCITY_RANGE = {
+    "x": (0.0, 0.0),
+    "y": (0.0, 0.0),
+    "z": (0.0, 0.0),
+    "roll": (0.0, 0.0),
+    "pitch": (0.0, 0.0),
+    "yaw": (0.0, 0.0),
+}
 
 
 # ---------------------------------------------------------------------------
-# Flow scenario fragments (scenarios a/b: with/against pedestrian flow)
+# Scenario fragments
 # ---------------------------------------------------------------------------
 
 @configclass
-class _PedestrianFlowSceneCfg:
-    terrain: TerrainImporterCfg = ObstacleAvoidanceSceneCfg.terrain.replace(
-        terrain_generator=PEDESTRIAN_FLOW_CORRIDOR
+class _PedestrianSceneCfg:
+    terrain: TerrainImporterCfg = ObstacleAvoidanceSceneCfg().terrain.replace(
+        terrain_generator=PEDESTRIAN_CORRIDOR
     )
     pedestrians: RigidObjectCollectionCfg = PedestrianCollectionCfg()
     pedestrian_visuals: RigidObjectCollectionCfg | None = (
@@ -83,40 +101,42 @@ class _PedestrianFlowSceneCfg:
 
 
 @configclass
-class _PedestrianFlowCommandsCfg:
-    pose_2d_command: nav_mdp.CorridorFlowPose2dCommandCfg = nav_mdp.CorridorFlowPose2dCommandCfg(
+class _PedestrianCommandsCfg:
+    pose_2d_command: nav_mdp.CorridorPedestrianPose2dCommandCfg = nav_mdp.CorridorPedestrianPose2dCommandCfg(
         asset_name="robot",
         simple_heading=False,
         stationary_prob=0.1,
-        ranges=nav_mdp.CorridorFlowPose2dCommandCfg.Ranges(
+        ranges=nav_mdp.CorridorPedestrianPose2dCommandCfg.Ranges(
             pos_x=(0.0, 0.0),
             pos_y=(0.0, 0.0),
             heading=(-math.pi, math.pi),
             pos_z=(0.3, 0.4),
         ),
         resampling_time_range=(COMMAND_RESAMPLING_TIME_S, COMMAND_RESAMPLING_TIME_S),
+        # flow-scenario goal
         goal_distance_range=(4.0, 8.0),
         corridor_half_length=9.0,
         corridor_half_width=2.0,
+        # crossing-scenario goal
+        goal_y=5.0,
+        crossing_x_range=(-1.5, 1.5),
         debug_vis=True,
     )
 
 
 @configclass
-class _PedestrianFlowEventCfg:
+class _PedestrianEventCfg:
+    # Overrides the parent reset_base: samples the per-env scenario mode and spawns the robot
+    # from the flow or crossing pose range accordingly.
     reset_base = EventTerm(
-        func=mdp.reset_root_state_uniform,
+        func=nav_mdp.reset_pedestrian_scenario_robot,
         mode="reset",
         params={
-            "pose_range": {"x": (-1.0, 1.0), "y": (-1.5, 1.5), "yaw": (-math.pi, math.pi)},
-            "velocity_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
-            },
+            "flow_pose_range": _FLOW_SPAWN_POSE_RANGE,
+            "crossing_south_pose_range": _CROSSING_SOUTH_SPAWN_POSE_RANGE,
+            "crossing_north_pose_range": _CROSSING_NORTH_SPAWN_POSE_RANGE,
+            "velocity_range": _ZERO_VELOCITY_RANGE,
+            "crossing_prob": CROSSING_PROB,
         },
     )
 
@@ -128,7 +148,7 @@ class _PedestrianFlowEventCfg:
 
 
 @configclass
-class _PedestrianFlowCurriculumCfg:
+class _PedestrianCurriculumCfg:
     discrete_obstacles = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "ped_corridor"})
     concentric_maze: CurrTerm | None = None
 
@@ -136,216 +156,69 @@ class _PedestrianFlowCurriculumCfg:
         func=nav_mdp.pedestrian_crowd_curriculum,
         params={
             "max_level": PEDESTRIAN_CURRICULUM_MAX_LEVEL,
-            "count_range_low": FLOW_COUNT_RANGE_LOW,
-            "count_range_high": FLOW_COUNT_RANGE_HIGH,
-            "speed_range_low": FLOW_SPEED_RANGE_LOW,
-            "speed_range_high": FLOW_SPEED_RANGE_HIGH,
+            "count_range_low": PED_COUNT_RANGE_LOW,
+            "count_range_high": PED_COUNT_RANGE_HIGH,
+            "speed_range_low": PED_SPEED_RANGE_LOW,
+            "speed_range_high": PED_SPEED_RANGE_HIGH,
         },
     )
 
 
 @configclass
-class PedestrianFlowSceneCfg(_PedestrianFlowSceneCfg, ObstacleAvoidanceSceneCfg):
+class PedestrianSceneCfg(_PedestrianSceneCfg, ObstacleAvoidanceSceneCfg):
     pass
 
 
 @configclass
-class PedestrianFlowCommandsCfg(_PedestrianFlowCommandsCfg, CommandsCfg):
+class PedestrianCommandsCfg(_PedestrianCommandsCfg, CommandsCfg):
     pass
 
 
 @configclass
-class PedestrianFlowEventCfg(_PedestrianFlowEventCfg, EventCfg):
+class PedestrianEventCfg(_PedestrianEventCfg, EventCfg):
     pass
 
 
 @configclass
-class PedestrianFlowCurriculumCfg(_PedestrianFlowCurriculumCfg, CurriculumCfg):
-    pass
-
-
-# ---------------------------------------------------------------------------
-# Crossing scenario fragments (scenario c: robot crosses the pedestrian flow)
-# ---------------------------------------------------------------------------
-
-@configclass
-class _PedestrianCrossingSceneCfg:
-    terrain: TerrainImporterCfg = ObstacleAvoidanceSceneCfg.terrain.replace(
-        terrain_generator=PEDESTRIAN_CROSSING_CORRIDOR
-    )
-    pedestrians: RigidObjectCollectionCfg = PedestrianCollectionCfg()
-    pedestrian_visuals: RigidObjectCollectionCfg | None = (
-        PedestrianVisualCollectionCfg() if ENABLE_PEDESTRIAN_VISUAL_MESHES else None
-    )
-
-
-@configclass
-class _PedestrianCrossingCommandsCfg:
-    pose_2d_command: nav_mdp.CorridorCrossingPose2dCommandCfg = nav_mdp.CorridorCrossingPose2dCommandCfg(
-        asset_name="robot",
-        simple_heading=False,
-        stationary_prob=0.1,
-        ranges=nav_mdp.CorridorCrossingPose2dCommandCfg.Ranges(
-            pos_x=(0.0, 0.0),
-            pos_y=(0.0, 0.0),
-            heading=(-math.pi, math.pi),
-            pos_z=(0.3, 0.4),
-        ),
-        resampling_time_range=(COMMAND_RESAMPLING_TIME_S, COMMAND_RESAMPLING_TIME_S),
-        spawn_y=-5.0,
-        goal_y=5.0,
-        x_range=(-1.5, 1.5),
-        debug_vis=True,
-    )
-
-
-@configclass
-class _PedestrianCrossingEventCfg:
-    reset_base = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "pose_range": {
-                "x": (-1.5, 1.5),
-                "y": (-5.5, -4.5),
-                "yaw": (math.pi / 2 - 0.5, math.pi / 2 + 0.5),
-            },
-            "velocity_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
-            },
-        },
-    )
-
-    reset_pedestrians = EventTerm(
-        func=nav_mdp.reset_pedestrian_crowd,
-        mode="reset",
-        params={"flow_dir": 1.0},
-    )
-
-
-@configclass
-class _PedestrianCrossingCurriculumCfg:
-    discrete_obstacles = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "ped_crossing"})
-    concentric_maze: CurrTerm | None = None
-
-    pedestrian_density = CurrTerm(
-        func=nav_mdp.pedestrian_crowd_curriculum,
-        params={
-            "max_level": PEDESTRIAN_CURRICULUM_MAX_LEVEL,
-            "count_range_low": CROSSING_COUNT_RANGE_LOW,
-            "count_range_high": CROSSING_COUNT_RANGE_HIGH,
-            "speed_range_low": CROSSING_SPEED_RANGE_LOW,
-            "speed_range_high": CROSSING_SPEED_RANGE_HIGH,
-        },
-    )
-
-
-@configclass
-class PedestrianCrossingSceneCfg(_PedestrianCrossingSceneCfg, ObstacleAvoidanceSceneCfg):
-    pass
-
-
-@configclass
-class PedestrianCrossingCommandsCfg(_PedestrianCrossingCommandsCfg, CommandsCfg):
-    pass
-
-
-@configclass
-class PedestrianCrossingEventCfg(_PedestrianCrossingEventCfg, EventCfg):
-    pass
-
-
-@configclass
-class PedestrianCrossingCurriculumCfg(_PedestrianCrossingCurriculumCfg, CurriculumCfg):
+class PedestrianCurriculumCfg(_PedestrianCurriculumCfg, CurriculumCfg):
     pass
 
 
 # ---------------------------------------------------------------------------
-# Top-level environment configs — Flow (scenarios a/b)
+# Top-level environment configs
 # ---------------------------------------------------------------------------
 
 @configclass
-class PedestrianFlowObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
-    """Go2 navigates a corridor with/against a social-force pedestrian flow."""
+class PedestrianObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
+    """Go2 co-trains flow (with/against) and crossing social-force pedestrian scenarios."""
 
-    scene: PedestrianFlowSceneCfg = PedestrianFlowSceneCfg(num_envs=4096, env_spacing=2.5)
-    commands: PedestrianFlowCommandsCfg = PedestrianFlowCommandsCfg()
-    events: PedestrianFlowEventCfg = PedestrianFlowEventCfg()
-    curriculum: PedestrianFlowCurriculumCfg = PedestrianFlowCurriculumCfg()
+    scene: PedestrianSceneCfg = PedestrianSceneCfg(num_envs=4096, env_spacing=2.5)
+    commands: PedestrianCommandsCfg = PedestrianCommandsCfg()
+    events: PedestrianEventCfg = PedestrianEventCfg()
+    curriculum: PedestrianCurriculumCfg = PedestrianCurriculumCfg()
 
     social_force: nav_mdp.SocialForceCrowdCfg = nav_mdp.SocialForceCrowdCfg()
     pedestrian_flow_dir: float = 1.0
-    pedestrian_init_count: int = FLOW_COUNT_RANGE_LOW[1]
-    pedestrian_init_speed_range: tuple[float, float] = FLOW_SPEED_RANGE_LOW
+    pedestrian_init_count: int = PED_COUNT_RANGE_LOW[1]
+    pedestrian_init_speed_range: tuple[float, float] = PED_SPEED_RANGE_LOW
 
 
 @configclass
-class PedestrianFlowTemporalLidarObstacleAvoidanceEnvCfg(PedestrianFlowObstacleAvoidanceEnvCfg):
-    """Pedestrian-flow scenario with temporal-lidar observations."""
+class PedestrianTemporalLidarObstacleAvoidanceEnvCfg(PedestrianObstacleAvoidanceEnvCfg):
+    """Unified pedestrian scenario with temporal-lidar observations."""
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
 
 
 @configclass
-class PedestrianFlowTemporalLidarPredictionObstacleAvoidanceEnvCfg(PedestrianFlowObstacleAvoidanceEnvCfg):
-    """Pedestrian-flow scenario with temporal-lidar + next-frame prediction observations."""
+class PedestrianTemporalLidarPredictionObstacleAvoidanceEnvCfg(PedestrianObstacleAvoidanceEnvCfg):
+    """Unified pedestrian scenario with temporal-lidar + next-frame prediction observations."""
 
     observations: TemporalLidarPredictionObservationsCfg = TemporalLidarPredictionObservationsCfg()
 
 
 @configclass
-class PedestrianFlowObstacleAvoidanceEnvCfg_PLAY(PedestrianFlowObstacleAvoidanceEnvCfg):
-    """Play variant: fewer envs, starts at the lowest pedestrian-density curriculum level."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 16
-        self.scene.env_spacing = 2.5
-        self.scene.terrain.max_init_terrain_level = 0
-        self.observations.policy.enable_corruption = False
-        self.actions.pre_trained_policy_action.debug_vis = True
-
-
-# ---------------------------------------------------------------------------
-# Top-level environment configs — Crossing (scenario c)
-# ---------------------------------------------------------------------------
-
-@configclass
-class PedestrianCrossingObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
-    """Go2 crosses a perpendicular social-force pedestrian flow corridor."""
-
-    scene: PedestrianCrossingSceneCfg = PedestrianCrossingSceneCfg(num_envs=4096, env_spacing=2.5)
-    commands: PedestrianCrossingCommandsCfg = PedestrianCrossingCommandsCfg()
-    events: PedestrianCrossingEventCfg = PedestrianCrossingEventCfg()
-    curriculum: PedestrianCrossingCurriculumCfg = PedestrianCrossingCurriculumCfg()
-
-    social_force: nav_mdp.SocialForceCrowdCfg = nav_mdp.SocialForceCrowdCfg()
-    pedestrian_flow_dir: float = 1.0
-    pedestrian_init_count: int = CROSSING_COUNT_RANGE_LOW[1]
-    pedestrian_init_speed_range: tuple[float, float] = CROSSING_SPEED_RANGE_LOW
-
-
-@configclass
-class PedestrianCrossingTemporalLidarObstacleAvoidanceEnvCfg(PedestrianCrossingObstacleAvoidanceEnvCfg):
-    """Pedestrian-crossing scenario with temporal-lidar observations."""
-
-    observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
-
-
-@configclass
-class PedestrianCrossingTemporalLidarPredictionObstacleAvoidanceEnvCfg(PedestrianCrossingObstacleAvoidanceEnvCfg):
-    """Pedestrian-crossing scenario with temporal-lidar + next-frame prediction observations."""
-
-    observations: TemporalLidarPredictionObservationsCfg = TemporalLidarPredictionObservationsCfg()
-
-
-@configclass
-class PedestrianCrossingObstacleAvoidanceEnvCfg_PLAY(PedestrianCrossingObstacleAvoidanceEnvCfg):
+class PedestrianObstacleAvoidanceEnvCfg_PLAY(PedestrianObstacleAvoidanceEnvCfg):
     """Play variant: fewer envs, starts at the lowest pedestrian-density curriculum level."""
 
     def __post_init__(self):

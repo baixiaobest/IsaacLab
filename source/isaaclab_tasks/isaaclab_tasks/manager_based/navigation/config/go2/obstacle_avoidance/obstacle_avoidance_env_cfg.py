@@ -317,16 +317,6 @@ class CurriculumCfg:
     discrete_obstacles = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
     concentric_maze = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "concentric_maze"})
 
-    # undesired_contacts_weight = CurrTerm(
-    #     func=nav_mdp.terrain_level_contact_penalty_curriculum,
-    #     params={
-    #         "max_level": CONTACT_PENALTY_MAX_LEVEL,
-    #         "reward_term_name": "undesired_contacts",
-    #         "weight_initial": -200.0,
-    #         "weight_final": -1000.0,
-    #     },
-    # )
-
 @configclass
 class TerminationsCfg:
     """Termination terms for the obstacle-avoidance task."""

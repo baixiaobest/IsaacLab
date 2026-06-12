@@ -38,7 +38,7 @@ from isaaclab_tasks.manager_based.navigation.mdp.social_force_crowd import (
 # target Isaac Sim install.
 ENABLE_PEDESTRIAN_VISUAL_MESHES = False
 
-_PEOPLE_USD_PATH = f"{ISAAC_NUCLEUS_DIR}/People/Characters/female_adult_business_02/female_adult_business_02.usd"
+_PEOPLE_USD_PATH = f"{ISAAC_NUCLEUS_DIR}People/Characters/original_male_adult_police_04/male_adult_police_04.usd"
 
 # Pedestrians are parked here (below ground) until the crowd manager places them.
 PED_PARK_Z = -50.0

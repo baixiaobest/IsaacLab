@@ -56,6 +56,78 @@ class activate_event_terrain_level_reached(ManagerTermBase):
             return
 
 
+def reset_pedestrian_scenario_robot(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    crossing_prob: float = 0.5,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Sample the per-env pedestrian scenario and reset the robot root state accordingly.
+
+    For each env in ``env_ids`` this draws a scenario mode and stores it in
+    ``env.pedestrian_scenario_mode`` (read later by :class:`CorridorPedestrianPose2dCommand` to
+    pick the matching goal):
+
+    - ``0`` = flow: spawn from ``flow_pose_range``, goal up/downstream along local-x.
+    - ``1`` = crossing south→north: spawn from ``crossing_south_pose_range`` (facing +y), goal
+      across the flow on the north side.
+    - ``2`` = crossing north→south: spawn from ``crossing_north_pose_range`` (facing -y), goal
+      across the flow on the south side.
+
+    ``crossing_prob`` is the probability of a crossing episode (vs. flow); a crossing episode is
+    then south→north or north→south with equal probability, so the robot experiences the crowd
+    sweeping across its path from both relative directions. The pedestrian crowd itself is
+    scenario-independent (it always flows along local-x), so it is (re)spawned separately by
+    :func:`reset_pedestrian_crowd`.
+
+    Must be declared as a ``mode="reset"`` event so it runs before the command manager resamples
+    the goal within the same reset, and ``env.pedestrian_scenario_mode`` must already exist (it
+    is allocated in :class:`PedestrianCrowdNavigationEnv`).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    n = len(env_ids)
+
+    # -- sample the scenario mode (0 = flow, 1 = cross S->N, 2 = cross N->S) --
+    is_crossing = torch.rand(n, device=env.device) < crossing_prob
+    is_north_start = torch.rand(n, device=env.device) < 0.5  # only meaningful when crossing
+    mode = torch.where(
+        is_crossing,
+        torch.where(is_north_start, torch.full_like(is_crossing, 2, dtype=torch.long),
+                    torch.full_like(is_crossing, 1, dtype=torch.long)),
+        torch.zeros_like(is_crossing, dtype=torch.long),
+    )
+    env.pedestrian_scenario_mode[env_ids] = mode
+
+    root_states = asset.data.default_root_state[env_ids].clone()
+
+    keys = ["x", "y", "z", "roll", "pitch", "yaw"]
+
+    def _sample(pose_range: dict[str, tuple[float, float]]) -> torch.Tensor:
+        ranges = torch.tensor([pose_range.get(k, (0.0, 0.0)) for k in keys], device=asset.device)
+        return math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (n, 6), device=asset.device)
+
+    flow_samples = _sample(flow_pose_range)
+    south_samples = _sample(crossing_south_pose_range)
+    north_samples = _sample(crossing_north_pose_range)
+    crossing_samples = torch.where(is_north_start.unsqueeze(-1), north_samples, south_samples)
+    rand_samples = torch.where(is_crossing.unsqueeze(-1), crossing_samples, flow_samples)
+
+    positions = root_states[:, 0:3] + env.scene.env_origins[env_ids] + rand_samples[:, 0:3]
+    orientations_delta = math_utils.quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
+    orientations = math_utils.quat_mul(root_states[:, 3:7], orientations_delta)
+
+    vel_ranges = torch.tensor([velocity_range.get(k, (0.0, 0.0)) for k in keys], device=asset.device)
+    vel_samples = math_utils.sample_uniform(vel_ranges[:, 0], vel_ranges[:, 1], (n, 6), device=asset.device)
+    velocities = root_states[:, 7:13] + vel_samples
+
+    asset.write_root_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
+    asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
+
 def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir: float = 1.0):
     """(Re)spawn the social-force pedestrian crowd for ``env_ids``.
 

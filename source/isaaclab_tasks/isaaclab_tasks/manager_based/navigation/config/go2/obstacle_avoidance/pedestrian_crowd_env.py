@@ -34,6 +34,12 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
 
         self._pedestrians: RigidObjectCollection = self.scene["pedestrians"]
 
+        # Per-env episode scenario, sampled each reset by reset_pedestrian_scenario_robot:
+        # 0 = flow (goal up/downstream), 1 = crossing (goal across the flow). Read by
+        # CorridorPedestrianPose2dCommand to select the matching goal. Allocated here so it
+        # exists before the first reset (events/commands read it during reset).
+        self.pedestrian_scenario_mode = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+
         # Persistent scratch buffer for _write_pedestrians_to_sim. Indices 4:6 (qx, qy)
         # are never written and stay zero for the lifetime of the env.
         self._pose_buf = torch.zeros(self.num_envs, self.crowd_manager.max_pedestrians, 7, device=self.device)

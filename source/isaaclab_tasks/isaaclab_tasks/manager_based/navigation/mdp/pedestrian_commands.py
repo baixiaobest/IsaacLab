@@ -61,30 +61,53 @@ class _CorridorPose2dCommandBase(UniformPose2dCommand):
             self.heading_command_w[env_ids] = r.uniform_(*self.cfg.ranges.heading)
 
 
-class CorridorFlowPose2dCommand(_CorridorPose2dCommandBase):
-    """Goal sampled up- or downstream of the corridor origin (scenarios a/b: with/against flow).
+class CorridorPedestrianPose2dCommand(_CorridorPose2dCommandBase):
+    """Unified corridor goal command that hosts both the flow and crossing scenarios.
 
-    The goal is placed at a random distance along the corridor axis (local x), in a random
-    direction (50/50), clamped to stay within the corridor. Whether the resulting episode is a
-    "with-flow" or "against-flow" instance is purely a consequence of this random direction
-    relative to the crowd's flow direction — no separate code paths are needed.
+    The per-env episode scenario is read from ``env.pedestrian_scenario_mode`` (0 = flow,
+    1 = crossing south→north, 2 = crossing north→south), which is sampled at reset by
+    ``reset_pedestrian_scenario_robot``. Both goal formulas are computed vectorized and selected
+    per-env with ``torch.where``, so a single command term co-trains both scenarios on one
+    corridor terrain:
+
+    - **flow** (mode 0): goal placed up/downstream along the corridor's flow axis (local-x)
+      at a random distance/direction, with a small lateral (local-y) offset.
+    - **crossing** (modes 1/2): goal placed on the far side across the flow at corridor-local
+      ``y = ±goal_y`` (sign opposite the robot's spawn side), with a random local-x. The two
+      crossing directions let the robot see the crowd sweep across from both relative sides.
     """
 
-    cfg: CorridorFlowPose2dCommandCfg
+    cfg: CorridorPedestrianPose2dCommandCfg
 
     def _resample_command(self, env_ids: Sequence[int]):
         corridor_origin = self._corridor_origins(env_ids)
         self.pos_command_w[env_ids] = corridor_origin
 
         n = len(env_ids)
+        # mode: 0 = flow, 1 = cross S->N, 2 = cross N->S (set in reset_pedestrian_scenario_robot).
+        mode = self._env.pedestrian_scenario_mode[env_ids]
+        is_crossing = mode >= 1
+        is_north_start = mode == 2  # spawned north → goal on the south side
+
+        # --- flow goal (local-x up/downstream, small local-y offset) ---
         direction = torch.where(
             torch.rand(n, device=self.device) < 0.5,
             torch.tensor(-1.0, device=self.device),
             torch.tensor(1.0, device=self.device),
         )
         distance = torch.empty(n, device=self.device).uniform_(*self.cfg.goal_distance_range)
-        local_x = (direction * distance).clamp(-self.cfg.corridor_half_length, self.cfg.corridor_half_length)
-        local_y = torch.empty(n, device=self.device).uniform_(-self.cfg.corridor_half_width, self.cfg.corridor_half_width)
+        flow_x = (direction * distance).clamp(-self.cfg.corridor_half_length, self.cfg.corridor_half_length)
+        flow_y = torch.empty(n, device=self.device).uniform_(
+            -self.cfg.corridor_half_width, self.cfg.corridor_half_width
+        )
+
+        # --- crossing goal (far side across the flow, random local-x) ---
+        cross_x = torch.empty(n, device=self.device).uniform_(*self.cfg.crossing_x_range)
+        # North-start crosses to the south (-goal_y); south-start crosses to the north (+goal_y).
+        cross_y = torch.where(is_north_start, -self.cfg.goal_y, self.cfg.goal_y)
+
+        local_x = torch.where(is_crossing, cross_x, flow_x)
+        local_y = torch.where(is_crossing, cross_y, flow_y)
 
         self.pos_command_w[env_ids, 0] += local_x
         self.pos_command_w[env_ids, 1] += local_y
@@ -92,56 +115,26 @@ class CorridorFlowPose2dCommand(_CorridorPose2dCommandBase):
         self._sample_heading(env_ids)
 
 
-class CorridorCrossingPose2dCommand(_CorridorPose2dCommandBase):
-    """Goal sampled on the far side of the crossing corridor (scenario c: crossing the flow).
-
-    The robot spawn (near corridor-local y = ``spawn_y``) is handled entirely by
-    ``EventCfg.reset_base``'s ``pose_range`` — this command only places the goal on the
-    opposite side, at corridor-local y = ``goal_y``.
-    """
-
-    cfg: CorridorCrossingPose2dCommandCfg
-
-    def _resample_command(self, env_ids: Sequence[int]):
-        corridor_origin = self._corridor_origins(env_ids)
-        self.pos_command_w[env_ids] = corridor_origin
-
-        n = len(env_ids)
-        local_x = torch.empty(n, device=self.device).uniform_(*self.cfg.x_range)
-
-        self.pos_command_w[env_ids, 0] += local_x
-        self.pos_command_w[env_ids, 1] += self.cfg.goal_y
-        self._set_pos_z(env_ids)
-        self._sample_heading(env_ids)
-
-
 @configclass
-class CorridorFlowPose2dCommandCfg(UniformPose2dCommandCfg):
-    """Configuration for :class:`CorridorFlowPose2dCommand`."""
+class CorridorPedestrianPose2dCommandCfg(UniformPose2dCommandCfg):
+    """Configuration for :class:`CorridorPedestrianPose2dCommand` (unified flow + crossing)."""
 
-    class_type: type = CorridorFlowPose2dCommand
+    class_type: type = CorridorPedestrianPose2dCommand
 
+    # -- flow-scenario fields (mode 0) --
     goal_distance_range: tuple[float, float] = (4.0, 8.0)
-    """Range of distances (m) along the corridor axis at which the goal is sampled."""
+    """Range of distances (m) along the corridor axis at which a flow goal is sampled."""
 
     corridor_half_length: float = 9.0
-    """Half-length of the corridor along its flow axis (m); goal local-x is clamped to this."""
+    """Half-length of the corridor along its flow axis (m); flow goal local-x is clamped to this."""
 
     corridor_half_width: float = 2.0
-    """Half-width of the corridor (m); goal local-y is sampled within ``±corridor_half_width``."""
+    """Half-width of the corridor (m); flow goal local-y is sampled within ``±corridor_half_width``."""
 
-
-@configclass
-class CorridorCrossingPose2dCommandCfg(UniformPose2dCommandCfg):
-    """Configuration for :class:`CorridorCrossingPose2dCommand`."""
-
-    class_type: type = CorridorCrossingPose2dCommand
-
-    spawn_y: float = -5.0
-    """Corridor-local y at which the robot spawns (informational; spawn is set via reset_base)."""
-
+    # -- crossing-scenario fields (modes 1/2) --
     goal_y: float = 5.0
-    """Corridor-local y at which the goal is placed (opposite side of the flow corridor)."""
+    """Corridor-local |y| at which a crossing goal is placed; the sign is chosen opposite the
+    robot's spawn side (south-start → +goal_y, north-start → -goal_y)."""
 
-    x_range: tuple[float, float] = (-1.5, 1.5)
-    """Range of corridor-local x at which the goal is sampled."""
+    crossing_x_range: tuple[float, float] = (-1.5, 1.5)
+    """Range of corridor-local x at which a crossing goal is sampled."""
