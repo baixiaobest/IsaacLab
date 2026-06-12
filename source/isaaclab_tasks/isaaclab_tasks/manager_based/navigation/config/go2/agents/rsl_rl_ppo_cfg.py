@@ -2,7 +2,6 @@ from isaaclab.utils import configclass
 
 from isaaclab_rl.rsl_rl import (
     RslRlOnPolicyRunnerCfg,
-    RslRlPpoActorCriticCfg,
     RslRlPpoAlgorithmCfg,
     RslRlEncoderModelCfg,
     RslRlMLPModelCfg,
@@ -475,13 +474,12 @@ class UnitreeGo2LocomotionVelPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     max_iterations = 2000
     save_interval = 100
     experiment_name = "go2_locomotion_vel"
-    empirical_normalization = False
-    policy = RslRlPpoActorCriticCfg(
-        init_noise_std=0.8,
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
+    actor = RslRlMLPModelCfg(
+        hidden_dims=[256, 128, 64],
         activation="elu",
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=0.8, std_type="scalar"),
     )
+    critic = _mlp_critic([256, 128, 64])
     algorithm = NavPPOConfig
     wandb_project="locomotion"
     logger="wandb"
@@ -508,13 +506,12 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     max_iterations = 2000
     save_interval = 100
     experiment_name = "go2_obstacle_avoidance_navigation"
-    empirical_normalization = False
-    policy = RslRlPpoActorCriticCfg(
-        init_noise_std=0.8,
-        actor_hidden_dims=[256, 128, 64],
-        critic_hidden_dims=[256, 128, 64],
+    actor = RslRlMLPModelCfg(
+        hidden_dims=[256, 128, 64],
         activation="elu",
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=0.8, std_type="scalar"),
     )
+    critic = _mlp_critic([256, 128, 64])
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
