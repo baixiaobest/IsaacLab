@@ -1,32 +1,45 @@
-name: Sync Fork with Upstream (IsaacLab)
+name: Sync Fork with Upstream (IsaacLab) – Excluding Workflow Files
 
 on:
-  # Run every Sunday at 18:00 UTC → Monday 2:00 AM Beijing Time
   schedule:
-    - cron: '0 18 * * 0'
-
-  # Allow manual trigger from GitHub Actions tab
+    - cron: '0 18 * * 0'   # Sunday 18:00 UTC → Monday 2:00 AM Beijing
   workflow_dispatch:
+
+permissions:
+  contents: write   # only need write to code, not workflows
 
 jobs:
   sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout your fork (baixiaobest/IsaacLab)
+      - name: Checkout your fork
         uses: actions/checkout@v4
         with:
-          ref: main                 # change to 'master' if your default branch is master
+          ref: main
           fetch-depth: 0
 
-      - name: Merge from upstream IsaacLab
-        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
-        with:
-          # Your fork's branch to update
-          target_sync_branch: main
-          # Automatically provided token (has write access to your fork)
-          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
-          # Upstream repository (official IsaacLab)
-          upstream_sync_repo: isaac-sim/IsaacLab
-          # Branch in the upstream repo (usually 'main')
-          upstream_sync_branch: main
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/isaac-sim/IsaacLab.git
+          git fetch upstream
+
+      - name: Merge upstream changes (without workflow files)
+        run: |
+          # Merge upstream/main into your main branch
+          git merge upstream/main --no-edit --allow-unrelated-histories || true
+
+          # If there are conflicts, abort and let you handle manually
+          if git status | grep -q "merge in progress"; then
+            echo "Merge conflicts detected. Please resolve manually."
+            git merge --abort
+            exit 1
+          fi
+
+          # Discard any changes to .github/workflows/ (keep your versions)
+          git reset HEAD -- .github/workflows/ 2>/dev/null || true
+          git checkout -- .github/workflows/ 2>/dev/null || true
+          git clean -fd .github/workflows/ 2>/dev/null || true
+
+      - name: Push updates to your fork
+        run: git push origin main
