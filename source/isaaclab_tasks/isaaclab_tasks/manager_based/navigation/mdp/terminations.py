@@ -377,6 +377,19 @@ class navigation_illegal_contact(ManagerTermBase):
         pass
 
 
+def pedestrian_capsule_collision(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminate when the robot overlaps an active pedestrian capsule (XY distance check).
+
+    Requires ``env.crowd_manager`` (see :class:`PedestrianCrowdNavigationEnv`).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    return env.crowd_manager.get_robot_collision(robot_pos)
+
+
 class navigation_root_z_velocity_out_of_limit(ManagerTermBase):
     """
     Terminate when the asset's root z-velocity is outside the provided limits.

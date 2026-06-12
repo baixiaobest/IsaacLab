@@ -25,6 +25,9 @@ import math
 from isaaclab.assets.rigid_object_collection import RigidObjectCollectionCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
@@ -33,11 +36,14 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .obstacle_avoidance_env_cfg import (
     COMMAND_RESAMPLING_TIME_S,
+    LIDAR_MAX_DISTANCE,
     CommandsCfg,
     CurriculumCfg,
     EventCfg,
     ObstacleAvoidanceEnvCfg,
     ObstacleAvoidanceSceneCfg,
+    RewardsCfg,
+    TerminationsCfg,
 )
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
@@ -52,7 +58,7 @@ from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarP
 # ---------------------------------------------------------------------------
 # Both scenarios share one crowd, so one count/speed ramp covers both. The high end is taken
 # from the denser crossing scenario; the low end keeps early training sparse/slow.
-PED_COUNT_RANGE_LOW = (2, 4)
+PED_COUNT_RANGE_LOW = (9, 12)
 PED_COUNT_RANGE_HIGH = (9, 12)
 PED_SPEED_RANGE_LOW = (0.3, 0.7)
 PED_SPEED_RANGE_HIGH = (0.9, 1.5)
@@ -97,6 +103,25 @@ class _PedestrianSceneCfg:
     pedestrians: RigidObjectCollectionCfg = PedestrianCollectionCfg()
     pedestrian_visuals: RigidObjectCollectionCfg | None = (
         PedestrianVisualCollectionCfg() if ENABLE_PEDESTRIAN_VISUAL_MESHES else None
+    )
+
+    # Overrides the base RayCasterCfg obstacle_scanner: also ray-casts against each env's
+    # pedestrian capsules (per-env isolated — env A's rays never hit env B's pedestrians).
+    obstacle_scanner: MultiMeshRayCasterCfg = MultiMeshRayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=ObstacleAvoidanceSceneCfg().obstacle_scanner.offset,
+        attach_yaw_only=True,
+        max_distance=LIDAR_MAX_DISTANCE,
+        pattern_cfg=ObstacleAvoidanceSceneCfg().obstacle_scanner.pattern_cfg,
+        debug_vis=True,
+        mesh_prim_paths=[
+            "/World/ground",
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Pedestrian_.*",
+                track_mesh_transforms=True,
+                merge_prim_meshes=False,
+            ),
+        ],
     )
 
 
@@ -184,6 +209,29 @@ class PedestrianCurriculumCfg(_PedestrianCurriculumCfg, CurriculumCfg):
     pass
 
 
+@configclass
+class _PedestrianRewardsCfg:
+    pedestrian_collision_penalty = RewTerm(
+        func=nav_mdp.pedestrian_capsule_collision_penalty,
+        weight=-200.0,
+    )
+
+
+@configclass
+class _PedestrianTerminationsCfg:
+    pedestrian_collision = DoneTerm(func=nav_mdp.pedestrian_capsule_collision)
+
+
+@configclass
+class PedestrianRewardsCfg(_PedestrianRewardsCfg, RewardsCfg):
+    pass
+
+
+@configclass
+class PedestrianTerminationsCfg(_PedestrianTerminationsCfg, TerminationsCfg):
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Top-level environment configs
 # ---------------------------------------------------------------------------
@@ -196,12 +244,17 @@ class PedestrianObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
     commands: PedestrianCommandsCfg = PedestrianCommandsCfg()
     events: PedestrianEventCfg = PedestrianEventCfg()
     curriculum: PedestrianCurriculumCfg = PedestrianCurriculumCfg()
+    rewards: PedestrianRewardsCfg = PedestrianRewardsCfg()
+    terminations: PedestrianTerminationsCfg = PedestrianTerminationsCfg()
 
     social_force: nav_mdp.SocialForceCrowdCfg = nav_mdp.SocialForceCrowdCfg()
     pedestrian_flow_dir: float = 1.0
     pedestrian_init_count: int = PED_COUNT_RANGE_LOW[1]
     pedestrian_init_speed_range: tuple[float, float] = PED_SPEED_RANGE_LOW
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.episode_length_s = 30.0
 
 @configclass
 class PedestrianTemporalLidarObstacleAvoidanceEnvCfg(PedestrianObstacleAvoidanceEnvCfg):

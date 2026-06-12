@@ -857,6 +857,18 @@ def stall_penalty(
 
     return enable_penalty.float()
 
+def pedestrian_capsule_collision_penalty(
+        env: ManagerBasedRLEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize the robot for overlapping an active pedestrian capsule (XY distance check).
+
+    Requires ``env.crowd_manager`` (see :class:`PedestrianCrowdNavigationEnv`).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    return env.crowd_manager.get_robot_collision(robot_pos).float()
+
+
 def speed_limit_penalty(
         env: ManagerBasedRLEnv,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),

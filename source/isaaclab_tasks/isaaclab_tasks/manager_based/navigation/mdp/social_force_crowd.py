@@ -58,7 +58,8 @@ class SocialForceCrowdCfg:
     """Effective collision radius of the robot used for the repulsion force [m]."""
 
     recycle_margin: float = 0.5
-    """Distance past the corridor end (along the flow axis) that triggers recycling [m]."""
+    """Distance from the corridor end (along the flow axis) at which a pedestrian is recycled
+    back to the start, before it actually reaches the end [m]."""
 
     wall_margin: float = 0.3
     """Lateral margin kept clear of the corridor walls when (re)spawning pedestrians [m]."""
@@ -248,10 +249,14 @@ class SocialForceCrowdManager:
         n = e.shape[0]
         margin = self.cfg.wall_margin
 
-        # Spread pedestrians uniformly along the corridor length, starting from the
-        # upstream end (local x = 0) and walking toward local x = corridor_length.
+        # corridor_origin is the CENTER of the corridor (see CorridorPedestrianPose2dCommand,
+        # which samples robot spawn/goals relative to this same center). Spread pedestrians
+        # uniformly along the corridor length in local x = [-corridor_length/2, +corridor_length/2],
+        # i.e. centered on the origin, walking toward the downstream end (+half_length if
+        # flow_dir > 0, else -half_length).
+        half_length = corridor_length.unsqueeze(1) / 2.0
         frac = torch.rand(n, p, device=self.device)
-        local_x = frac * corridor_length.unsqueeze(1)
+        local_x = frac * corridor_length.unsqueeze(1) - half_length
 
         half_width = (corridor_width.unsqueeze(1) / 2.0 - margin).clamp(min=0.0)
         local_y = (torch.rand(n, p, device=self.device) * 2.0 - 1.0) * half_width
@@ -264,10 +269,8 @@ class SocialForceCrowdManager:
 
         # Goal is the downstream end of the corridor along the flow direction, at the
         # pedestrian's own lateral offset (keeps the goal-attraction force purely axial).
-        # flow_dir is +-1; when flow_dir == -1 the downstream end is local x = 0.
-        goal_x = torch.where(
-            flow_dir.unsqueeze(1) > 0, corridor_length.unsqueeze(1), torch.zeros_like(corridor_length.unsqueeze(1))
-        )
+        # flow_dir is +-1; when flow_dir == -1 the downstream end is local x = -half_length.
+        goal_x = torch.where(flow_dir.unsqueeze(1) > 0, half_length, -half_length)
         goal = torch.stack([goal_x.expand(-1, p), local_y], dim=-1)
 
         vel = torch.zeros(n, p, 2, device=self.device)
@@ -351,14 +354,19 @@ class SocialForceCrowdManager:
         local_x = local[..., 0]
 
         flow_dir = self.flow_dir.unsqueeze(1)
-        end_x = torch.where(flow_dir > 0, self.corridor_length.unsqueeze(1), torch.zeros_like(self.corridor_length.unsqueeze(1)))
-        start_x = torch.where(flow_dir > 0, torch.zeros_like(end_x), self.corridor_length.unsqueeze(1))
+        half_length = self.corridor_length.unsqueeze(1) / 2.0
+        end_x = torch.where(flow_dir > 0, half_length, -half_length)
+        start_x = torch.where(flow_dir > 0, -half_length, half_length)
 
+        # The goal-attraction force has constant magnitude (desired_speed) regardless of
+        # distance to the goal, so pedestrians oscillate around the corridor end rather than
+        # reliably overshooting it. Recycle as soon as a pedestrian gets within `margin` of
+        # the end (on its approach side) instead of waiting for it to cross past the end.
         margin = self.cfg.recycle_margin
         end_x_b = end_x.expand_as(local_x)
         start_x_b = start_x.expand_as(local_x)
-        crossed_pos_dir = (flow_dir > 0) & (local_x > end_x_b + margin)
-        crossed_neg_dir = (flow_dir < 0) & (local_x < end_x_b - margin)
+        crossed_pos_dir = (flow_dir > 0) & (local_x > end_x_b - margin)
+        crossed_neg_dir = (flow_dir < 0) & (local_x < end_x_b + margin)
         crossed = (crossed_pos_dir | crossed_neg_dir) & self.active_mask
 
         if not crossed.any():
@@ -403,9 +411,27 @@ class SocialForceCrowdManager:
         return self.vel
 
     def get_heights(self) -> torch.Tensor:
-        """Return the world-frame z position (capsule center) for each pedestrian slot."""
-        return self.radius + self.height / 2.0
+        """Return the world-frame z position (capsule center) for each pedestrian slot.
+
+        Inactive slots are parked at ``self._park_z`` (far below ground) so they neither
+        collide with the robot nor register as lidar hits.
+        """
+        active_height = self.radius + self.height / 2.0
+        return torch.where(self.active_mask, active_height, torch.full_like(active_height, self._park_z))
 
     def get_active_mask(self) -> torch.Tensor:
         """Return the active-slot mask, shape ``(num_envs, max_pedestrians)``."""
         return self.active_mask
+
+    def get_robot_collision(self, robot_pos_w: torch.Tensor) -> torch.Tensor:
+        """Return a per-env collision mask against active pedestrian capsules.
+
+        Args:
+            robot_pos_w: World-XY robot positions, shape ``(num_envs, 2)``.
+
+        Returns:
+            Boolean tensor of shape ``(num_envs,)``, ``True`` where ``robot_pos_w`` lies within
+            ``robot_radius + pedestrian_radius`` of any active pedestrian (XY distance only).
+        """
+        dist = torch.norm(robot_pos_w.unsqueeze(1) - self.pos, dim=-1)
+        return torch.any((dist < self._radius_sum_robot) & self.active_mask, dim=1)
