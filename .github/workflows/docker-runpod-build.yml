@@ -3,7 +3,6 @@ name: Sync Fork with Upstream (IsaacLab)
 # Grant additional permissions to the GITHUB_TOKEN
 permissions:
   contents: write
-  workflows: write
 
 on:
   # Run every Sunday at 18:00 UTC → Monday 2:00 AM Beijing Time
