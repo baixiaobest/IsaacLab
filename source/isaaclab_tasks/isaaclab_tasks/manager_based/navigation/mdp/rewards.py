@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -15,6 +15,8 @@ from isaaclab.managers import RewardTermCfg
 from isaaclab.assets import Articulation
 from isaaclab.terrains import TerrainImporter
 from isaaclab.sensors.ray_caster import RayCaster
+
+import torch
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv

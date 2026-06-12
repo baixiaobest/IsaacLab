@@ -60,6 +60,8 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
+import importlib.metadata as metadata
+
 import gymnasium as gym
 import torch
 
@@ -69,7 +71,9 @@ from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_singl
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab_tasks.utils import parse_env_cfg
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+
+installed_version = metadata.version("rsl-rl-lib")
 
 import isaaclab_tasks  # noqa: F401
 
@@ -217,6 +221,9 @@ def main() -> None:
     )
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
+    # handle deprecated configurations (e.g. `policy` -> `actor`/`critic`)
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
+
     estimator_checkpoint_path = retrieve_file_path(args_cli.estimator_checkpoint) if args_cli.estimator_checkpoint else None
     policy_estimator_jit_path = retrieve_file_path(args_cli.policy_estimator_jit) if args_cli.policy_estimator_jit else None
 
@@ -251,8 +258,7 @@ def main() -> None:
     if "policy" not in observation_specs or "ground_truth" not in observation_specs:
         raise RuntimeError("The environment must expose both 'policy' and 'ground_truth' observation groups.")
 
-    obs, extras = env.get_observations()
-    current_obs_dict = extras["observations"]
+    current_obs_dict = env.get_observations()
     expanded_obs = split_observation_groups(current_obs_dict, observation_specs)
 
     estimator = None
@@ -324,14 +330,17 @@ def main() -> None:
                     )
                     if policy is None:
                         raise RuntimeError("Policy callable is not initialized.")
-                    actions = policy(policy_obs)
+                    policy_obs_dict = current_obs_dict.clone()
+                    policy_obs_dict["policy"] = policy_obs
+                    actions = policy(policy_obs_dict)
 
             _update_rmse_accumulators(rmse_accumulators, estimator_output, ground_truth, target_layout)
 
             with torch.inference_mode():
-                _, _, dones, extras = env.step(actions)
+                next_obs_dict, _, dones, _ = env.step(actions)
+                if policy is not None:
+                    policy.reset(dones)
 
-            next_obs_dict = extras["observations"]
             next_expanded_obs = split_observation_groups(next_obs_dict, observation_specs)
             next_features = _gather_estimator_inputs(next_expanded_obs, input_paths)
             history = _advance_history(history, next_features, dones.to(dtype=torch.bool))

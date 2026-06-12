@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -12,11 +12,9 @@ simulation_app = AppLauncher(headless=True).app
 
 """Rest everything follows."""
 
+import pytest
 import torch
 
-import isaacsim.core.utils.prims as prim_utils
-import isaacsim.core.utils.stage as stage_utils
-import pytest
 from isaacsim.core.cloner import GridCloner
 
 import isaaclab.sim as sim_utils
@@ -30,8 +28,8 @@ from isaaclab.utils.math import (
     combine_frame_transforms,
     compute_pose_error,
     matrix_from_quat,
+    quat_apply_inverse,
     quat_inv,
-    quat_rotate_inverse,
     subtract_frame_transforms,
 )
 
@@ -45,7 +43,7 @@ from isaaclab_assets import FRANKA_PANDA_CFG  # isort:skip
 def sim():
     """Create a simulation context for testing."""
     # Wait for spawning
-    stage_utils.create_new_stage()
+    stage = sim_utils.create_new_stage()
     # Constants
     num_envs = 16
     # Load kit helper
@@ -76,7 +74,7 @@ def sim():
     cloner.define_base_env("/World/envs")
     env_prim_paths = cloner.generate_paths("/World/envs/env", num_envs)
     # create source prim
-    prim_utils.define_prim(env_prim_paths[0], "Xform")
+    stage.DefinePrim(env_prim_paths[0], "Xform")
     # clone the env xform
     cloner.clone(
         source_prim_path=env_prim_paths[0],
@@ -123,7 +121,7 @@ def sim():
         [
             [0.0, torch.pi / 2, 0.0],  # for [0.707, 0, 0.707, 0]
             [torch.pi / 2, 0.0, 0.0],  # for [0.707, 0.707, 0, 0]
-            [torch.pi, 0.0, 0.0],  # for [0.0, 1.0, 0, 0]
+            [torch.pi / 2, torch.pi / 2, 0.0],  # for [0.0, 1.0, 0, 0]
         ],
         device=sim.device,
     )
@@ -200,7 +198,25 @@ def sim():
     # Reference frame for targets
     frame = "root"
 
-    yield sim, num_envs, robot_cfg, ee_marker, goal_marker, contact_forces, target_abs_pos_set_b, target_abs_pose_set_b, target_rel_pos_set, target_rel_pose_set_b, target_abs_wrench_set, target_abs_pose_variable_kp_set, target_abs_pose_variable_set, target_hybrid_set_b, target_hybrid_variable_kp_set, target_hybrid_set_tilted, frame
+    yield (
+        sim,
+        num_envs,
+        robot_cfg,
+        ee_marker,
+        goal_marker,
+        contact_forces,
+        target_abs_pos_set_b,
+        target_abs_pose_set_b,
+        target_rel_pos_set,
+        target_rel_pose_set_b,
+        target_abs_wrench_set,
+        target_abs_pose_variable_kp_set,
+        target_abs_pose_variable_set,
+        target_hybrid_set_b,
+        target_hybrid_variable_kp_set,
+        target_hybrid_set_tilted,
+        frame,
+    )
 
     # Cleanup
     sim.stop()
@@ -209,6 +225,7 @@ def sim():
     sim.clear_instance()
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_without_inertial_decoupling(sim):
     """Test absolute pose control with fixed impedance and without inertial dynamics decoupling."""
     (
@@ -257,6 +274,7 @@ def test_franka_pose_abs_without_inertial_decoupling(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_with_partial_inertial_decoupling(sim):
     """Test absolute pose control with fixed impedance and partial inertial dynamics decoupling."""
     (
@@ -306,6 +324,7 @@ def test_franka_pose_abs_with_partial_inertial_decoupling(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_fixed_impedance_with_gravity_compensation(sim):
     """Test absolute pose control with fixed impedance, gravity compensation, and inertial dynamics decoupling."""
     (
@@ -356,6 +375,7 @@ def test_franka_pose_abs_fixed_impedance_with_gravity_compensation(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs(sim):
     """Test absolute pose control with fixed impedance and inertial dynamics decoupling."""
     (
@@ -405,6 +425,7 @@ def test_franka_pose_abs(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_rel(sim):
     """Test relative pose control with fixed impedance and inertial dynamics decoupling."""
     (
@@ -454,6 +475,7 @@ def test_franka_pose_rel(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_variable_impedance(sim):
     """Test absolute pose control with variable impedance and inertial dynamics decoupling."""
     (
@@ -501,6 +523,7 @@ def test_franka_pose_abs_variable_impedance(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_wrench_abs_open_loop(sim):
     """Test open loop absolute force control."""
     (
@@ -581,6 +604,7 @@ def test_franka_wrench_abs_open_loop(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_wrench_abs_closed_loop(sim):
     """Test closed loop absolute force control."""
     (
@@ -669,6 +693,7 @@ def test_franka_wrench_abs_closed_loop(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_hybrid_decoupled_motion(sim):
     """Test hybrid control with fixed impedance and partial inertial dynamics decoupling."""
     (
@@ -744,6 +769,7 @@ def test_franka_hybrid_decoupled_motion(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_hybrid_variable_kp_impedance(sim):
     """Test hybrid control with variable kp impedance and inertial dynamics decoupling."""
     (
@@ -818,6 +844,7 @@ def test_franka_hybrid_variable_kp_impedance(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_taskframe_pose_abs(sim):
     """Test absolute pose control in task frame with fixed impedance and inertial dynamics decoupling."""
     (
@@ -868,6 +895,7 @@ def test_franka_taskframe_pose_abs(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_taskframe_pose_rel(sim):
     """Test relative pose control in task frame with fixed impedance and inertial dynamics decoupling."""
     (
@@ -918,6 +946,7 @@ def test_franka_taskframe_pose_rel(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_taskframe_hybrid(sim):
     """Test hybrid control in task frame with fixed impedance and inertial dynamics decoupling."""
     (
@@ -994,6 +1023,7 @@ def test_franka_taskframe_hybrid(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_without_inertial_decoupling_with_nullspace_centering(sim):
     """Test absolute pose control with fixed impedance and nullspace centerin but without inertial decoupling."""
     (
@@ -1043,6 +1073,7 @@ def test_franka_pose_abs_without_inertial_decoupling_with_nullspace_centering(si
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_with_partial_inertial_decoupling_nullspace_centering(sim):
     """Test absolute pose control with fixed impedance, partial inertial decoupling and nullspace centering."""
     (
@@ -1093,6 +1124,7 @@ def test_franka_pose_abs_with_partial_inertial_decoupling_nullspace_centering(si
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_pose_abs_with_nullspace_centering(sim):
     """Test absolute pose control with fixed impedance, inertial decoupling and nullspace centering."""
     (
@@ -1143,6 +1175,7 @@ def test_franka_pose_abs_with_nullspace_centering(sim):
     )
 
 
+@pytest.mark.isaacsim_ci
 def test_franka_taskframe_hybrid_with_nullspace_centering(sim):
     """Test hybrid control in task frame with fixed impedance, inertial decoupling and nullspace centering."""
     (
@@ -1411,8 +1444,8 @@ def _update_states(
     jacobian_b[:, 3:, :] = torch.bmm(root_rot_matrix, jacobian_b[:, 3:, :])
 
     # Compute current pose of the end-effector
-    root_pose_w = robot.data.root_state_w[:, 0:7]
-    ee_pose_w = robot.data.body_state_w[:, ee_frame_idx, 0:7]
+    root_pose_w = robot.data.root_pose_w
+    ee_pose_w = robot.data.body_pose_w[:, ee_frame_idx]
     ee_pos_b, ee_quat_b = subtract_frame_transforms(
         root_pose_w[:, 0:3], root_pose_w[:, 3:7], ee_pose_w[:, 0:3], ee_pose_w[:, 3:7]
     )
@@ -1422,8 +1455,8 @@ def _update_states(
     ee_vel_w = robot.data.body_vel_w[:, ee_frame_idx, :]  # Extract end-effector velocity in the world frame
     root_vel_w = robot.data.root_vel_w  # Extract root velocity in the world frame
     relative_vel_w = ee_vel_w - root_vel_w  # Compute the relative velocity in the world frame
-    ee_lin_vel_b = quat_rotate_inverse(robot.data.root_quat_w, relative_vel_w[:, 0:3])  # From world to root frame
-    ee_ang_vel_b = quat_rotate_inverse(robot.data.root_quat_w, relative_vel_w[:, 3:6])
+    ee_lin_vel_b = quat_apply_inverse(robot.data.root_quat_w, relative_vel_w[:, 0:3])  # From world to root frame
+    ee_ang_vel_b = quat_apply_inverse(robot.data.root_quat_w, relative_vel_w[:, 3:6])
     ee_vel_b = torch.cat([ee_lin_vel_b, ee_ang_vel_b], dim=-1)
 
     # Calculate the contact force

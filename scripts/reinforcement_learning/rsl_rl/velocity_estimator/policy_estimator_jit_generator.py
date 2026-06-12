@@ -46,6 +46,8 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
+import importlib.metadata as metadata
+
 import gymnasium as gym
 import torch
 
@@ -55,8 +57,9 @@ from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_singl
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab_tasks.utils import parse_env_cfg
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
-from isaaclab_rl.rsl_rl.exporter import _TorchPolicyExporter
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+
+installed_version = metadata.version("rsl-rl-lib")
 
 import isaaclab_tasks  # noqa: F401
 
@@ -148,17 +151,6 @@ def _resolve_output_path(policy_checkpoint: str) -> str:
         return os.path.abspath(args_cli.output)
     export_dir = os.path.join(os.path.dirname(policy_checkpoint), "exported")
     return os.path.join(export_dir, "policy_estimator.pt")
-
-
-def _extract_policy_module(ppo_runner: OnPolicyRunner) -> torch.nn.Module:
-    """Extract the policy module in a version-compatible way."""
-    try:
-        policy_module = ppo_runner.alg.policy
-    except AttributeError:
-        policy_module = getattr(ppo_runner.alg, "actor_critic", None)
-    if not isinstance(policy_module, torch.nn.Module):
-        raise RuntimeError(f"Unsupported policy module type: {type(policy_module)}")
-    return policy_module
 
 
 def _split_schema_path(path: str) -> tuple[str, str]:
@@ -276,6 +268,9 @@ def main() -> None:
     )
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
+    # handle deprecated configurations (e.g. `policy` -> `actor`/`critic`)
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
+
     policy_checkpoint = resolve_policy_checkpoint(agent_cfg.experiment_name, args_cli.checkpoint, "export the policy estimator JIT")
     estimator_checkpoint_path = retrieve_file_path(args_cli.estimator_checkpoint)
     output_path = _resolve_output_path(policy_checkpoint)
@@ -326,8 +321,8 @@ def main() -> None:
             policy_obs_dim,
         ) = _build_wrapper_layout(observation_specs, input_paths, target_paths, input_dim, target_dim)
 
-        policy_module = _extract_policy_module(ppo_runner)
-        exported_policy = _TorchPolicyExporter(policy_module, ppo_runner.obs_normalizer).to(export_device)
+        policy_module = ppo_runner.get_inference_policy(device=export_device)
+        exported_policy = policy_module.as_jit().to(export_device)
         exported_policy.eval()
         estimator = estimator.to(export_device)
         estimator.eval()

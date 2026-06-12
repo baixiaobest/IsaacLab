@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -11,13 +11,15 @@ specify the reward function and its parameters.
 
 from __future__ import annotations
 
-import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation
+import torch
+
+from isaaclab.envs import mdp
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
-from isaaclab.utils.math import quat_rotate_inverse, yaw_quat
+from isaaclab.utils.math import quat_apply_inverse, yaw_quat
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -210,10 +212,12 @@ def feet_drag_penalty(
 def track_lin_vel_xy_yaw_frame_exp(
     env, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
-    """Reward tracking of linear velocity commands (xy axes) in the gravity aligned robot frame using exponential kernel."""
+    """Reward tracking of linear velocity commands (xy axes) in the gravity aligned
+    robot frame using an exponential kernel.
+    """
     # extract the used quantities (to enable type-hinting)
     asset = env.scene[asset_cfg.name]
-    vel_yaw = quat_rotate_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
+    vel_yaw = quat_apply_inverse(yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3])
     lin_vel_error = torch.sum(
         torch.square(env.command_manager.get_command(command_name)[:, :2] - vel_yaw[:, :2]), dim=1
     )
@@ -268,3 +272,11 @@ def excessive_velocity(
     asset = env.scene[asset_cfg.name]
     speed = torch.linalg.norm(asset.data.root_lin_vel_w[:, :3], dim=1)
     return (speed > speed_threshold).to(dtype=torch.float32)
+
+def stand_still_joint_deviation_l1(
+    env, command_name: str, command_threshold: float = 0.06, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Penalize offsets from the default joint positions when the command is very small."""
+    command = env.command_manager.get_command(command_name)
+    # Penalize motion when command is nearly zero.
+    return mdp.joint_deviation_l1(env, asset_cfg) * (torch.norm(command[:, :2], dim=1) < command_threshold)
