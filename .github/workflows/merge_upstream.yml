@@ -1,0 +1,39 @@
+name: Sync Fork with Upstream (IsaacLab) – With PAT
+
+on:
+  schedule:
+    - cron: '0 18 * * 0'   # Sunday 18:00 UTC → Monday 2:00 AM Beijing
+  workflow_dispatch:
+
+# No extra permissions needed – the PAT overrides them
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}   # Use PAT for checkout
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/isaac-sim/IsaacLab.git
+
+      - name: Fetch upstream changes
+        run: git fetch upstream main
+
+      - name: Merge upstream changes
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          target_sync_branch: main
+          # Use your PAT instead of GITHUB_TOKEN
+          target_repo_token: ${{ secrets.PAT_TOKEN }}
+          upstream_sync_repo: isaac-sim/IsaacLab
+          upstream_sync_branch: main

@@ -1,11 +1,17 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
 from isaaclab.utils import configclass
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlPpoEncoderActorCriticCfg
+from isaaclab_rl.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+    RslRlEncoderModelCfg,
+    RslRlMLPModelCfg,
+)
 
 
 @configclass
@@ -14,9 +20,10 @@ class NavigationEnvPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 1500
     save_interval = 50
     experiment_name = "anymal_c_navigation"
-    empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.5,
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
         actor_hidden_dims=[128, 128],
         critic_hidden_dims=[128, 128],
         activation="elu",
@@ -45,15 +52,15 @@ class NavigationEnvModPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 50
     experiment_name = "anymal_c_navigation_mod"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=0.5,
-        noise_clip=0.6,
-        encoder_dims=None,
-        actor_hidden_dims=[128, 128],
-        critic_hidden_dims=[128, 128],
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    actor = RslRlEncoderModelCfg(
+        hidden_dims=[128, 128],
         activation="elu",
+        distribution_cfg=RslRlEncoderModelCfg.GaussianDistributionCfg(init_std=0.5, std_type="scalar"),
+        encoder_dims=None,
         tanh_output=True,
     )
+    critic = RslRlMLPModelCfg(hidden_dims=[128, 128], activation="elu", distribution_cfg=None)
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,

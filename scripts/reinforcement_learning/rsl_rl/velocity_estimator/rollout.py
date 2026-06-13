@@ -73,6 +73,8 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
+import importlib.metadata as metadata
+
 import gymnasium as gym
 import torch
 
@@ -82,7 +84,9 @@ from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_singl
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.datasets import EpisodeData, HDF5DatasetFileHandler
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+
+installed_version = metadata.version("rsl-rl-lib")
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
@@ -212,6 +216,7 @@ class RolloutDatasetWriter:
         if self._handler.get_num_episodes() >= self.episodes_per_file:
             self._rotate_file()
 
+        episode.pre_export()
         self._handler.write_episode(episode)
         self.total_episodes += 1
 
@@ -252,6 +257,9 @@ def main() -> None:
     )
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
+    # handle deprecated configurations (e.g. `policy` -> `actor`/`critic`)
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
+
     resume_path, _ = _resolve_resume_path(agent_cfg)
 
     base_env = gym.make(args_cli.task, cfg=env_cfg)
@@ -288,8 +296,8 @@ def main() -> None:
         },
     )
 
-    obs, extras = env.get_observations()
-    current_obs_dict = extras["observations"]
+    obs = env.get_observations()
+    current_obs_dict = obs
     episode_buffers = [EpisodeData() for _ in range(env.num_envs)]
     episode_step_counts = [0 for _ in range(env.num_envs)]
 
@@ -322,9 +330,10 @@ def main() -> None:
 
             with torch.inference_mode():
                 obs, rewards, dones, extras = env.step(actions)
+                policy.reset(dones)
 
             time_outs = extras.get("time_outs", torch.zeros_like(dones, dtype=torch.bool))
-            next_obs_dict = extras["observations"]
+            next_obs_dict = obs
 
             for env_id, episode in enumerate(episode_buffers):
                 _add_step_outcome(episode, rewards, dones, time_outs, env_id)

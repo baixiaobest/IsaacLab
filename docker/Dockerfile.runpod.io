@@ -1,4 +1,5 @@
 # Use the NVIDIA Isaac Sim 4.5.0 base image
+# (touch to trigger CI build+)
 FROM nvcr.io/nvidia/isaac-sim:4.5.0
 
 # Set EULA acceptance environment variable
@@ -14,10 +15,12 @@ RUN yes | apt-get install pip
 
 # Clone the repository and initialize submodules
 WORKDIR /code
-RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git \
-    && cd IsaacLab \
-    && git submodule update --init --recursive
+RUN git clone --recurse-submodules https://github.com/baixiaobest/IsaacLab.git
 
+WORKDIR /code/IsaacLab
+RUN git submodule update --init --recursive
+
+WORKDIR /code
 RUN git clone https://github.com/baixiaobest/occupancy_prediction.git
 
 # Set the working directory to IsaacLab and make the script executable
@@ -34,6 +37,10 @@ RUN ./isaaclab.sh -p -m pip install numpy==1.26.0
 
 # Run the installation script with the -i flag (install mode)
 RUN bash ./isaaclab.sh -i
+
+# Install the local rsl_rl source in editable mode, replacing the prebuilt
+# rsl-rl-lib package pulled in by isaaclab.sh -i
+RUN ./isaaclab.sh -p -m pip install -e ./source/rsl_rl
 
 RUN ./isaaclab.sh -p -m pip install wandb==0.23.1
 

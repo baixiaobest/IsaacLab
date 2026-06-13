@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -11,8 +11,9 @@ the observation introduced by the function.
 
 from __future__ import annotations
 
-import torch
 from typing import TYPE_CHECKING
+
+import torch
 
 import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
@@ -24,12 +25,22 @@ from isaaclab.sensors import Camera, Imu, RayCaster, RayCasterCamera, TiledCamer
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
 
+from isaaclab.envs.utils.io_descriptors import (
+    generic_io_descriptor,
+    record_body_names,
+    record_dtype,
+    record_joint_names,
+    record_joint_pos_offsets,
+    record_joint_vel_offsets,
+    record_shape,
+)
 
 """
 Root state.
 """
 
 
+@generic_io_descriptor(units="m", axes=["Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype])
 def base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root height in the simulation world frame."""
     # extract the used quantities (to enable type-hinting)
@@ -37,6 +48,9 @@ def base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(
     return asset.data.root_pos_w[:, 2].unsqueeze(-1)
 
 
+@generic_io_descriptor(
+    units="m/s", axes=["X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
 def base_lin_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root linear velocity in the asset's root frame."""
     # extract the used quantities (to enable type-hinting)
@@ -44,6 +58,9 @@ def base_lin_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCf
     return asset.data.root_lin_vel_b
 
 
+@generic_io_descriptor(
+    units="rad/s", axes=["X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
 def base_ang_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Root angular velocity in the asset's root frame."""
     # extract the used quantities (to enable type-hinting)
@@ -51,6 +68,9 @@ def base_ang_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCf
     return asset.data.root_ang_vel_b
 
 
+@generic_io_descriptor(
+    units="m/s^2", axes=["X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
 def projected_gravity(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Gravity projection on the asset's root frame."""
     # extract the used quantities (to enable type-hinting)
@@ -58,6 +78,9 @@ def projected_gravity(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEnt
     return asset.data.projected_gravity_b
 
 
+@generic_io_descriptor(
+    units="m", axes=["X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
 def root_pos_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Asset root position in the environment frame."""
     # extract the used quantities (to enable type-hinting)
@@ -65,6 +88,9 @@ def root_pos_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(
     return asset.data.root_pos_w - env.scene.env_origins
 
 
+@generic_io_descriptor(
+    units="unit", axes=["W", "X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
 def root_quat_w(
     env: ManagerBasedEnv, make_quat_unique: bool = False, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
@@ -80,7 +106,6 @@ def root_quat_w(
     quat = asset.data.root_quat_w
     # make the quaternion real-part positive if configured
     return math_utils.quat_unique(quat) if make_quat_unique else quat
-
 
 def root_euler_angles(
     env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
@@ -110,6 +135,10 @@ def root_yaw_sin_cos(
     _, _, yaw = math_utils.euler_xyz_from_quat(asset.data.root_quat_w)
     return torch.stack((torch.sin(yaw), torch.cos(yaw)), dim=-1)
 
+@generic_io_descriptor(
+    units="m/s", axes=["X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
+
 def root_lin_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Asset root linear velocity in the environment frame."""
     # extract the used quantities (to enable type-hinting)
@@ -117,6 +146,9 @@ def root_lin_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntity
     return asset.data.root_lin_vel_w
 
 
+@generic_io_descriptor(
+    units="rad/s", axes=["X", "Y", "Z"], observation_type="RootState", on_inspect=[record_shape, record_dtype]
+)
 def root_ang_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Asset root angular velocity in the environment frame."""
     # extract the used quantities (to enable type-hinting)
@@ -129,6 +161,7 @@ Body state
 """
 
 
+@generic_io_descriptor(observation_type="BodyState", on_inspect=[record_shape, record_dtype, record_body_names])
 def body_pose_w(
     env: ManagerBasedEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -142,16 +175,21 @@ def body_pose_w(
         asset_cfg: The SceneEntity associated with this observation.
 
     Returns:
-        The poses of bodies in articulation [num_env, 7*num_bodies]. Pose order is [x,y,z,qw,qx,qy,qz]. Output is
-            stacked horizontally per body.
+        The poses of bodies in articulation [num_env, 7 * num_bodies]. Pose order is [x,y,z,qw,qx,qy,qz].
+        Output is stacked horizontally per body.
     """
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
-    pose = asset.data.body_state_w[:, asset_cfg.body_ids, :7]
+
+    # access the body poses in world frame
+    pose = asset.data.body_pose_w[:, asset_cfg.body_ids, :7]
+    if isinstance(asset_cfg.body_ids, (slice, int)):
+        pose = pose.clone()  # if slice or int, make a copy to avoid modifying original data
     pose[..., :3] = pose[..., :3] - env.scene.env_origins.unsqueeze(1)
     return pose.reshape(env.num_envs, -1)
 
 
+@generic_io_descriptor(observation_type="BodyState", on_inspect=[record_shape, record_dtype, record_body_names])
 def body_projected_gravity_b(
     env: ManagerBasedEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -166,14 +204,14 @@ def body_projected_gravity_b(
 
     Returns:
         The unit vector direction of gravity projected onto body_name's frame. Gravity projection vector order is
-            [x,y,z]. Output is stacked horizontally per body.
+        [x,y,z]. Output is stacked horizontally per body.
     """
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
 
     body_quat = asset.data.body_quat_w[:, asset_cfg.body_ids]
     gravity_dir = asset.data.GRAVITY_VEC_W.unsqueeze(1)
-    return math_utils.quat_rotate_inverse(body_quat, gravity_dir).view(env.num_envs, -1)
+    return math_utils.quat_apply_inverse(body_quat, gravity_dir).view(env.num_envs, -1)
 
 
 def body_mass(
@@ -320,6 +358,9 @@ Joint state.
 """
 
 
+@generic_io_descriptor(
+    observation_type="JointState", on_inspect=[record_joint_names, record_dtype, record_shape], units="rad"
+)
 def joint_pos(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """The joint positions of the asset.
 
@@ -330,6 +371,11 @@ def joint_pos(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("
     return asset.data.joint_pos[:, asset_cfg.joint_ids]
 
 
+@generic_io_descriptor(
+    observation_type="JointState",
+    on_inspect=[record_joint_names, record_dtype, record_shape, record_joint_pos_offsets],
+    units="rad",
+)
 def joint_pos_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """The joint positions of the asset w.r.t. the default joint positions.
 
@@ -340,6 +386,7 @@ def joint_pos_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityC
     return asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
 
 
+@generic_io_descriptor(observation_type="JointState", on_inspect=[record_joint_names, record_dtype, record_shape])
 def joint_pos_limit_normalized(
     env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
@@ -356,6 +403,9 @@ def joint_pos_limit_normalized(
     )
 
 
+@generic_io_descriptor(
+    observation_type="JointState", on_inspect=[record_joint_names, record_dtype, record_shape], units="rad/s"
+)
 def joint_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")):
     """The joint velocities of the asset.
 
@@ -366,6 +416,11 @@ def joint_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("
     return asset.data.joint_vel[:, asset_cfg.joint_ids]
 
 
+@generic_io_descriptor(
+    observation_type="JointState",
+    on_inspect=[record_joint_names, record_dtype, record_shape, record_joint_vel_offsets],
+    units="rad/s",
+)
 def joint_vel_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")):
     """The joint velocities of the asset w.r.t. the default joint velocities.
 
@@ -376,6 +431,9 @@ def joint_vel_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityC
     return asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]
 
 
+@generic_io_descriptor(
+    observation_type="JointState", on_inspect=[record_joint_names, record_dtype, record_shape], units="N.m"
+)
 def joint_effort(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """The joint applied effort of the robot.
 
@@ -515,6 +573,21 @@ def imu_orientation(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntit
     return asset.data.quat_w
 
 
+def imu_projected_gravity(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("imu")) -> torch.Tensor:
+    """Imu sensor orientation w.r.t the env.scene.origin.
+
+    Args:
+        env: The environment.
+        asset_cfg: The SceneEntity associated with an Imu sensor.
+
+    Returns:
+        Gravity projected on imu_frame, shape of torch.tensor is (num_env,3).
+    """
+
+    asset: Imu = env.scene[asset_cfg.name]
+    return asset.data.projected_gravity_b
+
+
 def imu_ang_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("imu")) -> torch.Tensor:
     """Imu sensor angular velocity w.r.t. environment origin expressed in the sensor frame.
 
@@ -582,7 +655,7 @@ def image(
     if (data_type == "distance_to_camera") and convert_perspective_to_orthogonal:
         images = math_utils.orthogonalize_perspective_depth(images, sensor.data.intrinsic_matrices)
 
-    # rgb/depth image normalization
+    # rgb/depth/normals image normalization
     if normalize:
         if data_type == "rgb":
             images = images.float() / 255.0
@@ -590,6 +663,8 @@ def image(
             images -= mean_tensor
         elif "distance_to" in data_type or "depth" in data_type:
             images[images == float("inf")] = 0
+        elif "normals" in data_type:
+            images = (images + 1.0) * 0.5
 
     return images.clone()
 
@@ -823,6 +898,7 @@ Actions.
 """
 
 
+@generic_io_descriptor(dtype=torch.float32, observation_type="Action", on_inspect=[record_shape])
 def last_action(env: ManagerBasedEnv, action_name: str | None = None) -> torch.Tensor:
     """The last input action to the environment.
 
@@ -840,7 +916,8 @@ Commands.
 """
 
 
-def generated_commands(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+@generic_io_descriptor(dtype=torch.float32, observation_type="Command", on_inspect=[record_shape])
+def generated_commands(env: ManagerBasedRLEnv, command_name: str | None = None) -> torch.Tensor:
     """The generated command from command term in the command manager with the given name."""
     return env.command_manager.get_command(command_name)
 
@@ -849,13 +926,22 @@ def generated_commands(env: ManagerBasedRLEnv, command_name: str) -> torch.Tenso
 Timer
 """
 
+def current_time_s(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """The current time in the episode (in seconds)."""
+    return env.episode_length_buf.unsqueeze(1) * env.step_dt
+
+
+def remaining_time_s(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """The maximum time remaining in the episode (in seconds)."""
+    return env.max_episode_length_s - env.episode_length_buf.unsqueeze(1) * env.step_dt
+
 def count_down(env: ManagerBasedRLEnv, episode_length: float) -> torch.Tensor:
     """Countdown timer for the episode length.
 
     Args:
         env: The environment.
         episode_length: The length of the episode in seconds.
-        
+
     Returns:
         Time remaining in the episode, shape is [num_envs, 1].
     """
@@ -866,3 +952,406 @@ def count_down(env: ManagerBasedRLEnv, episode_length: float) -> torch.Tensor:
         return time_remaining.unsqueeze(1)
     else:
         return torch.ones((env.num_envs, 1), device=env.device) * episode_length
+
+
+class LidarHistoryStore:
+    """Shared per-sensor ring buffer of raw ray-hit history and ego poses.
+
+    Holds a depth-``D`` history of world-frame XY hit positions, per-ray state, and ego
+    pose (XY + yaw) for one ray-caster sensor. This lets multiple observation terms
+    (policy/critic :class:`TemporalLidarScan`, :class:`TemporalLidarPredictionTarget`)
+    share a single copy of the raw history instead of each maintaining a private buffer.
+
+    Exactly one "owner" term calls :meth:`ensure_updated` once per environment step
+    (idempotent, keyed on ``env.common_step_counter``); all other "reader" terms call
+    :meth:`assert_fresh` and then read via :meth:`frame` / :meth:`ego`.
+    """
+
+    def __init__(self, num_envs: int, num_rays: int, depth: int, max_distance: float, device: str):
+        self.depth = depth
+        self.max_distance = max_distance
+        self._head = 0
+        self._last_update_step = -1
+
+        # World-frame XY hit positions and per-ray state, identical semantics to the
+        # buffers previously owned by TemporalLidarScan: state 0 = reset placeholder,
+        # 1 = free-space ray, 2 = surface hit.
+        self._hit_pos_buffer = torch.zeros(depth, num_envs, num_rays, 2, device=device)
+        self._ray_state_buffer = torch.zeros(depth, num_envs, num_rays, dtype=torch.uint8, device=device)
+
+        # Ego pose history (XY + yaw), used by TemporalLidarPredictionTarget to
+        # reproject the newest scan into the previous step's frame.
+        self._ego_xy = torch.zeros(depth, num_envs, 2, device=device)
+        self._ego_yaw = torch.zeros(depth, num_envs, device=device)
+
+        # Number of consecutive updates since the last reset, per env. Used to know
+        # whether `ego(age)` / `frame(age)` slots hold real (post-reset) data.
+        self._steps_since_reset = torch.zeros(num_envs, dtype=torch.long, device=device)
+
+    def ensure_updated(self, env: "ManagerBasedEnv", sensor: RayCaster):
+        """Push the current scan into the ring buffer, unless already done this step."""
+        step = env.common_step_counter
+        if self._last_update_step == step:
+            return
+
+        ray_hits_w = sensor.data.ray_hits_w  # (num_envs, num_rays, 3)
+        pos_w = sensor.data.pos_w            # (num_envs, 3)
+        quat_w = sensor.data.quat_w          # (num_envs, 4)
+
+        sensor_dist = torch.norm(ray_hits_w - pos_w.unsqueeze(1), dim=-1)
+        ray_hit_valid = sensor_dist < (self.max_distance * 0.99)
+
+        self._head = (self._head - 1) % self.depth
+        self._hit_pos_buffer[self._head] = ray_hits_w[..., :2]
+        self._ray_state_buffer[self._head] = torch.where(ray_hit_valid, 2, 1).to(torch.uint8)
+
+        _, _, cur_yaw = math_utils.euler_xyz_from_quat(quat_w)
+        self._ego_xy[self._head] = pos_w[:, :2]
+        self._ego_yaw[self._head] = cur_yaw
+
+        self._steps_since_reset += 1
+        self._last_update_step = step
+
+    def assert_fresh(self, env: "ManagerBasedEnv"):
+        """Raise if no owner term has updated the store yet this step."""
+        if self._last_update_step != env.common_step_counter:
+            raise RuntimeError(
+                "LidarHistoryStore has not been updated this step. Exactly one"
+                " TemporalLidarScan observation term (typically the policy's) must be"
+                " configured with `owns_history=True` and must be computed before any"
+                " reader terms (policy group is computed before critic/prediction)."
+            )
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if env_ids is None:
+            self._hit_pos_buffer[:] = 0.0
+            self._ray_state_buffer[:] = 0
+            self._ego_xy[:] = 0.0
+            self._ego_yaw[:] = 0.0
+            self._steps_since_reset[:] = 0
+        else:
+            self._hit_pos_buffer[:, env_ids] = 0.0
+            self._ray_state_buffer[:, env_ids] = 0
+            self._ego_xy[:, env_ids] = 0.0
+            self._ego_yaw[:, env_ids] = 0.0
+            self._steps_since_reset[env_ids] = 0
+
+    def frame(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return ``(hit_xy, ray_state)`` for the scan ``age`` steps ago (0 = newest)."""
+        slot = (self._head + age) % self.depth
+        return self._hit_pos_buffer[slot], self._ray_state_buffer[slot]
+
+    def ego(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return ``(xy, yaw)`` ego pose ``age`` steps ago (0 = newest)."""
+        slot = (self._head + age) % self.depth
+        return self._ego_xy[slot], self._ego_yaw[slot]
+
+    def valid(self, age: int) -> torch.Tensor:
+        """Per-env mask: whether the slot ``age`` steps ago holds real post-reset data."""
+        return self._steps_since_reset > age
+
+
+def _get_lidar_history_store(
+    env: "ManagerBasedEnv",
+    sensor_name: str,
+    num_envs: int,
+    num_rays: int,
+    horizon: int,
+    max_distance: float,
+    device: str,
+) -> LidarHistoryStore:
+    """Lazily create/look up the shared :class:`LidarHistoryStore` for a sensor on ``env``."""
+    if not hasattr(env, "_lidar_history_stores"):
+        env._lidar_history_stores = {}
+    store = env._lidar_history_stores.get(sensor_name)
+    if store is None:
+        depth = max(horizon, 2)
+        store = LidarHistoryStore(num_envs, num_rays, depth, max_distance, device)
+        env._lidar_history_stores[sensor_name] = store
+    elif horizon > store.depth:
+        raise ValueError(
+            f"LidarHistoryStore for sensor '{sensor_name}' was created with depth"
+            f" {store.depth}, but a term requested horizon {horizon}. The owning term"
+            " (owns_history=True) must be configured with the largest horizon required"
+            " by any reader."
+        )
+    return store
+
+
+class TemporalLidarScan(ManagerTermBase):
+    """Temporal lidar observation that stores H historical scans in world-frame coordinates.
+
+    At each call the latest ray-hit positions are pushed into a rolling buffer.  All H
+    historical scans are then projected into 360° world-aligned bins relative to the
+    robot's current position.  A FOV-sized arc centred on the robot's current yaw is
+    returned, giving the policy an ego-centric but temporally consistent view of the
+    surrounding scene without coupling the representation to the robot's heading.
+
+    Output shape: ``(num_envs, C * horizon * fov_bins)`` where ``C`` is 2 when
+    ``include_validity`` is True (channels = [normalised distance, validity]) and
+    1 otherwise (distance only).
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedEnv"):
+        super().__init__(cfg, env)
+
+        params = cfg.params
+        horizon: int = params["horizon"]
+        sensor_cfg: SceneEntityCfg = params["sensor_cfg"]
+        max_distance: float = params["max_distance"]
+        owns_history: bool = params.get("owns_history", False)
+
+        sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+        num_rays: int = sensor.data.ray_hits_w.shape[1]
+        num_envs: int = env.num_envs
+        device: str = env.device
+
+        self._horizon = horizon
+        self._owns_history = owns_history
+        self._store = _get_lidar_history_store(env, sensor_cfg.name, num_envs, num_rays, horizon, max_distance, device)
+
+    def reset(self, env_ids=None):
+        # Only the owner resets the shared store; readers no-op (the owner's reset call
+        # for the same env_ids zeroes the buffers both share).
+        if self._owns_history:
+            self._store.reset(env_ids)
+
+    def __call__(
+        self,
+        env: "ManagerBasedEnv",
+        sensor_cfg: SceneEntityCfg,
+        horizon: int,
+        num_bins: int,
+        fov_degrees: float,
+        max_distance: float,
+        pos_noise_std: float = 0.0,
+        include_validity: bool = True,
+        owns_history: bool = False,
+    ) -> torch.Tensor:
+        """Compute the temporal lidar observation.
+
+        Args:
+            sensor_cfg: Scene entity config for the RayCaster sensor.
+            horizon: Number of historical timesteps H.
+            num_bins: Total number of 360° world-aligned bins B.
+            fov_degrees: Arc (degrees) centred on current robot yaw returned to policy.
+            max_distance: Maximum lidar range (used for normalisation and hit detection).
+            pos_noise_std: Std-dev of Gaussian position noise (metres) added to the
+                projection centre for timesteps h > 0 to simulate odometry drift.
+            include_validity: If True (default), output both a normalised-distance and a
+                validity channel. If False, output the distance channel only, halving the
+                observation size. The validity computation is skipped entirely when disabled.
+            owns_history: If True, this term pushes the newest scan into the shared
+                :class:`LidarHistoryStore` for this sensor. Exactly one term per sensor
+                (typically the policy's) must set this to True; all other terms read the
+                same store and must be computed afterwards (policy group computes first).
+        """
+        sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+        pos_w = sensor.data.pos_w                    # (num_envs, 3)
+        quat_w = sensor.data.quat_w                  # (num_envs, 4)
+
+        num_envs = env.num_envs
+        device = env.device
+
+        store = self._store
+        if owns_history:
+            store.ensure_updated(env, sensor)
+        else:
+            store.assert_fresh(env)
+
+        # --- Extract current yaw for FOV selection ---
+        _, _, cur_yaw = math_utils.euler_xyz_from_quat(quat_w)   # (num_envs,)
+        cur_xy = pos_w[:, :2]                                     # (num_envs, 2)
+
+        # --- Compute fov_bins (symmetric around centre yaw) ---
+        fov_bins = int(round(num_bins * fov_degrees / 360.0))
+        if fov_bins % 2 != 0:
+            fov_bins -= 1  # keep even for symmetry
+
+        # --- Accumulate per-timestep bin distances and (optionally) validity ---
+        bin_dist_all = torch.full((num_envs, horizon, num_bins), max_distance, device=device)
+        if include_validity:
+            bin_valid_all = torch.zeros(num_envs, horizon, num_bins, dtype=torch.bool, device=device)
+
+        import math as _math
+
+        for h in range(horizon):
+            # h is the age in steps (0 = most recent); read from the shared store.
+            hits, state = store.frame(h)               # hits: (num_envs, num_rays, 2) — XY only
+            hit_mask = state == 2                      # surface hit vs free-space ray
+            real_mask = state > 0                      # real measurement vs reset placeholder
+
+            # Position noise on projection centre (simulate cumulative odometry error)
+            if pos_noise_std > 0.0 and h > 0:
+                pos_noise = torch.randn(num_envs, 2, device=device) * pos_noise_std * _math.sqrt(h)
+                ref_xy = cur_xy + pos_noise
+            else:
+                ref_xy = cur_xy
+
+            # Relative position in world XY plane
+            dx = hits[..., 0] - ref_xy[:, 0:1]   # (num_envs, num_rays)
+            dy = hits[..., 1] - ref_xy[:, 1:2]
+
+            dist = torch.clamp(torch.sqrt(dx * dx + dy * dy), 0.0, max_distance)
+            angle = torch.atan2(dy, dx)            # (num_envs, num_rays)
+
+            # Map angle [-π, π] → bin index [0, B)
+            bin_idx = ((angle + _math.pi) / (2.0 * _math.pi) * num_bins).long() % num_bins
+
+            # Distance per ray: surface hits contribute their reprojected distance;
+            # free-space (max-range) rays contribute max_distance. The latter must NOT
+            # use the reprojected distance — the stored point is fictitious, so once the
+            # robot moves toward it the reprojection would fabricate a close obstacle.
+            ray_dist = torch.where(hit_mask, dist, torch.full_like(dist, max_distance))
+
+            # Both surface hits and free-space rays are real observations: route only
+            # reset placeholders to the overflow bin (B), which is dropped afterward.
+            safe_dist = ray_dist.clone()
+            safe_dist[~real_mask] = max_distance + 1.0
+            safe_bin_idx = bin_idx.clone()
+            safe_bin_idx[~real_mask] = num_bins  # overflow bucket
+
+            # Allocate B+1 bins; drop overflow column afterward. amin keeps the closest
+            # contribution, so a real hit (< max) overrides a free-space ray (== max).
+            bin_dist_h = torch.full((num_envs, num_bins + 1), max_distance, device=device)
+            bin_dist_h.scatter_reduce_(1, safe_bin_idx, safe_dist, reduce="amin", include_self=True)
+            bin_dist_all[:, h, :] = bin_dist_h[:, :num_bins]
+
+            # Validity: a bin is valid when at least one real ray (hit OR free-space)
+            # lands in it — i.e. the direction was actually observed this frame.
+            if include_validity:
+                ones_src = real_mask.byte()
+                bin_valid_h_u8 = torch.zeros(num_envs, num_bins + 1, dtype=torch.uint8, device=device)
+                bin_valid_h_u8.scatter_reduce_(1, safe_bin_idx, ones_src, reduce="amax", include_self=True)
+                bin_valid_all[:, h, :] = bin_valid_h_u8[:, :num_bins].bool()
+
+        # --- Select FOV arc centred on current yaw ---
+        import math as _math2
+        center_bin = ((cur_yaw + _math2.pi) / (2.0 * _math2.pi) * num_bins).long() % num_bins
+        half = fov_bins // 2
+        offsets = torch.arange(-half, fov_bins - half, device=device)  # (fov_bins,)
+        # indices: (num_envs, fov_bins)
+        indices = (center_bin.unsqueeze(1) + offsets.unsqueeze(0)) % num_bins
+        # Expand to (num_envs, horizon, fov_bins) for gather
+        indices_exp = indices.unsqueeze(1).expand(-1, horizon, -1)
+
+        fov_dist = torch.gather(bin_dist_all, 2, indices_exp)    # (num_envs, horizon, fov_bins)
+
+        # Normalise distances to [0, 1]
+        fov_dist = fov_dist / max_distance
+
+        if include_validity:
+            fov_valid = torch.gather(bin_valid_all, 2, indices_exp)  # (num_envs, horizon, fov_bins)
+            # Stack channels: (num_envs, 2, horizon, fov_bins) → flatten
+            output = torch.stack([fov_dist, fov_valid.float()], dim=1)
+        else:
+            # Distance only: (num_envs, 1, horizon, fov_bins) → flatten
+            output = fov_dist.unsqueeze(1)
+        return output.view(num_envs, -1)
+
+
+class TemporalLidarPredictionTarget(ManagerTermBase):
+    """Self-supervised prediction target for the temporal-lidar world-model head.
+
+    At each step this emits the *newest* lidar scan reprojected into the robot's ego
+    frame of the **previous** step, as a single distance arc ``(num_envs, fov_bins)``.
+
+    Why the previous frame: the auxiliary head predicts the *next* lidar frame from the
+    current latent. The environment cannot produce the future scan at the current step,
+    so instead it emits ``scan@t`` reprojected into ``pose@(t-1)``. During the PPO update
+    the rollout is rolled by one step so that ``latent(obs[t])`` is paired with
+    ``raw_target[t+1]`` (``scan@(t+1)`` expressed in the ego-``t`` frame, the same frame
+    as ``obs[t]``), with episode boundaries masked out.
+
+    The projection math mirrors the surface-hit / free-space handling and FOV-arc
+    selection of :class:`TemporalLidarScan` but for a single frame only. Distance is
+    normalised to ``[0, 1]`` by ``max_distance``. The first scan after a reset has no
+    valid previous pose; its output is meaningless but is always dropped by the roll/mask
+    in the update, so it is simply returned as zeros.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedEnv"):
+        super().__init__(cfg, env)
+
+        params = cfg.params
+        sensor_cfg: SceneEntityCfg = params["sensor_cfg"]
+        max_distance: float = params["max_distance"]
+        sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+        num_rays: int = sensor.data.ray_hits_w.shape[1]
+        num_envs: int = env.num_envs
+        device: str = env.device
+
+        # Reader: needs at least depth 2 (frame@0 = newest scan, ego@1 = previous pose).
+        # Looks up the store created by the owning TemporalLidarScan term for this sensor.
+        self._store = _get_lidar_history_store(env, sensor_cfg.name, num_envs, num_rays, 2, max_distance, device)
+
+    def reset(self, env_ids=None):
+        # Reader: the owning TemporalLidarScan term resets the shared store.
+        pass
+
+    def __call__(
+        self,
+        env: "ManagerBasedEnv",
+        sensor_cfg: SceneEntityCfg,
+        num_bins: int,
+        fov_degrees: float,
+        max_distance: float,
+    ) -> torch.Tensor:
+        """Compute the next-frame prediction target.
+
+        Args:
+            sensor_cfg: Scene entity config for the RayCaster sensor.
+            num_bins: Total number of 360° world-aligned bins B (matches ``TemporalLidarScan``).
+            fov_degrees: Arc (degrees) centred on the reference yaw returned to the head.
+            max_distance: Maximum lidar range (used for normalisation and hit detection).
+
+        Returns:
+            ``(num_envs, fov_bins)`` normalised distance arc reprojected into the previous
+            ego frame.
+        """
+        import math as _math
+
+        store = self._store
+        store.assert_fresh(env)
+
+        num_envs = env.num_envs
+        device = env.device
+
+        # --- fov_bins (symmetric around the reference yaw); identical to TemporalLidarScan ---
+        fov_bins = int(round(num_bins * fov_degrees / 360.0))
+        if fov_bins % 2 != 0:
+            fov_bins -= 1
+
+        # --- Newest scan (scan@t), reprojected into the previous step's ego frame ---
+        hits, state = store.frame(0)             # (num_envs, num_rays, 2), (num_envs, num_rays)
+        hit_mask = state == 2
+
+        # --- Reference pose = previous step's ego pose ---
+        ref_xy, ref_yaw = store.ego(1)            # (num_envs, 2), (num_envs,)
+
+        # Relative position of newest hits in the (previous) world XY plane
+        dx = hits[..., 0] - ref_xy[:, 0:1]   # (num_envs, num_rays)
+        dy = hits[..., 1] - ref_xy[:, 1:2]
+        dist = torch.clamp(torch.sqrt(dx * dx + dy * dy), 0.0, max_distance)
+        angle = torch.atan2(dy, dx)
+
+        bin_idx = ((angle + _math.pi) / (2.0 * _math.pi) * num_bins).long() % num_bins
+
+        # Surface hits contribute their reprojected distance; free-space rays contribute
+        # max_distance (their stored point is fictitious and must not fabricate obstacles).
+        ray_dist = torch.where(hit_mask, dist, torch.full_like(dist, max_distance))
+
+        bin_dist = torch.full((num_envs, num_bins), max_distance, device=device)
+        bin_dist.scatter_reduce_(1, bin_idx, ray_dist, reduce="amin", include_self=True)
+
+        # --- Select FOV arc centred on the reference yaw ---
+        center_bin = ((ref_yaw + _math.pi) / (2.0 * _math.pi) * num_bins).long() % num_bins
+        half = fov_bins // 2
+        offsets = torch.arange(-half, fov_bins - half, device=device)
+        indices = (center_bin.unsqueeze(1) + offsets.unsqueeze(0)) % num_bins  # (num_envs, fov_bins)
+        fov_dist = torch.gather(bin_dist, 1, indices) / max_distance           # (num_envs, fov_bins)
+
+        # Zero out envs without a valid previous pose (dropped later by the roll/mask).
+        fov_dist = torch.where(store.valid(1).unsqueeze(1), fov_dist, torch.zeros_like(fov_dist))
+
+        return fov_dist
