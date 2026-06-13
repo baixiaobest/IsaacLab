@@ -512,3 +512,33 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
+
+
+@configclass
+class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    num_steps_per_env = 24
+    max_iterations = 2000
+    save_interval = 100
+    experiment_name = "go2_obstacle_avoidance_occupancy"
+    empirical_normalization = False
+    policy = RslRlPpoEncoderActorCriticCfg(
+        init_noise_std=1.0,
+        actor_hidden_dims=[256, 128],
+        critic_hidden_dims=[256, 128],
+        activation="elu",
+        encoder_type="cnn",
+        encoder_dims=[
+            # Reshape flat 1024 → (1, 32, 32) single-channel grid
+            {"type": "reshape", "input_size": 1024, "shape": [1, 32, 32]},
+            # Conv1: (1,32,32) → (16,16,16)
+            {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
+            # Conv2: (16,16,16) → (32,8,8)
+            {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
+            # Conv3: (32,8,8) → (64,4,4) → flatten → 1024-dim latent
+            {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
+        ],
+        share_encoder_with_critic=False,
+    )
+    algorithm = ObstacleAvoidancePPOConfig
+    wandb_project="obstacle_avoidance_navigation"
+    logger="wandb"

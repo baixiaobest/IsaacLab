@@ -8,6 +8,7 @@ locomotion controller.
 from __future__ import annotations
 
 import math
+import torch
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg
@@ -28,6 +29,10 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
+
+from isaaclab.envs import ManagerBasedRLEnv
+from isaaclab.envs.mdp.observations import occupancy_grid_from_lidar
+from isaaclab_tasks.manager_based.navigation.mdp.vis_utils import acquire_debug_draw, draw_occupancy_grid_points
 
 from .locomotion_env_cfg import LocomotionVelEnvCfg, MySceneCfg as LowLevelSceneCfg
 from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
@@ -387,3 +392,106 @@ class ObstacleAvoidanceEnvCfg_PLAY(ObstacleAvoidanceEnvCfg):
         self.scene.terrain.max_init_terrain_level = 10
         self.observations.policy.enable_corruption = False
         self.actions.pre_trained_policy_action.debug_vis = True
+
+
+# ---------------------------------------------------------------------------
+# Occupancy-grid variant
+# ---------------------------------------------------------------------------
+
+@configclass
+class OccupancyObservationsCfg(ObservationsCfg):
+    """Replaces raw lidar scan with a 32x32 occupancy grid from the L2 lidar."""
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+            noise=Unoise(n_min=-0.15, n_max=0.15),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+        occupancy_grid = ObsTerm(
+            func=occupancy_grid_from_lidar,
+            params={"sensor_cfg": SceneEntityCfg("l2_lidar"), "grid_size": 32, "grid_resolution": 0.4},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class CriticCfg(ObsGroup):
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+        occupancy_grid = ObsTerm(
+            func=occupancy_grid_from_lidar,
+            params={"sensor_cfg": SceneEntityCfg("l2_lidar"), "grid_size": 32, "grid_resolution": 0.4},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
+
+
+@configclass
+class ObstacleAvoidanceOccupancyEnvCfg(ObstacleAvoidanceEnvCfg):
+    """Obstacle avoidance env using a 64x64 L2 lidar occupancy grid instead of raw lidar scan."""
+
+    observations: OccupancyObservationsCfg = OccupancyObservationsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.obstacle_scanner = None  # replaced by l2_lidar
+        self.rewards.obstacle_clearance_penalty.params["sensor_cfg"] = SceneEntityCfg("l2_lidar")
+        if self.scene.l2_lidar is not None:
+            self.scene.l2_lidar.update_period = self.decimation * self.sim.dt
+
+
+@configclass
+class ObstacleAvoidanceOccupancyEnvCfg_PLAY(ObstacleAvoidanceOccupancyEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 1
+        self.scene.env_spacing = 2.5
+        self.scene.terrain.max_init_terrain_level = 10
+        self.observations.policy.enable_corruption = False
+        self.actions.pre_trained_policy_action.debug_vis = True
+
+
+class ObstacleAvoidanceOccupancyVizEnv(ManagerBasedRLEnv):
+    """Draws the L2 lidar occupancy grid in the viewport each step."""
+
+    def __init__(self, cfg, **kwargs):
+        super().__init__(cfg, **kwargs)
+        self._occ_draw = acquire_debug_draw()
+        self._occ_sensor_cfg = SceneEntityCfg("l2_lidar")
+
+    def step(self, action: torch.Tensor):
+        result = super().step(action)
+        if self._occ_draw is not None:
+            grid_flat = occupancy_grid_from_lidar(self, self._occ_sensor_cfg, grid_size=32, grid_resolution=0.4)
+            sensor_pos = self.scene["l2_lidar"].data.pos_w
+            grid_2d = grid_flat[0].reshape(32, 32).cpu().numpy()
+            sx, sy = float(sensor_pos[0, 0].item()), float(sensor_pos[0, 1].item())
+            self._occ_draw.clear_points()
+            draw_occupancy_grid_points(self._occ_draw, grid_2d, (sx, sy), grid_resolution=0.4)
+        return result
