@@ -112,7 +112,7 @@ class _MixedCommandsCfg:
     pose_2d_command: nav_mdp.MixedTerrainPose2dCommandCfg = nav_mdp.MixedTerrainPose2dCommandCfg(
         asset_name="robot",
         simple_heading=False,
-        stationary_prob=0.1,
+        stationary_prob=0.0,
         ranges=nav_mdp.MixedTerrainPose2dCommandCfg.Ranges(
             pos_x=(0.0, 0.0), # Not used
             pos_y=(0.0, 0.0), # Not used
