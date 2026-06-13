@@ -9,10 +9,14 @@ on other environments' robot state.
 
 from __future__ import annotations
 
+import colorsys
+
 import torch
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
 
 from isaaclab.assets.rigid_object_collection import RigidObjectCollection
 from isaaclab.envs import ManagerBasedRLEnv
+from isaaclab.sim.utils import get_current_stage
 
 from isaaclab_tasks.manager_based.navigation.mdp.events import reset_pedestrian_crowd
 from isaaclab_tasks.manager_based.navigation.mdp.social_force_crowd import SocialForceCrowdManager
@@ -57,6 +61,25 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
 
         reset_pedestrian_crowd(self, all_env_ids, flow_dir=cfg.pedestrian_flow_dir)
         self._write_pedestrians_to_sim()
+        self._randomize_per_env_colors()
+
+    def _randomize_per_env_colors(self):
+        """Give every pedestrian capsule and the robot in an env the same color, distinct across envs.
+
+        ``clone()`` (used to replicate the ``Pedestrian_i``/``Robot`` prims across envs) copies
+        each env's prims independently (``copy_from_source=True``), so each env's materials can
+        be recolored/replaced without affecting other envs.
+        """
+        stage = get_current_stage()
+        for env_id, env_prim_path in enumerate(self.scene.env_prim_paths):
+            # Golden-ratio hue stepping keeps neighboring envs visually distinct even when
+            # num_envs is large (hues cycle but rarely land close together).
+            hue = (env_id * 0.6180339887) % 1.0
+            color = Gf.Vec3f(*colorsys.hsv_to_rgb(hue, 0.55, 0.85))
+            for ped_idx in range(self.crowd_manager.max_pedestrians):
+                shader_prim = stage.GetPrimAtPath(f"{env_prim_path}/Pedestrian_{ped_idx}/geometry/material/Shader")
+                if shader_prim.IsValid():
+                    shader_prim.GetAttribute("inputs:diffuseColor").Set(color)
 
     def _write_pedestrians_to_sim(self):
         pos_xy = self.crowd_manager.get_world_positions()  # (N, P, 2)
