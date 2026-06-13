@@ -68,7 +68,7 @@ class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
     obstacle_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         max_distance=LIDAR_MAX_DISTANCE,
         pattern_cfg=patterns.LidarPatternCfg(
             channels=1,
