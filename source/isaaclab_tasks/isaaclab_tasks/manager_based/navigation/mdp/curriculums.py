@@ -81,8 +81,14 @@ def pedestrian_crowd_curriculum(
     This term must be declared AFTER ``terrain_levels`` (``pose_2d_command_terrain_curriculum``)
     in the curriculum config so ``terrain.terrain_levels`` reflects this episode's update
     before being read here.
+
+    ``env_ids`` is filtered down to ``env.is_pedestrian_env`` envs — a no-op for envs sitting on
+    a static (non-"ped_corridor") terrain column.
     """
     env_ids_t = torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
+    env_ids_t = env_ids_t[env.is_pedestrian_env[env_ids_t]]
+    if len(env_ids_t) == 0:
+        return {"mean_active": torch.tensor(0.0), "mean_speed": torch.tensor(0.0)}
 
     terrain: TerrainImporter = env.scene.terrain
     levels = terrain.terrain_levels[env_ids_t].float()

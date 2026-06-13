@@ -35,10 +35,10 @@ from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang
 LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
 LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_policy_jit.pt"
 
-NUM_LIDAR_RAYS = 128
+NUM_LIDAR_RAYS = 256
 LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
-COMMAND_RESAMPLING_TIME_S = 12.0
+COMMAND_RESAMPLING_TIME_S = 12.5
 EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is 1/4 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]

@@ -252,11 +252,15 @@ class VisualizationTracker:
         if not self.termination_counts:
             return
         
+        # Filter out non-positive counts to avoid a zero-sum pie chart (NaN wedge angles)
+        keys = [k for k, v in self.termination_counts.items() if v > 0]
+        values = [v for v in self.termination_counts.values() if v > 0]
+        if not values:
+            return
+
         self.ax_term.clear()
         self.ax_term.axis('on')
-        keys = list(self.termination_counts.keys())
-        values = list(self.termination_counts.values())
-        
+
         # Clean up labels for better readability
         clean_labels = [k.replace('Episode_Termination/', '').replace('_', ' ') for k in keys]
         

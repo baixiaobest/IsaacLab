@@ -12,11 +12,12 @@ from __future__ import annotations
 import colorsys
 
 import torch
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+from pxr import Gf
 
 from isaaclab.assets.rigid_object_collection import RigidObjectCollection
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.sim.utils import get_current_stage
+from isaaclab.terrains import TerrainImporter
 
 from isaaclab_tasks.manager_based.navigation.mdp.events import reset_pedestrian_crowd
 from isaaclab_tasks.manager_based.navigation.mdp.social_force_crowd import SocialForceCrowdManager
@@ -38,6 +39,15 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
 
         self._pedestrians: RigidObjectCollection = self.scene["pedestrians"]
 
+        # Per-env mask, fixed for the whole run: True for envs pinned to the "ped_corridor"
+        # terrain column, False for static obstacle/maze columns (mixed env). All-True for
+        # the pure-pedestrian PEDESTRIAN_CORRIDOR terrain.
+        terrain: TerrainImporter = self.scene["terrain"]
+        env_terrain_names = terrain.get_env_terrain_names()
+        self.is_pedestrian_env = torch.tensor(
+            [name == "ped_corridor" for name in env_terrain_names], dtype=torch.bool, device=self.device
+        )
+
         # Per-env episode scenario, sampled each reset by reset_pedestrian_scenario_robot:
         # 0 = flow (goal up/downstream), 1 = crossing (goal across the flow). Read by
         # CorridorPedestrianPose2dCommand to select the matching goal. Allocated here so it
@@ -51,7 +61,11 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         # Seed the initial active count / speed range (the pedestrian curriculum only
         # updates these on subsequent episode resets), then place the crowd for all envs.
         all_env_ids = torch.arange(self.num_envs, device=self.device)
-        init_count = torch.full((self.num_envs,), cfg.pedestrian_init_count, device=self.device, dtype=torch.long)
+        init_count = torch.where(
+            self.is_pedestrian_env,
+            torch.full((self.num_envs,), cfg.pedestrian_init_count, device=self.device, dtype=torch.long),
+            torch.zeros(self.num_envs, device=self.device, dtype=torch.long),
+        )
         init_speed_range = torch.tensor(cfg.pedestrian_init_speed_range, device=self.device).expand(
             self.num_envs, 2
         )

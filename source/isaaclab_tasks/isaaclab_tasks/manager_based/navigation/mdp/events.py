@@ -128,6 +128,47 @@ def reset_pedestrian_scenario_robot(
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
 
+def reset_robot_mixed(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    static_pose_range: dict[str, tuple[float, float]],
+    static_velocity_range: dict[str, tuple[float, float]],
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    pedestrian_velocity_range: dict[str, tuple[float, float]],
+    crossing_prob: float = 0.5,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Reset the robot root state, branching per-env on ``env.is_pedestrian_env``.
+
+    Static envs (no pedestrian crowd) are reset with the standard
+    :func:`isaaclab.envs.mdp.events.reset_root_state_uniform`. Pedestrian-corridor envs are reset
+    via :func:`reset_pedestrian_scenario_robot`, which also samples the per-env flow/crossing
+    scenario mode.
+    """
+    from isaaclab.envs.mdp.events import reset_root_state_uniform
+
+    is_ped = env.is_pedestrian_env[env_ids]
+    ped_env_ids = env_ids[is_ped]
+    static_env_ids = env_ids[~is_ped]
+
+    if len(static_env_ids) > 0:
+        reset_root_state_uniform(env, static_env_ids, static_pose_range, static_velocity_range, asset_cfg)
+
+    if len(ped_env_ids) > 0:
+        reset_pedestrian_scenario_robot(
+            env,
+            ped_env_ids,
+            flow_pose_range,
+            crossing_south_pose_range,
+            crossing_north_pose_range,
+            pedestrian_velocity_range,
+            crossing_prob,
+            asset_cfg,
+        )
+
+
 def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir: float = 1.0):
     """(Re)spawn the social-force pedestrian crowd for ``env_ids``.
 
@@ -138,7 +179,14 @@ def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir
 
     Must be declared after ``reset_base`` (mode="reset") so ``terrain_origins``/``terrain_levels``
     reflect this episode's terrain assignment before being read here.
+
+    ``env_ids`` is filtered down to ``env.is_pedestrian_env`` envs — a no-op for envs sitting on
+    a static (non-"ped_corridor") terrain column.
     """
+    env_ids = env_ids[env.is_pedestrian_env[env_ids]]
+    if len(env_ids) == 0:
+        return
+
     terrain: TerrainImporter = env.scene.terrain
 
     levels = terrain.terrain_levels[env_ids]
