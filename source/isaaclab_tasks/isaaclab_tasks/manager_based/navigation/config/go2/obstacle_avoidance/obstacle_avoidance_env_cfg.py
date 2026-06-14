@@ -38,7 +38,7 @@ LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_pol
 NUM_LIDAR_RAYS = 256
 LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
-COMMAND_RESAMPLING_TIME_S = 12.5
+COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is 1/4 of low-level policy.
 GOAL_CONTACT_BODY_NAMES = ["base", "Head_upper", "Head_lower", ".*hip", ".*thigh"]
@@ -322,6 +322,16 @@ class TerminationsCfg:
     """Termination terms for the obstacle-avoidance task."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    goal_reached = DoneTerm(
+        func=nav_mdp.pose_2d_command_goal_reached,
+        params={
+            "command_name": "pose_2d_command",
+            "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
+            "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD,
+            "velocity_threshold": 0.1,
+            "stay_for_seconds": 0.5,
+        },
+    )
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={

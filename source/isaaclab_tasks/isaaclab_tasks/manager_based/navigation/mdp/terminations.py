@@ -151,6 +151,59 @@ def navigation_goal_reached_by_command(
     )
 
 
+class pose_2d_command_goal_reached(ManagerTermBase):
+    """Terminate once the pose_2d command goal is reached and held stationary for a duration.
+
+    Unlike :func:`navigation_goal_reached_by_command`, this reads the goal directly from the
+    command term's ``[x, y, z, heading]`` command vector (same convention as
+    :func:`isaaclab_tasks.manager_based.navigation.mdp.curriculums.pose_2d_command_terrain_curriculum`)
+    instead of trying to recover goal positions from arbitrary command attributes.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self.last_time_goal_reached = torch.full((env.num_envs,), -1.0, device=env.device)
+
+    def __call__(
+            self,
+            env: ManagerBasedRLEnv,
+            command_name: str = "pose_2d_command",
+            asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+            distance_threshold: float = 0.5,
+            angular_threshold: float = 0.1,
+            velocity_threshold: float = 0.1,
+            stay_for_seconds: float = 0.5,
+    ) -> torch.Tensor:
+        asset: Articulation = env.scene[asset_cfg.name]
+        command = env.command_manager.get_command(command_name)
+
+        within_distance = torch.norm(command[:, :3], dim=1) <= distance_threshold
+        within_angle = torch.abs(command[:, 3]) <= angular_threshold
+        within_velocity = torch.norm(asset.data.root_lin_vel_w[:, :2], dim=1) <= velocity_threshold
+
+        goal_reached = within_distance & within_angle & within_velocity
+
+        current_time = env.episode_length_buf * env.step_dt
+
+        # start the hold timer for envs that just reached the goal
+        newly_reached = torch.logical_and(goal_reached, self.last_time_goal_reached < 0)
+        self.last_time_goal_reached[newly_reached] = current_time[newly_reached]
+        # reset the timer for envs that left the goal region
+        self.last_time_goal_reached[~goal_reached] = -1.0
+
+        time_at_goal = torch.zeros_like(self.last_time_goal_reached)
+        valid_times = self.last_time_goal_reached >= 0
+        time_at_goal[valid_times] = current_time[valid_times] - self.last_time_goal_reached[valid_times]
+
+        return torch.logical_and(goal_reached, time_at_goal >= stay_for_seconds)
+
+    def reset(self, env_ids: Sequence[int] | None = None):
+        if env_ids is None:
+            self.last_time_goal_reached[:] = -1.0
+        else:
+            self.last_time_goal_reached[env_ids] = -1.0
+
+
 class navigation_goal_reached_timer(ManagerTermBase):
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)

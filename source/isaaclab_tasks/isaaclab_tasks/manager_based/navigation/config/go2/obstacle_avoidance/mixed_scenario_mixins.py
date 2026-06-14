@@ -32,7 +32,6 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .obstacle_avoidance_env_cfg import (
-    COMMAND_RESAMPLING_TIME_S,
     LIDAR_MAX_DISTANCE,
     CommandsCfg,
     CurriculumCfg,
@@ -67,6 +66,9 @@ PED_COUNT_RANGE_LOW = (2, 3)
 PED_COUNT_RANGE_HIGH = (10, 12)
 PED_SPEED_RANGE_LOW = (0.3, 0.7)
 PED_SPEED_RANGE_HIGH = (0.9, 1.5)
+
+EPISODE_LENGTH = 12.0
+RESAMPLING_TIME_RANGE = (8.0, 12.0)
 
 # ---------------------------------------------------------------------------
 # Scenario fragments
@@ -119,7 +121,7 @@ class _MixedCommandsCfg:
             heading=(-math.pi, math.pi),
             pos_z=(0.3, 0.4),
         ),
-        resampling_time_range=(COMMAND_RESAMPLING_TIME_S, COMMAND_RESAMPLING_TIME_S),
+        resampling_time_range=RESAMPLING_TIME_RANGE,
         # flow-scenario goal (pedestrian-corridor envs)
         goal_distance_range=(4.0, 8.0),
         corridor_half_length=9.0,
@@ -237,7 +239,7 @@ class MixedObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.episode_length_s = 30.0
+        self.episode_length_s = EPISODE_LENGTH
 
 
 @configclass
@@ -260,11 +262,11 @@ class MixedObstacleAvoidanceEnvCfg_PLAY(MixedObstacleAvoidanceEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.scene.num_envs = 16
-        self.scene.env_spacing = 2.5
-        self.scene.terrain.max_init_terrain_level = 0
-        self.observations.policy.enable_corruption = False
-        self.actions.pre_trained_policy_action.debug_vis = True
+        # self.scene.num_envs = 16
+        # self.scene.env_spacing = 2.5
+        # self.scene.terrain.max_init_terrain_level = 0
+        # self.observations.policy.enable_corruption = False
+        # self.actions.pre_trained_policy_action.debug_vis = True
 
 
 @configclass
@@ -273,11 +275,11 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarObstacleA
 
     def __post_init__(self):
         super().__post_init__()
-        self.scene.num_envs = 16
-        self.scene.env_spacing = 2.5
-        self.scene.terrain.max_init_terrain_level = 0
-        self.observations.policy.enable_corruption = False
-        self.actions.pre_trained_policy_action.debug_vis = True
+        # self.scene.num_envs = 16
+        # self.scene.env_spacing = 2.5
+        # self.scene.terrain.max_init_terrain_level = 0
+        # self.observations.policy.enable_corruption = False
+        # self.actions.pre_trained_policy_action.debug_vis = True
 
 
 @configclass
@@ -286,8 +288,8 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 
     def __post_init__(self):
         super().__post_init__()
-        self.scene.num_envs = 16
-        self.scene.env_spacing = 2.5
-        self.scene.terrain.max_init_terrain_level = 0
-        self.observations.policy.enable_corruption = False
-        self.actions.pre_trained_policy_action.debug_vis = True
+        # self.scene.num_envs = 16
+        # self.scene.env_spacing = 2.5
+        # self.scene.terrain.max_init_terrain_level = 0
+        # self.observations.policy.enable_corruption = False
+        # self.actions.pre_trained_policy_action.debug_vis = True

@@ -5,6 +5,45 @@ simulates ``num_envs x max_pedestrians`` agents in parallel on ``env.device`` us
 Helbing-Molnar style social force model. The robot does not participate in the force
 balance (no robot->pedestrian coupling) so that per-env pedestrian dynamics never depend
 on other environments' robot state.
+
+Each pedestrian ``i`` is driven by a Helbing-Molnar style social force
+:math:`f_i = f_i^{goal} + f_i^{ped} + f_i^{robot} + f_i^{wall}`, clamped to
+``max_force`` and integrated with semi-implicit Euler:
+``v_i <- clamp(v_i + f_i * dt, max_speed_factor * desired_speed_i)``,
+``pos_i <- pos_i + v_i * dt``.
+
+**Goal-attraction force** (relaxation toward the desired velocity)::
+
+    f_i^goal = (desired_speed_i * e_i - v_i) / tau
+
+where ``e_i = (goal_i - pos_i) / |goal_i - pos_i|`` is the unit vector
+toward the pedestrian's current goal, and ``tau`` is the relaxation time.
+
+**Pedestrian-pedestrian repulsion** (summed over all other pedestrians
+``j`` in the same environment, ``d_ij = |pos_i - pos_j|``)::
+
+    f_i^ped = sum_{j != i} a_ped * exp((r_i + r_j - d_ij) / b_ped) * (pos_i - pos_j) / d_ij
+
+where ``r_i``/``r_j`` are the pedestrian capsule radii, ``a_ped`` sets the
+repulsion strength and ``b_ped`` its falloff range.
+
+**Robot-pedestrian repulsion** (one-way; ``d_i = |pos_i - pos_robot|``)::
+
+    f_i^robot = a_robot * exp((r_i + robot_radius - d_i) / b_robot_i) * (pos_i - pos_robot) / d_i
+
+with strength ``a_robot`` and per-pedestrian falloff length ``b_robot_i``, drawn from
+``b_robot_range`` to represent varying pedestrian attentiveness to the robot. The robot
+itself receives no reaction force.
+
+**Corridor-wall repulsion** (only the lateral/local-y component is
+affected; ``y`` is the pedestrian's offset from the corridor centerline,
+``w`` is ``corridor_width``)::
+
+    d_pos = w/2 - y      # distance to the +y wall
+    d_neg = w/2 + y      # distance to the -y wall
+    f_i^wall_y = -a_wall * exp((r_i - d_pos) / b_wall) + a_wall * exp((r_i - d_neg) / b_wall)
+
+with strength ``a_wall`` and falloff range ``b_wall``. ``f_i^wall_x = 0``.
 """
 
 from __future__ import annotations
@@ -21,7 +60,8 @@ PED_HEIGHT_RANGE = (1.45, 1.95)
 
 @configclass
 class SocialForceCrowdCfg:
-    """Configuration for :class:`SocialForceCrowdManager`."""
+    """Configuration for :class:`SocialForceCrowdManager`.
+    """
 
     max_pedestrians: int = 12
     """Maximum number of pedestrian slots simulated per environment."""
@@ -51,8 +91,11 @@ class SocialForceCrowdCfg:
     """Robot-pedestrian repulsion strength (one-way: pedestrians avoid the robot, the
     robot itself is not pushed — its motion is governed entirely by the RL policy)."""
 
-    b_robot: float = 0.3
-    """Robot-pedestrian repulsion range [m]."""
+    b_robot_range: tuple[float, float] = (0.15, 1.0)
+    """Range from which each pedestrian's robot-repulsion decay length ``b_robot`` [m] is
+    sampled (domain randomization for pedestrian "attentiveness": low values react late/
+    sharply to the robot, high values react early/gently). Resampled per slot on spawn and
+    recycle."""
 
     robot_radius: float = 0.4
     """Effective collision radius of the robot used for the repulsion force [m]."""
@@ -90,6 +133,10 @@ class SocialForceCrowdManager:
         self.radius = torch.full((n, p), 0.25, device=device)
         self.height = torch.full((n, p), 1.7, device=device)
         self.active_mask = torch.zeros(n, p, dtype=torch.bool, device=device)
+
+        # Per-pedestrian robot-repulsion decay length (attentiveness), resampled on
+        # spawn/recycle from cfg.b_robot_range.
+        self.b_robot = torch.full((n, p), sum(cfg.b_robot_range) / 2.0, device=device)
 
         self.flow_dir = torch.ones(n, device=device)
         self.corridor_origin = torch.zeros(n, 2, device=device)
@@ -170,12 +217,15 @@ class SocialForceCrowdManager:
         self._update_pair_mask()
         self._half_width[e] = corridor_width.unsqueeze(1) / 2.0
 
-        local_pos, vel, goal, speed = self._spawn_pedestrians(e, corridor_length, corridor_width, flow_dir, speed_range)
+        local_pos, vel, goal, speed, b_robot = self._spawn_pedestrians(
+            e, corridor_length, corridor_width, flow_dir, speed_range
+        )
 
         self.pos[e] = corridor_origin.unsqueeze(1) + local_pos
         self.vel[e] = vel
         self.goal[e] = corridor_origin.unsqueeze(1) + goal
         self.desired_speed[e] = speed
+        self.b_robot[e] = b_robot
 
         # Park inactive slots out of the way so they neither collide nor render visibly.
         self._park_inactive(e)
@@ -203,7 +253,9 @@ class SocialForceCrowdManager:
             corridor_width = self.corridor_width[e]
             speed_range = self._speed_range[e]
 
-            local_pos, vel, goal, speed = self._spawn_pedestrians(e, corridor_length, corridor_width, flow_dir, speed_range)
+            local_pos, vel, goal, speed, b_robot = self._spawn_pedestrians(
+                e, corridor_length, corridor_width, flow_dir, speed_range
+            )
             world_pos = self.corridor_origin[e].unsqueeze(1) + local_pos
             world_goal = self.corridor_origin[e].unsqueeze(1) + goal
 
@@ -211,6 +263,7 @@ class SocialForceCrowdManager:
             self.vel[e] = torch.where(newly_active.unsqueeze(-1), vel, self.vel[e])
             self.goal[e] = torch.where(newly_active.unsqueeze(-1), world_goal, self.goal[e])
             self.desired_speed[e] = torch.where(newly_active, speed, self.desired_speed[e])
+            self.b_robot[e] = torch.where(newly_active, b_robot, self.b_robot[e])
 
         self._park_inactive(e)
 
@@ -238,11 +291,11 @@ class SocialForceCrowdManager:
         corridor_width: torch.Tensor,
         flow_dir: torch.Tensor,
         speed_range: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Sample fresh corridor-local positions/velocities/goals/speeds for all slots.
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample fresh corridor-local positions/velocities/goals/speeds/b_robot for all slots.
 
         Returns corridor-local ``pos (E,P,2)``, ``vel (E,P,2)``, corridor-local
-        ``goal (E,P,2)``, and ``desired_speed (E,P)``.
+        ``goal (E,P,2)``, ``desired_speed (E,P)``, and ``b_robot (E,P)``.
         """
         e = env_ids
         p = self.max_pedestrians
@@ -276,7 +329,10 @@ class SocialForceCrowdManager:
         vel = torch.zeros(n, p, 2, device=self.device)
         vel[..., 0] = flow_dir.unsqueeze(1) * speed
 
-        return local_pos, vel, goal, speed
+        b_lo, b_hi = self.cfg.b_robot_range
+        b_robot = b_lo + torch.rand(n, p, device=self.device) * (b_hi - b_lo)
+
+        return local_pos, vel, goal, speed, b_robot
 
     # ------------------------------------------------------------------
     # Simulation step
@@ -312,7 +368,7 @@ class SocialForceCrowdManager:
         if robot_pos is not None:
             diff_robot = self.pos - robot_pos.unsqueeze(1)  # (N, P, 2)
             dist_robot = torch.linalg.norm(diff_robot, dim=-1).clamp(min=1e-6)  # (N, P)
-            magnitude_robot = cfg.a_robot * torch.exp((self._radius_sum_robot - dist_robot) / cfg.b_robot)
+            magnitude_robot = cfg.a_robot * torch.exp((self._radius_sum_robot - dist_robot) / self.b_robot)
             magnitude_robot = torch.where(active, magnitude_robot, torch.zeros_like(magnitude_robot))
             f_robot = (magnitude_robot / dist_robot).unsqueeze(-1) * diff_robot
         else:
@@ -381,6 +437,9 @@ class SocialForceCrowdManager:
         speed_max = self._speed_range[:, 1:2]
         new_speed = speed_min + torch.rand(n, p, device=self.device) * (speed_max - speed_min)
 
+        b_lo, b_hi = self.cfg.b_robot_range
+        new_b_robot = b_lo + torch.rand(n, p, device=self.device) * (b_hi - b_lo)
+
         new_local_x = start_x_b
         new_local_pos = torch.stack([new_local_x, new_y], dim=-1)
         new_world_pos = self.corridor_origin.unsqueeze(1) + new_local_pos
@@ -397,6 +456,7 @@ class SocialForceCrowdManager:
         self.goal = torch.where(crossed_pos, new_world_goal, self.goal)
         self.vel = torch.where(crossed_pos, new_vel, self.vel)
         self.desired_speed = torch.where(crossed, new_speed, self.desired_speed)
+        self.b_robot = torch.where(crossed, new_b_robot, self.b_robot)
 
     # ------------------------------------------------------------------
     # Accessors
