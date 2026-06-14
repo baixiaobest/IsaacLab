@@ -329,7 +329,7 @@ class TerminationsCfg:
             "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
             "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD,
             "velocity_threshold": 0.1,
-            "stay_for_seconds": 0.5,
+            "stay_for_seconds": 0.1,
         },
     )
     base_contact = DoneTerm(

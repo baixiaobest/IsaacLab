@@ -172,7 +172,7 @@ class pose_2d_command_goal_reached(ManagerTermBase):
             distance_threshold: float = 0.5,
             angular_threshold: float = 0.1,
             velocity_threshold: float = 0.1,
-            stay_for_seconds: float = 0.5,
+            stay_for_seconds: float = 0.1,
     ) -> torch.Tensor:
         asset: Articulation = env.scene[asset_cfg.name]
         command = env.command_manager.get_command(command_name)
