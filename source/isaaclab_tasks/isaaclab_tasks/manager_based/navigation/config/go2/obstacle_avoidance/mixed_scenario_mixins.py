@@ -67,8 +67,8 @@ PED_COUNT_RANGE_HIGH = (10, 12)
 PED_SPEED_RANGE_LOW = (0.3, 0.7)
 PED_SPEED_RANGE_HIGH = (0.9, 1.5)
 
-EPISODE_LENGTH = 12.0
-RESAMPLING_TIME_RANGE = (8.0, 12.0)
+EPISODE_LENGTH = 15.0
+RESAMPLING_TIME_RANGE = (15.1, 15.1)
 
 # ---------------------------------------------------------------------------
 # Scenario fragments
