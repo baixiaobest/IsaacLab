@@ -9,8 +9,6 @@ on other environments' robot state.
 
 from __future__ import annotations
 
-import colorsys
-
 import torch
 from pxr import Gf
 
@@ -21,6 +19,7 @@ from isaaclab.terrains import TerrainImporter
 
 from isaaclab_tasks.manager_based.navigation.mdp.events import reset_pedestrian_crowd
 from isaaclab_tasks.manager_based.navigation.mdp.social_force_crowd import SocialForceCrowdManager
+from isaaclab_tasks.manager_based.navigation.mdp.visual_utils import get_env_color
 
 from .pedestrian_scene import PED_CAPSULE_HEIGHTS, PED_RADII
 
@@ -86,10 +85,7 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         """
         stage = get_current_stage()
         for env_id, env_prim_path in enumerate(self.scene.env_prim_paths):
-            # Golden-ratio hue stepping keeps neighboring envs visually distinct even when
-            # num_envs is large (hues cycle but rarely land close together).
-            hue = (env_id * 0.6180339887) % 1.0
-            color = Gf.Vec3f(*colorsys.hsv_to_rgb(hue, 0.55, 0.85))
+            color = Gf.Vec3f(*get_env_color(env_id))
             for ped_idx in range(self.crowd_manager.max_pedestrians):
                 shader_prim = stage.GetPrimAtPath(f"{env_prim_path}/Pedestrian_{ped_idx}/geometry/material/Shader")
                 if shader_prim.IsValid():

@@ -18,10 +18,13 @@ from typing import TYPE_CHECKING
 
 import torch
 
+import isaaclab.sim as sim_utils
+from isaaclab.markers import VisualizationMarkers
 from isaaclab.utils import configclass
-from isaaclab.utils.math import wrap_to_pi
+from isaaclab.utils.math import quat_from_euler_xyz, wrap_to_pi
 
 from .pedestrian_commands import CorridorPedestrianPose2dCommandCfg, _CorridorPose2dCommandBase
+from .visual_utils import get_env_color
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -50,6 +53,10 @@ class MixedTerrainPose2dCommand(_CorridorPose2dCommandBase):
         self._is_pedestrian_env = torch.tensor(
             [name == "ped_corridor" for name in env_terrain_names], dtype=torch.bool, device=self.device
         )
+
+        # Selects the per-env goal-marker prototype in _debug_vis_callback (prototype i is
+        # colored to match env i's pedestrians, see _set_debug_vis_impl).
+        self._goal_marker_indices = torch.arange(self.num_envs, device=self.device)
 
     def _resample_command(self, env_ids: Sequence[int]):
         env_ids_t = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
@@ -96,6 +103,39 @@ class MixedTerrainPose2dCommand(_CorridorPose2dCommandBase):
         else:
             r = torch.empty(len(env_ids), device=self.device)
             self.heading_command_w[env_ids] = r.uniform_(*self.cfg.ranges.heading)
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        # create markers if necessary for the first time
+        if debug_vis:
+            if not hasattr(self, "goal_pose_visualizer"):
+                base_cfg = self.cfg.goal_pose_visualizer_cfg
+                base_marker = base_cfg.markers["arrow"]
+                # One marker prototype per env, colored to match that env's pedestrians
+                # (see visual_utils.get_env_color), selected via marker_indices below.
+                markers = {
+                    f"arrow_{env_id}": base_marker.replace(
+                        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=get_env_color(env_id))
+                    )
+                    for env_id in range(self.num_envs)
+                }
+                self.goal_pose_visualizer = VisualizationMarkers(base_cfg.replace(markers=markers))
+            # set their visibility to true
+            self.goal_pose_visualizer.set_visibility(True)
+        else:
+            if hasattr(self, "goal_pose_visualizer"):
+                self.goal_pose_visualizer.set_visibility(False)
+
+    def _debug_vis_callback(self, event):
+        # update the goal marker, using the per-env colored prototype
+        self.goal_pose_visualizer.visualize(
+            translations=self.pos_command_w,
+            orientations=quat_from_euler_xyz(
+                torch.zeros_like(self.heading_command_w),
+                torch.zeros_like(self.heading_command_w),
+                self.heading_command_w,
+            ),
+            marker_indices=self._goal_marker_indices,
+        )
 
 
 @configclass
