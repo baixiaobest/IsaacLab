@@ -191,7 +191,7 @@ class _MixedRewardsCfg:
 
     pedestrian_proximity_speed = RewTerm(
         func=nav_mdp.pedestrian_proximity_speed_penalty,
-        weight=-5.0,
+        weight=-2.0,
         params={
             'sigma': 1.5,
         }
