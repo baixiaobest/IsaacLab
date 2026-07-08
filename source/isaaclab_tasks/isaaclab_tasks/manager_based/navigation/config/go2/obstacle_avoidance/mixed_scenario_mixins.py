@@ -184,6 +184,9 @@ class _MixedRewardsCfg:
     social_force_impulse = RewTerm(
         func=nav_mdp.social_force_impulse,
         weight=-1.0,
+        params={
+            'sigma': 1.5,
+        }
     )
 
 

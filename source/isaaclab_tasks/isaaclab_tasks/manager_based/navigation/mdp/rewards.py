@@ -869,16 +869,26 @@ def pedestrian_capsule_collision_penalty(
     return env.crowd_manager.get_robot_collision(robot_pos).float()
 
 
-def social_force_impulse(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Penalize the robot for the social-force impulse it exerts on pedestrians.
+def social_force_impulse(
+        env: ManagerBasedRLEnv,
+        sigma: float = 1.0,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize the robot for being close to active pedestrians.
 
-    Returns the per-env sum of robot→pedestrian repulsion force magnitudes cached by
-    :meth:`SocialForceCrowdManager.step`. Because the reward manager multiplies by dt
-    each step, this accumulates as a true impulse (force × time) over the episode.
+    Returns ``sum_i exp(-dist_i / sigma)`` over active pedestrian slots, where ``dist_i``
+    is the XY distance from the robot to pedestrian ``i``. Because the reward manager
+    multiplies by dt each step this accumulates as a time-integrated proximity cost.
+    ``sigma`` [m] controls the falloff distance.
 
     Requires ``env.crowd_manager`` (see :class:`PedestrianCrowdNavigationEnv`).
     """
-    return env.crowd_manager.get_robot_force_sum()
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]  # (N, 2)
+    crowd = env.crowd_manager
+    dist = torch.linalg.norm(robot_pos.unsqueeze(1) - crowd.pos, dim=-1)  # (N, P)
+    proximity = torch.exp(-dist / sigma)
+    proximity = torch.where(crowd.active_mask, proximity, torch.zeros_like(proximity))
+    return proximity.sum(dim=1)
 
 
 def speed_limit_penalty(
