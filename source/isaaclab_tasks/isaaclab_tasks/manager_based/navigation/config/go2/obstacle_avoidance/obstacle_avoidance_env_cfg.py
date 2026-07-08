@@ -299,7 +299,7 @@ class RewardsCfg:
 
     excessive_velocity = RewTerm(
         func=mdp.excessive_velocity, 
-        weight=-0.1,
+        weight=-0.5,
         params={
             "speed_threshold": 1.0,
         })
