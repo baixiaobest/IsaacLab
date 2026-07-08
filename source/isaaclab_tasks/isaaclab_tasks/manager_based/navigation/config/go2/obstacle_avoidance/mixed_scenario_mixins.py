@@ -189,6 +189,14 @@ class _MixedRewardsCfg:
         }
     )
 
+    pedestrian_proximity_speed = RewTerm(
+        func=nav_mdp.pedestrian_proximity_speed_penalty,
+        weight=-1.0,
+        params={
+            'sigma': 1.5,
+        }
+    )
+
 
 @configclass
 class _MixedTerminationsCfg:

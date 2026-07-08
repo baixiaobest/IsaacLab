@@ -891,6 +891,26 @@ def social_force_impulse(
     return proximity.sum(dim=1)
 
 
+def pedestrian_proximity_speed_penalty(
+        env: ManagerBasedRLEnv,
+        sigma: float = 1.5,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize moving fast near pedestrians: speed * sum_i exp(-dist_i / sigma).
+
+    Encourages the robot to slow down when pedestrians are nearby without penalising
+    stationary proximity (e.g. waiting for a gap).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    robot_vel = asset.data.root_lin_vel_w[:, :2]
+    speed = torch.linalg.norm(robot_vel, dim=-1)  # (N,)
+    crowd = env.crowd_manager
+    dist = torch.linalg.norm(robot_pos.unsqueeze(1) - crowd.pos, dim=-1)  # (N, P)
+    proximity = torch.exp(-dist / sigma)
+    proximity = torch.where(crowd.active_mask, proximity, torch.zeros_like(proximity))
+    return speed * proximity.sum(dim=1)
+
+
 def speed_limit_penalty(
         env: ManagerBasedRLEnv,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
