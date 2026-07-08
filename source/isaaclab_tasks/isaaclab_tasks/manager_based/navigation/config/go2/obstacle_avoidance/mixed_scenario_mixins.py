@@ -181,6 +181,11 @@ class _MixedRewardsCfg:
         weight=-200.0,
     )
 
+    social_force_impulse = RewTerm(
+        func=nav_mdp.social_force_impulse,
+        weight=-1.0,
+    )
+
 
 @configclass
 class _MixedTerminationsCfg:

@@ -153,6 +153,9 @@ class SocialForceCrowdManager:
         # Eye mask to exclude self-interaction in pairwise repulsion (1, P, P).
         self._self_mask = ~torch.eye(p, dtype=torch.bool, device=device).unsqueeze(0)
 
+        # Sum of robot→pedestrian force magnitudes per env; updated every step().
+        self.robot_force_sum = torch.zeros(n, device=device)
+
         # Cached per-step constants, recomputed only when the quantities they depend on
         # change (radii: set_radii; active_mask: reset_idx/set_active_count; corridor_width:
         # reset_idx) rather than every step.
@@ -371,8 +374,10 @@ class SocialForceCrowdManager:
             magnitude_robot = cfg.a_robot * torch.exp((self._radius_sum_robot - dist_robot) / self.b_robot)
             magnitude_robot = torch.where(active, magnitude_robot, torch.zeros_like(magnitude_robot))
             f_robot = (magnitude_robot / dist_robot).unsqueeze(-1) * diff_robot
+            self.robot_force_sum = magnitude_robot.sum(dim=1)
         else:
             f_robot = torch.zeros_like(f_ped)
+            self.robot_force_sum = torch.zeros(self.num_envs, device=self.device)
 
         # --- 3. Corridor-wall repulsion (analytic, local-y only) -------------------------
         local_y = self.pos[..., 1] - self.corridor_origin[:, 1:2]
@@ -495,3 +500,12 @@ class SocialForceCrowdManager:
         """
         dist = torch.norm(robot_pos_w.unsqueeze(1) - self.pos, dim=-1)
         return torch.any((dist < self._radius_sum_robot) & self.active_mask, dim=1)
+
+    def get_robot_force_sum(self) -> torch.Tensor:
+        """Return the sum of robot→pedestrian repulsion force magnitudes per env.
+
+        Cached from the most recent :meth:`step` call. Shape ``(num_envs,)``.
+        Zero for environments where ``step`` was called without a ``robot_pos`` or that have
+        no active pedestrians.
+        """
+        return self.robot_force_sum

@@ -869,6 +869,18 @@ def pedestrian_capsule_collision_penalty(
     return env.crowd_manager.get_robot_collision(robot_pos).float()
 
 
+def social_force_impulse(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Penalize the robot for the social-force impulse it exerts on pedestrians.
+
+    Returns the per-env sum of robot→pedestrian repulsion force magnitudes cached by
+    :meth:`SocialForceCrowdManager.step`. Because the reward manager multiplies by dt
+    each step, this accumulates as a true impulse (force × time) over the episode.
+
+    Requires ``env.crowd_manager`` (see :class:`PedestrianCrowdNavigationEnv`).
+    """
+    return env.crowd_manager.get_robot_force_sum()
+
+
 def speed_limit_penalty(
         env: ManagerBasedRLEnv,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
