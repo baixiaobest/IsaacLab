@@ -183,7 +183,7 @@ class _MixedRewardsCfg:
 
     social_force_impulse = RewTerm(
         func=nav_mdp.social_force_impulse,
-        weight=-1.0,
+        weight=-0.5,
         params={
             'sigma': 1.5,
         }
@@ -191,7 +191,7 @@ class _MixedRewardsCfg:
 
     pedestrian_proximity_speed = RewTerm(
         func=nav_mdp.pedestrian_proximity_speed_penalty,
-        weight=-1.0,
+        weight=-0.5,
         params={
             'sigma': 1.5,
         }
