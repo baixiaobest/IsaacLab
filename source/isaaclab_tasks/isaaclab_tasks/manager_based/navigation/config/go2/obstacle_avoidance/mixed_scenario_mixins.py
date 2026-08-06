@@ -184,20 +184,17 @@ class _MixedRewardsCfg:
         weight=-200.0,
     )
 
-    social_force_impulse = RewTerm(
-        func=nav_mdp.social_force_impulse,
+    pedestrian_closest_approach = RewTerm(
+        func=nav_mdp.pedestrian_closest_approach_penalty,
         weight=-0.5,
         params={
-            'sigma': 1.5,
-        }
-    )
-
-    pedestrian_proximity_speed = RewTerm(
-        func=nav_mdp.pedestrian_proximity_speed_penalty,
-        weight=-2.0,
-        params={
-            'sigma': 1.5,
-        }
+            # CPA assumes constant velocities only over this short look-ahead window.
+            "horizon": 1.5,
+            # Surface clearance (not centre distance) below which the risk starts.
+            "safe_clearance": 0.5,
+            "time_scale": 0.75,
+            "min_relative_speed": 0.05,
+        },
     )
 
 

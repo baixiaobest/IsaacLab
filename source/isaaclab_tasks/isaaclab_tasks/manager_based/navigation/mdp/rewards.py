@@ -869,6 +869,75 @@ def pedestrian_capsule_collision_penalty(
     return env.crowd_manager.get_robot_collision(robot_pos).float()
 
 
+def pedestrian_closest_approach_penalty(
+        env: ManagerBasedRLEnv,
+        horizon: float = 1.5,
+        safe_clearance: float = 0.5,
+        time_scale: float = 0.75,
+        min_relative_speed: float = 0.05,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Return the greatest imminent pedestrian collision risk per environment.
+
+    For each active pedestrian, predict the constant-velocity closest point of approach
+    (CPA) over ``horizon`` seconds. The risk is non-zero only when the robot is closing
+    on that pedestrian and the predicted *surface clearance* at the CPA is below
+    ``safe_clearance``. It is the product of:
+
+    - a squared hinge on predicted clearance, bounded to ``[0, 1]``; and
+    - ``exp(-t_cpa / time_scale)``, making sooner conflicts more costly.
+
+    The maximum over pedestrian slots is used rather than a sum, so adding distant
+    pedestrians does not increase the penalty. Pedestrians that are behind/separating,
+    outside the prediction horizon, inactive, or nearly velocity-matched contribute zero.
+
+    This is an early-warning shaping signal. Collision termination and the collision
+    penalty should remain enabled as the hard safety objective.
+    """
+    if horizon <= 0.0:
+        raise ValueError(f"horizon must be positive, got {horizon}.")
+    if safe_clearance <= 0.0:
+        raise ValueError(f"safe_clearance must be positive, got {safe_clearance}.")
+    if time_scale <= 0.0:
+        raise ValueError(f"time_scale must be positive, got {time_scale}.")
+    if min_relative_speed < 0.0:
+        raise ValueError(f"min_relative_speed must be non-negative, got {min_relative_speed}.")
+
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    robot_vel = asset.data.root_lin_vel_w[:, :2]
+    crowd = env.crowd_manager
+
+    # ``rel_pos`` points from robot to pedestrian. ``rel_vel`` is the robot velocity
+    # relative to the pedestrian, so the future relative position is
+    # rel_pos - rel_vel * t.
+    rel_pos = crowd.pos - robot_pos.unsqueeze(1)
+    rel_vel = robot_vel.unsqueeze(1) - crowd.vel
+    rel_speed_sq = torch.sum(rel_vel.square(), dim=-1)
+    closing_dot = torch.sum(rel_pos * rel_vel, dim=-1)
+
+    # t_cpa = dot(rel_pos, rel_vel) / ||rel_vel||^2. Do not clamp before checking
+    # validity: a negative value means the pair is already separating.
+    min_speed_sq = min_relative_speed**2
+    valid_speed = rel_speed_sq > min_speed_sq
+    t_cpa = closing_dot / torch.clamp(rel_speed_sq, min=min_speed_sq + 1e-8)
+    valid = crowd.active_mask & valid_speed & (closing_dot > 0.0) & (t_cpa <= horizon)
+    t_cpa = torch.clamp(t_cpa, min=0.0, max=horizon)
+
+    cpa_offset = rel_pos - rel_vel * t_cpa.unsqueeze(-1)
+    cpa_center_distance = torch.linalg.norm(cpa_offset, dim=-1)
+    cpa_clearance = cpa_center_distance - (crowd.radius + crowd.cfg.robot_radius)
+
+    clearance_risk = torch.clamp(
+        (safe_clearance - cpa_clearance) / safe_clearance,
+        min=0.0,
+        max=1.0,
+    ).square()
+    time_risk = torch.exp(-t_cpa / time_scale)
+    risk = clearance_risk * time_risk
+    risk = torch.where(valid, risk, torch.zeros_like(risk))
+    return risk.max(dim=1).values
+
+
 def social_force_impulse(
         env: ManagerBasedRLEnv,
         sigma: float = 1.0,
