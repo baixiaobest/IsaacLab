@@ -186,7 +186,7 @@ class _MixedRewardsCfg:
 
     pedestrian_closest_approach = RewTerm(
         func=nav_mdp.pedestrian_closest_approach_penalty,
-        weight=-0.0,
+        weight=-0.1,
         params={
             # CPA assumes constant velocities only over this short look-ahead window.
             "horizon": 1.5,
