@@ -45,6 +45,8 @@ from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
     PedestrianCollectionCfg,
     PedestrianVisualCollectionCfg,
+    make_pedestrian_collection_cfg,
+    make_pedestrian_visual_collection_cfg,
 )
 from .pedestrian_scenario_mixins import (
     _CROSSING_NORTH_SPAWN_POSE_RANGE,
@@ -54,6 +56,7 @@ from .pedestrian_scenario_mixins import (
 )
 from .pedestrian_terrains import (
     PEDESTRIAN_CURRICULUM_MAX_LEVEL,
+    PEDESTRIAN_CORRIDOR,
     build_mixed_static_pedestrian_corridor,
 )
 from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
@@ -309,3 +312,84 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
         # self.scene.terrain.max_init_terrain_level = 0
         # self.observations.policy.enable_corruption = False
         # self.actions.pre_trained_policy_action.debug_vis = True
+
+
+# ---------------------------------------------------------------------------
+# Dynamic-crowd evaluation overlay
+# ---------------------------------------------------------------------------
+
+EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
+"""Pedestrian desired-speed range used by the standardized dynamic-crowd benchmark."""
+
+
+def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
+    """Overlay a mixed configuration with the deterministic dynamic-crowd benchmark setup.
+
+    The supplied config is mutated before environment construction. Observation/action variants
+    are inherited unchanged, so base, temporal-lidar, and prediction policies remain compatible.
+    Per-environment crowd counts and scenario types are installed later with
+    :func:`install_dynamic_crowd_evaluation_profiles`.
+    """
+    env_cfg.scene.terrain.terrain_generator = PEDESTRIAN_CORRIDOR
+    # Spread vector environments across all generated corridor tiles at startup.  The
+    # evaluation deliberately disables the terrain curriculum below, so these initial
+    # levels stay fixed for the entire run.  Pinning this to zero placed every robot on
+    # the first tile (shown as level 1 in the visualizer).
+    env_cfg.scene.terrain.max_init_terrain_level = None
+    env_cfg.scene.pedestrians = make_pedestrian_collection_cfg(16)
+    if ENABLE_PEDESTRIAN_VISUAL_MESHES:
+        env_cfg.scene.pedestrian_visuals = make_pedestrian_visual_collection_cfg(16)
+
+    env_cfg.social_force.max_pedestrians = 16
+    env_cfg.pedestrian_init_count = 2
+    env_cfg.pedestrian_init_speed_range = EVALUATION_CROWD_SPEED_RANGE
+
+    # Evaluation fixes terrain and crowd difficulty rather than advancing the training curricula.
+    env_cfg.curriculum.terrain_levels = None
+    env_cfg.curriculum.discrete_obstacles = None
+    env_cfg.curriculum.concentric_maze = None
+    env_cfg.curriculum.ped_corridor = None
+    env_cfg.curriculum.pedestrian_density = None
+
+    env_cfg.events.reset_base = EventTerm(
+        func=nav_mdp.reset_evaluation_pedestrian_scenario_robot,
+        mode="reset",
+        params={
+            "flow_pose_range": _FLOW_SPAWN_POSE_RANGE,
+            "crossing_south_pose_range": _CROSSING_SOUTH_SPAWN_POSE_RANGE,
+            "crossing_north_pose_range": _CROSSING_NORTH_SPAWN_POSE_RANGE,
+            "velocity_range": _ZERO_VELOCITY_RANGE,
+            "speed_range": EVALUATION_CROWD_SPEED_RANGE,
+        },
+    )
+    return env_cfg
+
+
+def install_dynamic_crowd_evaluation_profiles(
+    env,
+    pedestrian_counts,
+    scenario_codes,
+) -> None:
+    """Install fixed profile tensors consumed by dynamic-crowd evaluation reset hooks.
+
+    Scenario codes are ``0=crossing``, ``1=with_flow``, and ``2=against_flow``. Inputs must
+    contain one assignment per vector environment and are copied to the environment device.
+    """
+    import torch
+
+    counts = torch.as_tensor(pedestrian_counts, device=env.device, dtype=torch.long)
+    scenarios = torch.as_tensor(scenario_codes, device=env.device, dtype=torch.long)
+    if counts.numel() != env.num_envs or scenarios.numel() != env.num_envs:
+        raise ValueError("Evaluation profiles must provide exactly one count and scenario per environment.")
+    if torch.any((counts < 1) | (counts > env.crowd_manager.max_pedestrians)):
+        raise ValueError("Evaluation pedestrian counts must fit the configured crowd capacity.")
+    if torch.any((scenarios < 0) | (scenarios > 2)):
+        raise ValueError("Evaluation scenario codes must be 0 (crossing), 1 (with), or 2 (against).")
+
+    env.evaluation_pedestrian_count = counts
+    env.evaluation_scenario = scenarios
+    env.evaluation_flow_goal_direction = torch.where(
+        scenarios == 1,
+        torch.ones_like(scenarios),
+        torch.where(scenarios == 2, -torch.ones_like(scenarios), torch.zeros_like(scenarios)),
+    )

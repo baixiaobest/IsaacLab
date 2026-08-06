@@ -31,9 +31,14 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         super().__init__(cfg, render_mode=render_mode, **kwargs)
 
         self.crowd_manager = SocialForceCrowdManager(cfg.social_force, self.num_envs, self.device)
+        if cfg.social_force.max_pedestrians > len(PED_RADII):
+            raise ValueError(
+                "The crowd configuration requests more pedestrian slots than the scene proxy pool supports: "
+                f"{cfg.social_force.max_pedestrians} > {len(PED_RADII)}."
+            )
         self.crowd_manager.set_radii(
-            torch.tensor(PED_RADII, device=self.device),
-            torch.tensor(PED_CAPSULE_HEIGHTS, device=self.device),
+            torch.tensor(PED_RADII[: cfg.social_force.max_pedestrians], device=self.device),
+            torch.tensor(PED_CAPSULE_HEIGHTS[: cfg.social_force.max_pedestrians], device=self.device),
         )
 
         self._pedestrians: RigidObjectCollection = self.scene["pedestrians"]

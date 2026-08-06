@@ -59,11 +59,25 @@ class _CorridorPose2dCommandBase(UniformPose2dCommand):
         is_north_start = mode == 2  # spawned north → goal on the south side
 
         # --- flow goal (local-x up/downstream, small local-y offset) ---
-        direction = torch.where(
-            torch.rand(n, device=self.device) < 0.5,
-            torch.tensor(-1.0, device=self.device),
-            torch.tensor(1.0, device=self.device),
-        )
+        # Evaluation installs this per-environment buffer to force the robot to travel with
+        # (+1) or against (-1) the crowd. Training environments do not define it and retain
+        # the original balanced random flow direction.
+        forced_direction = getattr(self._env, "evaluation_flow_goal_direction", None)
+        if forced_direction is None:
+            direction = torch.where(
+                torch.rand(n, device=self.device) < 0.5,
+                torch.tensor(-1.0, device=self.device),
+                torch.tensor(1.0, device=self.device),
+            )
+        else:
+            direction = forced_direction[env_ids].to(device=self.device, dtype=torch.float32)
+            random_direction = torch.where(
+                torch.rand(n, device=self.device) < 0.5,
+                torch.tensor(-1.0, device=self.device),
+                torch.tensor(1.0, device=self.device),
+            )
+            # Crossing profiles use zero because their flow-direction goal is irrelevant.
+            direction = torch.where(direction == 0.0, random_direction, direction)
         distance = torch.empty(n, device=self.device).uniform_(*self.cfg.goal_distance_range)
         flow_x = (direction * distance).clamp(-self.cfg.corridor_half_length, self.cfg.corridor_half_length)
         flow_y = torch.empty(n, device=self.device).uniform_(
