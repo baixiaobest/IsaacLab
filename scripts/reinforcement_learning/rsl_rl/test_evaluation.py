@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import math
 import sys
 from pathlib import Path
 
@@ -66,6 +68,26 @@ def test_collector_accepts_scalar_environment_logs():
     assert collector.consume(extras) == 1
     assert collector.rows()[0]["successes"] == 1
     assert collector.rows()[0]["mean_xy_speed_mps"] == 0.75
+
+
+def test_collector_reports_sample_standard_deviations():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=2)
+
+    assert collector.consume(_extras([0], success=[0], velocity=[0.4])) == 1
+    assert collector.consume(_extras([0], collision=[0], velocity=[0.8])) == 1
+
+    row = collector.rows()[0]
+    assert row["success_rate"] == 0.5
+    assert row["collision_rate"] == 0.5
+    assert math.isclose(row["success_rate_std"], math.sqrt(0.5))
+    assert math.isclose(row["collision_rate_std"], math.sqrt(0.5))
+    assert math.isclose(row["mean_xy_speed_mps"], 0.6)
+    assert math.isclose(row["std_xy_speed_mps"], math.sqrt(0.08))
+
+    aggregate = collector.aggregate_rows()[0]
+    assert aggregate["episodes"] == 2
+    assert math.isclose(aggregate["std_xy_speed_mps"], math.sqrt(0.08))
 
 
 def test_collector_falls_back_to_legacy_linear_velocity_metric():
@@ -136,3 +158,6 @@ def test_artifacts_include_csv_json_and_summary_plot(tmp_path):
     assert (output / "dynamic_crowd_results.csv").is_file()
     assert (output / "dynamic_crowd_results.json").is_file()
     assert (output / "dynamic_crowd_summary.png").is_file()
+    with (output / "dynamic_crowd_results.json").open(encoding="utf-8") as file:
+        results = json.load(file)["results"]
+    assert {"success_rate_std", "collision_rate_std", "std_xy_speed_mps"} <= results[0].keys()

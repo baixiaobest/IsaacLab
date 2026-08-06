@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from dataclasses import asdict, dataclass
 from numbers import Number
 from pathlib import Path
@@ -29,6 +30,15 @@ class BenchmarkProfile:
 
     scenario: str
     pedestrian_count: int
+
+
+def _sample_standard_deviation(values: Iterable[float]) -> float:
+    """Return the sample standard deviation, or zero for fewer than two samples."""
+    samples = list(values)
+    if len(samples) < 2:
+        return 0.0
+    mean = sum(samples) / len(samples)
+    return math.sqrt(sum((value - mean) ** 2 for value in samples) / (len(samples) - 1))
 
 
 def dynamic_crowd_profiles(counts: Iterable[int] = range(2, 17, 2)) -> list[BenchmarkProfile]:
@@ -159,6 +169,10 @@ class EpisodeMetricsCollector:
         self._successes = [0] * len(profiles)
         self._collisions = [0] * len(profiles)
         self._velocity_sums = [0.0] * len(profiles)
+        # Retain episode-level values to report uncertainty across evaluation episodes.
+        self._success_outcomes: list[list[float]] = [[] for _ in profiles]
+        self._collision_outcomes: list[list[float]] = [[] for _ in profiles]
+        self._velocity_values: list[list[float]] = [[] for _ in profiles]
 
     @property
     def complete(self) -> bool:
@@ -237,8 +251,15 @@ class EpisodeMetricsCollector:
             # Collision takes precedence when both terms trigger on the same final step.
             if env_id in collision_ids:
                 self._collisions[profile_index] += 1
+                success, collision = 0.0, 1.0
             elif env_id in success_ids:
                 self._successes[profile_index] += 1
+                success, collision = 1.0, 0.0
+            else:
+                success, collision = 0.0, 0.0
+            self._success_outcomes[profile_index].append(success)
+            self._collision_outcomes[profile_index].append(collision)
+            self._velocity_values[profile_index].append(metric_by_env[env_id])
             accepted += 1
         return accepted
 
@@ -256,28 +277,39 @@ class EpisodeMetricsCollector:
                     "success_rate": self._successes[index] / episodes if episodes else 0.0,
                     "collision_rate": self._collisions[index] / episodes if episodes else 0.0,
                     "mean_xy_speed_mps": self._velocity_sums[index] / episodes if episodes else 0.0,
+                    "success_rate_std": _sample_standard_deviation(self._success_outcomes[index]),
+                    "collision_rate_std": _sample_standard_deviation(self._collision_outcomes[index]),
+                    "std_xy_speed_mps": _sample_standard_deviation(self._velocity_values[index]),
                 }
             )
         return rows
 
     def aggregate_rows(self) -> list[dict[str, Any]]:
-        """Return equal-weight count aggregates for every scenario."""
-        rows = self.rows()
+        """Return pooled per-episode aggregates for every scenario."""
         aggregates = []
         for scenario in SCENARIO_ORDER:
-            scenario_rows = [row for row in rows if row["scenario"] == scenario]
-            if not scenario_rows:
+            profile_indices = [index for index, profile in enumerate(self.profiles) if profile.scenario == scenario]
+            if not profile_indices:
                 continue
+            episodes = sum(self._episodes[index] for index in profile_indices)
+            successes = sum(self._successes[index] for index in profile_indices)
+            collisions = sum(self._collisions[index] for index in profile_indices)
+            success_outcomes = [outcome for index in profile_indices for outcome in self._success_outcomes[index]]
+            collision_outcomes = [outcome for index in profile_indices for outcome in self._collision_outcomes[index]]
+            velocity_values = [value for index in profile_indices for value in self._velocity_values[index]]
             aggregates.append(
                 {
                     "scenario": scenario,
                     "pedestrian_count": "all",
-                    "episodes": sum(row["episodes"] for row in scenario_rows),
-                    "successes": sum(row["successes"] for row in scenario_rows),
-                    "collisions": sum(row["collisions"] for row in scenario_rows),
-                    "success_rate": sum(row["success_rate"] for row in scenario_rows) / len(scenario_rows),
-                    "collision_rate": sum(row["collision_rate"] for row in scenario_rows) / len(scenario_rows),
-                    "mean_xy_speed_mps": sum(row["mean_xy_speed_mps"] for row in scenario_rows) / len(scenario_rows),
+                    "episodes": episodes,
+                    "successes": successes,
+                    "collisions": collisions,
+                    "success_rate": successes / episodes if episodes else 0.0,
+                    "collision_rate": collisions / episodes if episodes else 0.0,
+                    "mean_xy_speed_mps": sum(velocity_values) / episodes if episodes else 0.0,
+                    "success_rate_std": _sample_standard_deviation(success_outcomes),
+                    "collision_rate_std": _sample_standard_deviation(collision_outcomes),
+                    "std_xy_speed_mps": _sample_standard_deviation(velocity_values),
                 }
             )
         return aggregates
@@ -285,14 +317,19 @@ class EpisodeMetricsCollector:
 
 def print_results(rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]]) -> None:
     """Print a compact result table without introducing a tabular dependency."""
-    header = "scenario        crowd  episodes  success  collision  success%  collision%  xy speed (m/s)"
+    header = (
+        "scenario        crowd  episodes  success  collision  success% +/- std  "
+        "collision% +/- std  xy speed (m/s) +/- std"
+    )
     print(header)
     print("-" * len(header))
     for row in [*rows, *aggregate_rows]:
         print(
             f"{row['scenario']:<15} {str(row['pedestrian_count']):>5} {row['episodes']:>9} "
             f"{row['successes']:>8} {row['collisions']:>10} {100 * row['success_rate']:>8.1f} "
-            f"{100 * row['collision_rate']:>10.1f} {row['mean_xy_speed_mps']:>16.3f}"
+            f"+/- {100 * row['success_rate_std']:<5.1f} {100 * row['collision_rate']:>8.1f} "
+            f"+/- {100 * row['collision_rate_std']:<5.1f} {row['mean_xy_speed_mps']:>8.3f} "
+            f"+/- {row['std_xy_speed_mps']:<.3f}"
         )
 
 
@@ -308,7 +345,8 @@ def save_artifacts(
     all_rows = [*rows, *aggregate_rows]
     fieldnames = [
         "scenario", "pedestrian_count", "episodes", "successes", "collisions",
-        "success_rate", "collision_rate", "mean_xy_speed_mps",
+        "success_rate", "success_rate_std", "collision_rate", "collision_rate_std",
+        "mean_xy_speed_mps", "std_xy_speed_mps",
     ]
     with (output_path / "dynamic_crowd_results.csv").open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
@@ -328,9 +366,9 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
     import matplotlib.pyplot as plt
 
     metric_specs = (
-        ("success_rate", "Success rate (%)", 100.0, (0.0, 100.0)),
-        ("collision_rate", "Collision rate (%)", 100.0, (0.0, 100.0)),
-        ("mean_xy_speed_mps", "Mean XY speed (m/s)", 1.0, None),
+        ("success_rate", "success_rate_std", "Success rate (%)", 100.0, (0.0, 100.0)),
+        ("collision_rate", "collision_rate_std", "Collision rate (%)", 100.0, (0.0, 100.0)),
+        ("mean_xy_speed_mps", "std_xy_speed_mps", "Mean XY speed (m/s)", 1.0, None),
     )
     figure, axes = plt.subplots(3, 3, figsize=(14, 10), sharex="col")
     for col, scenario in enumerate(SCENARIO_ORDER):
@@ -338,10 +376,17 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
             (row for row in rows if row["scenario"] == scenario), key=lambda row: row["pedestrian_count"]
         )
         crowd_counts = [row["pedestrian_count"] for row in scenario_rows]
-        for row_index, (metric, ylabel, scale, ylim) in enumerate(metric_specs):
+        for row_index, (metric, std_metric, ylabel, scale, ylim) in enumerate(metric_specs):
             axis = axes[row_index, col]
             values = [row[metric] * scale for row in scenario_rows]
+            standard_deviations = [row[std_metric] * scale for row in scenario_rows]
             axis.plot(crowd_counts, values, marker="o", linewidth=2)
+            lower = [value - standard_deviation for value, standard_deviation in zip(values, standard_deviations)]
+            upper = [value + standard_deviation for value, standard_deviation in zip(values, standard_deviations)]
+            if ylim is not None:
+                lower = [max(ylim[0], value) for value in lower]
+                upper = [min(ylim[1], value) for value in upper]
+            axis.fill_between(crowd_counts, lower, upper, alpha=0.2)
             axis.grid(True, alpha=0.3)
             if ylim is not None:
                 axis.set_ylim(*ylim)
@@ -351,7 +396,7 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
                 axis.set_ylabel(ylabel)
             if row_index == 2:
                 axis.set_xlabel("Pedestrians")
-    figure.suptitle("Dynamic crowd evaluation", fontsize=16)
+    figure.suptitle("Dynamic crowd evaluation (shaded: ±1 sample SD)", fontsize=16)
     figure.tight_layout(rect=(0, 0, 1, 0.97))
     figure.savefig(path, dpi=180)
     plt.close(figure)
