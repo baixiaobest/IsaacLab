@@ -605,8 +605,11 @@ TemporalLidarHorizonCNNConfig = [
      "kernel_size": (1, 3),
      "stride": (1, 2),
      "padding": (0, 1)},
+
+    # H/4 → 1 (for H=8): retain a fixed 512-D lidar latent while aggregating time.
+    {"type": "adaptive_pool", "output_size": (1, 8)},
 ]
-# (64, H/4, 8) = 512 * H/4
+# (64, 1, 8) = 512
 
 # Dedicated algorithm config (a copy of ObstacleAvoidancePPOConfig) that shares the lidar CNN encoder between the
 # actor and critic LidarModels. Kept separate so the base task's shared config object is never mutated.
