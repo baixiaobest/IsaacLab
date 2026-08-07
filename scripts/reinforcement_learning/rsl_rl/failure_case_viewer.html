@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Collision Failure Analysis</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #111827; color: #e5e7eb; }
+    * { box-sizing: border-box; }
+    body { max-width: 1580px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 1.55rem; margin: 0; } h2 { font-size: .88rem; letter-spacing: .04em; text-transform: uppercase; color: #9ca3af; margin: 0 0 10px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; }
+    #subtitle, #message { color: #9ca3af; font-size: .9rem; } #message.error { color: #fca5a5; }
+    .workspace { display: grid; grid-template-columns: minmax(480px, 1fr) 330px; gap: 18px; align-items: start; }
+    .card { background: #1f2937; border: 1px solid #374151; border-radius: 10px; box-shadow: 0 8px 24px #0002; }
+    .plot-card { overflow: hidden; } #plot-title { padding: 13px 16px; border-bottom: 1px solid #374151; font-weight: 600; }
+    canvas { display: block; width: 100%; height: min(68vh, 760px); min-height: 470px; background: #0b1220; }
+    .timeline { display: grid; grid-template-columns: 76px 1fr 108px; gap: 10px; align-items: center; padding: 14px 16px; }
+    input[type="range"] { width: 100%; accent-color: #60a5fa; } .time-value { font-variant-numeric: tabular-nums; text-align: right; color: #cbd5e1; }
+    .controls { padding: 16px; display: grid; gap: 18px; }
+    .group { border-bottom: 1px solid #374151; padding-bottom: 16px; display: grid; gap: 9px; } .group:last-child { border: 0; padding-bottom: 0; }
+    label { display: grid; gap: 5px; color: #cbd5e1; font-size: .86rem; }
+    input, select, button { font: inherit; color: #e5e7eb; background: #111827; border: 1px solid #4b5563; border-radius: 6px; min-height: 34px; padding: 6px 9px; }
+    input:focus, select:focus, button:focus { outline: 2px solid #60a5fa; outline-offset: 1px; }
+    button { cursor: pointer; background: #26354d; } button:hover:not(:disabled) { background: #324663; } button:disabled { cursor: not-allowed; opacity: .45; }
+    .occurrence { display: grid; grid-template-columns: 42px 1fr 42px; gap: 7px; align-items: center; } #occurrence { text-align: center; }
+    .switches { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .switches label { display: flex; align-items: center; gap: 7px; font-size: .82rem; } .switches input { min-height: auto; }
+    .summary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; margin: 0; font-size: .85rem; } .summary dt { color: #9ca3af; } .summary dd { margin: 0; overflow-wrap: anywhere; }
+    .tag-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; } #save-tags { background: #1d4ed8; border-color: #2563eb; } #save-tags:hover { background: #2563eb; }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 0 16px 12px; color: #cbd5e1; font-size: .8rem; } .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; } .legend .robot { background: #60a5fa; border-radius: 1px; } .legend .pedestrian { background: #fb923c; } .legend .collider { border: 2px solid #f87171; background: transparent; } .legend .goal { background: #4ade80; }
+    @media (max-width: 950px) { body { padding: 14px; } .workspace { grid-template-columns: 1fr; } .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .group:last-child { border-bottom: 1px solid #374151; padding-bottom: 16px; } }
+    @media (max-width: 620px) { header { align-items: flex-start; flex-direction: column; } .controls, .switches { grid-template-columns: 1fr; } canvas { min-height: 360px; height: 58vh; } .timeline { grid-template-columns: 62px 1fr; } .time-value { grid-column: 2; text-align: left; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>Collision Failure Analysis</h1><div id="subtitle">Loading replay cases…</div></div><div id="message" role="status"></div></header>
+  <main class="workspace">
+    <section class="card plot-card">
+      <div id="plot-title">No case selected</div>
+      <canvas id="plot" aria-label="Robot-centered bird's-eye collision replay"></canvas>
+      <div class="legend"><span><i class="robot"></i>Robot heading</span><span><i class="pedestrian"></i>Pedestrian</span><span><i class="collider"></i>Colliding pedestrian</span><span><i class="goal"></i>Goal</span><span>Blue: actual velocity</span><span>Purple: command</span></div>
+      <div class="timeline"><label for="time">Time</label><input id="time" type="range" min="0" max="0" value="0" step="1"><output id="time-value" class="time-value">—</output></div>
+    </section>
+    <aside class="card controls">
+      <section class="group"><h2>Filter cases</h2>
+        <label>Scenario <select id="scenario"></select></label>
+        <label>Crowd count <select id="crowd-count"><option value="">All counts</option></select></label>
+        <label>Include tags <input id="include-tags" list="tag-options" placeholder="Any comma-separated tag"></label>
+        <label>Exclude tag <select id="exclude-tag"><option value="">No excluded tag</option></select></label><datalist id="tag-options"></datalist>
+      </section>
+      <section class="group"><h2>Occurrence</h2>
+        <div class="occurrence"><button id="previous-case" title="Previous matching occurrence">◀</button><input id="occurrence" type="number" min="1" value="1"><button id="next-case" title="Next matching occurrence">▶</button></div>
+        <div id="occurrence-count" class="time-value">0 matching cases</div>
+      </section>
+      <section class="group"><h2>View</h2>
+        <label>Camera <select id="view-mode"><option value="robot">Robot-centered</option><option value="world">World fixed (pan and zoom)</option></select></label>
+        <button id="reset-view" type="button">Center world view on robot</button>
+        <div class="time-value">World view: drag to pan · scroll to zoom</div>
+      </section>
+      <section class="group"><h2>Display</h2>
+        <div class="switches"><label><input id="pedestrian-velocity" type="checkbox" checked>Pedestrian velocity</label><label><input id="robot-velocity" type="checkbox" checked>Robot actual velocity</label><label><input id="robot-command" type="checkbox" checked>Robot command</label><label><input id="trails" type="checkbox" checked>One-second trails</label></div>
+      </section>
+      <section class="group"><h2>Selected occurrence</h2>
+        <dl id="summary" class="summary"><dt>Status</dt><dd>No matching case</dd></dl>
+      </section>
+      <section class="group"><h2>Tags for selected case</h2>
+        <div class="tag-row"><input id="case-tags" placeholder="comma-separated free-text tags"><button id="save-tags">Save</button></div>
+        <div id="automatic-tags" class="time-value"></div>
+      </section>
+    </aside>
+  </main>
+  <script>
+  (() => {
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const controls = { scenario: $("scenario"), count: $("crowd-count"), include: $("include-tags"), exclude: $("exclude-tag"), occurrence: $("occurrence"), previous: $("previous-case"), next: $("next-case"), time: $("time"), viewMode: $("view-mode"), resetView: $("reset-view"), pedestrianVelocity: $("pedestrian-velocity"), robotVelocity: $("robot-velocity"), robotCommand: $("robot-command"), trails: $("trails") };
+    const state = { data: null, tags: {}, matches: [], case: null, frames: null, request: 0, worldCenter: null, worldZoom: 1, pan: null, lastScale: 1 };
+    const canvas = $("plot"), context = canvas.getContext("2d");
+    const tagSet = (caseItem) => {
+      const all = [...(Array.isArray(caseItem.automatic_tags) ? caseItem.automatic_tags : []), ...(state.tags[caseItem.case_id] || [])];
+      const seen = new Set(); return all.filter((tag) => { const key = String(tag).trim().toLocaleLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+    };
+    const parseTags = (value) => { const seen = new Set(); return value.split(",").map((tag) => tag.trim()).filter((tag) => { const key = tag.toLocaleLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; }); };
+    const setMessage = (message, error = false) => { const element = $("message"); element.textContent = message; element.className = error ? "error" : ""; };
+    async function api(url, options) { const response = await fetch(url, options); const data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText); return data; }
+    function populateFilters() {
+      const { scenario_labels: labels, scenario_order: order, index } = state.data;
+      controls.scenario.replaceChildren(new Option("All scenarios", ""), ...order.map((scenario) => new Option(labels[scenario], scenario)));
+      const counts = [...new Set(index.cases.map((item) => item.pedestrian_count))].sort((a, b) => a - b);
+      controls.count.replaceChildren(new Option("All counts", ""), ...counts.map((count) => new Option(String(count), String(count))));
+      updateTagOptions();
+    }
+    function updateTagOptions() {
+      const selected = controls.exclude.value;
+      const tags = [...new Set(state.data.index.cases.flatMap(tagSet))].sort((a, b) => a.localeCompare(b));
+      $("tag-options").replaceChildren(...tags.map((tag) => { const option = document.createElement("option"); option.value = tag; return option; }));
+      controls.exclude.replaceChildren(new Option("No excluded tag", ""), ...tags.map((tag) => new Option(tag, tag)));
+      if (tags.some((tag) => tag.toLocaleLowerCase() === selected.toLocaleLowerCase())) controls.exclude.value = selected;
+    }
+    function matchingCases() {
+      const scenario = controls.scenario.value, count = controls.count.value, wanted = new Set(parseTags(controls.include.value).map((tag) => tag.toLocaleLowerCase())), excluded = controls.exclude.value.toLocaleLowerCase();
+      return state.data.index.cases.filter((item) => {
+        if (scenario && item.scenario !== scenario) return false;
+        if (count && String(item.pedestrian_count) !== count) return false;
+        const tags = tagSet(item).map((tag) => tag.toLocaleLowerCase());
+        return (!wanted.size || tags.some((tag) => wanted.has(tag))) && (!excluded || !tags.includes(excluded));
+      });
+    }
+    async function refreshCases(selectedId = state.case?.case_id, frameIndex = null) {
+      state.matches = matchingCases();
+      if (!state.matches.some((item) => item.case_id === selectedId)) selectedId = state.matches[0]?.case_id || null;
+      controls.occurrence.max = Math.max(1, state.matches.length); controls.occurrence.disabled = !selectedId; controls.previous.disabled = !selectedId; controls.next.disabled = !selectedId;
+      $("occurrence-count").textContent = `${state.matches.length} matching case${state.matches.length === 1 ? "" : "s"}`;
+      if (!selectedId) { state.case = null; state.frames = null; controls.occurrence.value = 1; draw(); return; }
+      controls.occurrence.value = state.matches.findIndex((item) => item.case_id === selectedId) + 1;
+      await loadCase(selectedId, frameIndex);
+    }
+    async function loadCase(caseId, frameIndex = null) {
+      const request = ++state.request; const caseItem = state.matches.find((item) => item.case_id === caseId); if (!caseItem) return;
+      const changingCase = state.case?.case_id !== caseId;
+      setMessage("Loading replay…");
+      try {
+        const frames = await api(`/api/case/${encodeURIComponent(caseId)}`); if (request !== state.request) return;
+        state.case = caseItem; state.frames = frames; if (changingCase) { state.worldCenter = null; state.worldZoom = 1; } const finalFrame = frames.time_s.length - 1; controls.time.max = Math.max(0, finalFrame); controls.time.value = Math.min(Math.max(0, frameIndex ?? finalFrame), finalFrame);
+        $("case-tags").value = (state.tags[caseId] || []).join(", "); updateCaseDetails(); draw(); setMessage("");
+      } catch (error) { setMessage(error.message, true); }
+    }
+    function updateCaseDetails() {
+      if (!state.case || !state.frames) { $("plot-title").textContent = "No collision case matches the current filters"; $("summary").innerHTML = "<dt>Status</dt><dd>No matching case</dd>"; $("automatic-tags").textContent = ""; return; }
+      const item = state.case, frame = Number(controls.time.value), relative = state.frames.time_s[frame] - state.frames.time_s.at(-1), labels = state.data.scenario_labels;
+      $("plot-title").textContent = `${labels[item.scenario] || item.scenario} · ${item.case_id} · ${relative.toFixed(2)} s to collision`;
+      $("time-value").textContent = `${relative.toFixed(2)} s (${frame + 1}/${state.frames.time_s.length})`;
+      $("summary").replaceChildren(...[["Scenario", labels[item.scenario] || item.scenario], ["Crowd", String(item.pedestrian_count)], ["Collider slots", (item.colliding_agent_ids || []).join(", ") || "—"], ["Collision time", `${Number(item.collision_time_s).toFixed(2)} s`]].flatMap(([name, value]) => { const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = name; description.textContent = value; return [term, description]; }));
+      const automatic = Array.isArray(item.automatic_tags) ? item.automatic_tags : []; $("automatic-tags").textContent = `Automatic tags: ${automatic.join(", ") || "none"}`;
+    }
+    function resizeCanvas() { const rect = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height)); if (canvas.width !== width * ratio || canvas.height !== height * ratio) { canvas.width = width * ratio; canvas.height = height * ratio; } context.setTransform(ratio, 0, 0, ratio, 0, 0); return { width, height }; }
+    function draw() {
+      const { width, height } = resizeCanvas(); context.clearRect(0, 0, width, height); context.fillStyle = "#0b1220"; context.fillRect(0, 0, width, height);
+      if (!state.case || !state.frames) { context.fillStyle = "#9ca3af"; context.font = "16px system-ui"; context.textAlign = "center"; context.fillText("No collision case matches the current filters.", width / 2, height / 2); updateCaseDetails(); return; }
+      const frames = state.frames, index = Number(controls.time.value), robot = frames.robot_position_xy[index], radius = Number(state.data.view_radius), robotCentered = controls.viewMode.value === "robot";
+      if (!robotCentered && state.worldCenter === null) state.worldCenter = [...robot];
+      const viewCenter = robotCentered ? robot : state.worldCenter, scale = Math.min(width, height) / (2 * radius) * (robotCentered ? 1 : state.worldZoom), toScreen = (point) => [width / 2 + (point[0] - viewCenter[0]) * scale, height / 2 - (point[1] - viewCenter[1]) * scale]; state.lastScale = scale; canvas.style.cursor = robotCentered ? "default" : (state.pan ? "grabbing" : "grab");
+      const minX = viewCenter[0] - width / (2 * scale), maxX = viewCenter[0] + width / (2 * scale), minY = viewCenter[1] - height / (2 * scale), maxY = viewCenter[1] + height / (2 * scale);
+      context.strokeStyle = "#223047"; context.lineWidth = 1; for (let worldX = Math.ceil(minX); worldX <= Math.floor(maxX); worldX += 1) { const [x] = toScreen([worldX, viewCenter[1]]); context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke(); } for (let worldY = Math.ceil(minY); worldY <= Math.floor(maxY); worldY += 1) { const [, y] = toScreen([viewCenter[0], worldY]); context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
+      if (minX <= 0 && maxX >= 0) { const [x] = toScreen([0, viewCenter[1]]); context.strokeStyle = "#475569"; context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke(); } if (minY <= 0 && maxY >= 0) { const [, y] = toScreen([viewCenter[0], 0]); context.strokeStyle = "#475569"; context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
+      const drawPath = (points, color, lineWidth, alpha = 1) => { context.save(); context.globalAlpha = alpha; context.strokeStyle = color; context.lineWidth = lineWidth; context.beginPath(); let started = false; for (const point of points) { if (!point) { started = false; continue; } const [x, y] = toScreen(point); if (!started) { context.moveTo(x, y); started = true; } else context.lineTo(x, y); } context.stroke(); context.restore(); };
+      // Pedestrian slots are reused after a despawn.  There is no lifecycle field in
+      // replay artifacts, so detect a respawn as a displacement far larger than the
+      // velocity recorded for one simulation step and start a fresh trail segment.
+      const trailBreak = (previousPosition, position, previousVelocity, velocity) => {
+        const displacement = Math.hypot(position[0] - previousPosition[0], position[1] - previousPosition[1]);
+        const expectedTravel = state.case.step_dt_s * Math.max(Math.hypot(...previousVelocity), Math.hypot(...velocity));
+        return displacement > Math.max(.75, 3 * expectedTravel + .25);
+      };
+      if (controls.trails.checked) { const start = Math.max(0, index - Math.max(1, Math.round(1 / state.case.step_dt_s))); drawPath(frames.robot_position_xy.slice(start, index + 1), "#60a5fa", 2.5, .65); for (let agent = 0; agent < frames.pedestrian_position_xy[0].length; agent += 1) { const points = []; let previousPosition = null, previousVelocity = null; for (let frame = start; frame <= index; frame += 1) { if (!frames.pedestrian_active_mask[frame][agent]) { points.push(null); previousPosition = null; previousVelocity = null; continue; } const position = frames.pedestrian_position_xy[frame][agent], velocity = frames.pedestrian_velocity_xy_world[frame][agent]; if (previousPosition && trailBreak(previousPosition, position, previousVelocity, velocity)) points.push(null); points.push(position); previousPosition = position; previousVelocity = velocity; } drawPath(points, "#fb923c", 1.25, .35); } }
+      const vector = (position, velocity, color, width = 2) => { const magnitude = Math.hypot(velocity[0], velocity[1]); if (magnitude < 1e-5) return; const [x1, y1] = toScreen(position), [x2, y2] = toScreen([position[0] + velocity[0], position[1] + velocity[1]]), angle = Math.atan2(y2 - y1, x2 - x1); context.strokeStyle = context.fillStyle = color; context.lineWidth = width; context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke(); context.beginPath(); context.moveTo(x2, y2); context.lineTo(x2 - 8 * Math.cos(angle - .45), y2 - 8 * Math.sin(angle - .45)); context.lineTo(x2 - 8 * Math.cos(angle + .45), y2 - 8 * Math.sin(angle + .45)); context.closePath(); context.fill(); };
+      const pedestrianPositions = frames.pedestrian_position_xy[index], active = frames.pedestrian_active_mask[index], velocities = frames.pedestrian_velocity_xy_world[index], colliders = new Set(state.case.colliding_agent_ids || []);
+      if (controls.pedestrianVelocity.checked) pedestrianPositions.forEach((position, agent) => { if (active[agent]) vector(position, velocities[agent], "#fb923c", 1.5); });
+      const goal = toScreen(frames.goal_position_xy[index]); context.fillStyle = "#4ade80"; context.beginPath(); for (let point = 0; point < 10; point += 1) { const angle = -Math.PI / 2 + point * Math.PI / 5, distance = point % 2 ? 5 : 10, x = goal[0] + Math.cos(angle) * distance, y = goal[1] + Math.sin(angle) * distance; point ? context.lineTo(x, y) : context.moveTo(x, y); } context.closePath(); context.fill();
+      pedestrianPositions.forEach((position, agent) => { if (!active[agent]) return; const [x, y] = toScreen(position); context.fillStyle = "#fb923c"; context.beginPath(); context.arc(x, y, 5, 0, Math.PI * 2); context.fill(); if (colliders.has(agent)) { context.strokeStyle = "#f87171"; context.lineWidth = 3; context.beginPath(); context.arc(x, y, 10, 0, Math.PI * 2); context.stroke(); } });
+      const yaw = frames.robot_yaw[index], local = [[.348, 0], [-.252, .225], [-.252, -.225]], triangle = local.map(([x, y]) => [robot[0] + Math.cos(yaw) * x - Math.sin(yaw) * y, robot[1] + Math.sin(yaw) * x + Math.cos(yaw) * y]); context.fillStyle = "#60a5fa"; context.strokeStyle = "#1d4ed8"; context.lineWidth = 2; context.beginPath(); triangle.forEach((point, pointIndex) => { const [x, y] = toScreen(point); pointIndex ? context.lineTo(x, y) : context.moveTo(x, y); }); context.closePath(); context.fill(); context.stroke();
+      if (controls.robotVelocity.checked) vector(robot, frames.robot_velocity_xy_world[index], "#60a5fa", 2.5); if (controls.robotCommand.checked) { const command = frames.robot_command_velocity_body[index], worldCommand = [Math.cos(yaw) * command[0] - Math.sin(yaw) * command[1], Math.sin(yaw) * command[0] + Math.cos(yaw) * command[1]]; vector(robot, worldCommand, "#c084fc", 2.5); }
+      context.fillStyle = "#94a3b8"; context.font = "12px system-ui"; context.textAlign = "left"; context.fillText(`${robotCentered ? "Robot-centered" : "World fixed · drag to pan, scroll to zoom"} · grid: 1 m`, 10, 20); updateCaseDetails();
+    }
+    function cycleOccurrence(direction) { if (!state.matches.length) return; const current = Number(controls.occurrence.value) - 1, next = (current + direction + state.matches.length) % state.matches.length; controls.occurrence.value = next + 1; loadCase(state.matches[next].case_id); }
+    async function saveTags() { if (!state.case) return; const frameIndex = Number(controls.time.value); try { const result = await api(`/api/tags/${encodeURIComponent(state.case.case_id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: $("case-tags").value }) }); state.tags = result.tags_by_case; updateTagOptions(); await refreshCases(state.case.case_id, frameIndex); setMessage("Tags saved."); } catch (error) { setMessage(error.message, true); } }
+    function resetWorldView() { if (!state.frames) return; state.worldCenter = [...state.frames.robot_position_xy[Number(controls.time.value)]]; state.worldZoom = 1; draw(); }
+    [controls.scenario, controls.count, controls.exclude].forEach((element) => element.addEventListener("change", () => refreshCases())); controls.include.addEventListener("input", () => refreshCases()); controls.occurrence.addEventListener("change", () => { const index = Math.min(Math.max(1, Number(controls.occurrence.value) || 1), state.matches.length) - 1; if (state.matches[index]) loadCase(state.matches[index].case_id); }); controls.previous.addEventListener("click", () => cycleOccurrence(-1)); controls.next.addEventListener("click", () => cycleOccurrence(1)); controls.time.addEventListener("input", draw); controls.viewMode.addEventListener("change", draw); controls.resetView.addEventListener("click", resetWorldView); [controls.pedestrianVelocity, controls.robotVelocity, controls.robotCommand, controls.trails].forEach((element) => element.addEventListener("change", draw)); $("save-tags").addEventListener("click", saveTags); window.addEventListener("resize", draw);
+    canvas.addEventListener("pointerdown", (event) => { if (controls.viewMode.value !== "world" || event.button !== 0 || !state.worldCenter) return; state.pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, center: [...state.worldCenter], scale: state.lastScale }; canvas.setPointerCapture(event.pointerId); canvas.style.cursor = "grabbing"; });
+    canvas.addEventListener("pointermove", (event) => { if (!state.pan || event.pointerId !== state.pan.pointerId) return; const deltaX = event.clientX - state.pan.x, deltaY = event.clientY - state.pan.y; state.worldCenter = [state.pan.center[0] - deltaX / state.pan.scale, state.pan.center[1] + deltaY / state.pan.scale]; draw(); });
+    const stopPan = (event) => { if (state.pan && event.pointerId === state.pan.pointerId) { state.pan = null; canvas.style.cursor = controls.viewMode.value === "world" ? "grab" : "default"; } }; canvas.addEventListener("pointerup", stopPan); canvas.addEventListener("pointercancel", stopPan);
+    canvas.addEventListener("wheel", (event) => { if (controls.viewMode.value !== "world" || !state.frames) return; event.preventDefault(); state.worldZoom = Math.min(40, Math.max(.1, state.worldZoom * Math.exp(-event.deltaY * .001))); draw(); }, { passive: false });
+    (async () => { try { state.data = await api("/api/index"); state.tags = state.data.tags_by_case || {}; $("subtitle").textContent = `${state.data.index.cases.length} recorded collision case${state.data.index.cases.length === 1 ? "" : "s"} · local browser viewer`; populateFilters(); await refreshCases(); } catch (error) { setMessage(error.message, true); $("subtitle").textContent = "Unable to load failure-case index"; } })();
+  })();
+  </script>
+</body>
+</html>

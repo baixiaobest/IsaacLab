@@ -27,6 +27,12 @@ SCENARIO_LABELS = {
     "against_flow": "Against flow",
 }
 
+GOAL_REGION_COLLISION_RADIUS_M = 0.75
+"""Terminal-goal buffer used to report goal-region collisions separately."""
+
+GOAL_REGION_TAG = "goal-region"
+"""Immutable replay tag assigned to collisions inside the terminal-goal buffer."""
+
 
 @dataclass(frozen=True)
 class BenchmarkProfile:
@@ -48,6 +54,27 @@ def _write_json_atomically(path: Path, payload: Any) -> None:
     os.replace(temporary_path, path)
 
 
+def terminal_goal_region_collision_ids(
+    env: Any,
+    reset_env_ids: Any,
+    radius_m: float = GOAL_REGION_COLLISION_RADIUS_M,
+    command_name: str = "pose_2d_command",
+) -> set[int]:
+    """Return resetting environments that collide within ``radius_m`` of their world-frame goal."""
+    if radius_m <= 0.0:
+        raise ValueError("radius_m must be positive.")
+    import torch
+
+    env_ids = torch.as_tensor(reset_env_ids, device=env.device, dtype=torch.long).reshape(-1)
+    if env_ids.numel() == 0:
+        return set()
+    robot_positions = env.scene["robot"].data.root_pos_w[:, :2]
+    goal_positions = env.command_manager.get_term(command_name).pos_command_w[:, :2]
+    collision_mask = env.crowd_manager.get_robot_collision(robot_positions)
+    within_goal_region = torch.linalg.vector_norm(robot_positions - goal_positions, dim=1) <= radius_m
+    return set(env_ids[collision_mask[env_ids] & within_goal_region[env_ids]].detach().cpu().tolist())
+
+
 class CollisionReplayRecorder:
     """Capture bounded vector-environment history and export pedestrian-collision replays.
 
@@ -64,11 +91,14 @@ class CollisionReplayRecorder:
         output_dir: str | Path,
         step_dt_s: float,
         history_seconds: float = 3.0,
+        goal_region_radius_m: float = GOAL_REGION_COLLISION_RADIUS_M,
     ):
         if step_dt_s <= 0.0:
             raise ValueError("step_dt_s must be positive.")
         if history_seconds <= 0.0:
             raise ValueError("history_seconds must be positive.")
+        if goal_region_radius_m <= 0.0:
+            raise ValueError("goal_region_radius_m must be positive.")
 
         self.profiles = profiles
         self.env_profile_indices = [int(index) for index in env_profile_indices]
@@ -81,6 +111,7 @@ class CollisionReplayRecorder:
         self.index_path = self.output_dir / "failure_cases.json"
         self.step_dt_s = float(step_dt_s)
         self.history_seconds = float(history_seconds)
+        self.goal_region_radius_m = float(goal_region_radius_m)
         # The terminal collision frame is added only when exporting, so the ring itself contains
         # exactly the requested leading history.
         self.history_frames = math.ceil(self.history_seconds / self.step_dt_s - 1e-9)
@@ -124,6 +155,7 @@ class CollisionReplayRecorder:
                 "schema_version": self.schema_version,
                 "step_dt_s": self.step_dt_s,
                 "history_seconds": self.history_seconds,
+                "goal_region_radius_m": self.goal_region_radius_m,
                 "cases": self._cases,
             },
         )
@@ -284,6 +316,10 @@ class CollisionReplayRecorder:
         filename = f"{case_id}.npz"
         self.cases_dir.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(self.cases_dir / filename, **frames)
+        goal_region_collision = bool(
+            np.linalg.norm(frames["robot_position_xy"][-1] - frames["goal_position_xy"][-1])
+            <= self.goal_region_radius_m
+        )
         entry = {
             "case_id": case_id,
             "scenario": profile.scenario,
@@ -291,6 +327,9 @@ class CollisionReplayRecorder:
             "environment_id": env_id,
             "collision_time_s": float(frames["time_s"][-1]),
             "colliding_agent_ids": colliding_agent_ids,
+            "goal_region_collision": goal_region_collision,
+            "goal_region_radius_m": self.goal_region_radius_m,
+            "automatic_tags": [GOAL_REGION_TAG] if goal_region_collision else [],
             "step_dt_s": self.step_dt_s,
             "history_seconds": self.history_seconds,
             "frame_count": int(frames["time_s"].shape[0]),
@@ -449,6 +488,7 @@ class EpisodeMetricsCollector:
         self._episodes = [0] * len(profiles)
         self._successes = [0] * len(profiles)
         self._collisions = [0] * len(profiles)
+        self._goal_region_collisions = [0] * len(profiles)
         self._velocity_sums = [0.0] * len(profiles)
         # Retain episode-level speed means to report their variation across episodes.
         self._velocity_values: list[list[float]] = [[] for _ in profiles]
@@ -466,6 +506,7 @@ class EpisodeMetricsCollector:
         extras: dict[str, Any],
         velocity_by_env: Mapping[int, float] | None = None,
         completed_env_ids: Any | None = None,
+        goal_region_collision_env_ids: Any | None = None,
     ) -> int:
         """Consume completed episodes from one environment step and return accepted count.
 
@@ -515,6 +556,7 @@ class EpisodeMetricsCollector:
 
         success_ids = _ids(log.get(self.success_ids_key))
         collision_ids = _ids(log.get(self.collision_ids_key))
+        goal_region_collision_ids = _ids(goal_region_collision_env_ids)
         accepted = 0
         for env_id in sorted(completed_ids):
             if env_id < 0 or env_id >= len(self.env_profile_indices):
@@ -529,7 +571,10 @@ class EpisodeMetricsCollector:
             self._velocity_sums[profile_index] += metric_by_env[env_id]
             # Collision takes precedence when both terms trigger on the same final step.
             if env_id in collision_ids:
-                self._collisions[profile_index] += 1
+                if env_id in goal_region_collision_ids:
+                    self._goal_region_collisions[profile_index] += 1
+                else:
+                    self._collisions[profile_index] += 1
             elif env_id in success_ids:
                 self._successes[profile_index] += 1
             self._velocity_values[profile_index].append(metric_by_env[env_id])
@@ -541,14 +586,24 @@ class EpisodeMetricsCollector:
         rows = []
         for index, profile in enumerate(self.profiles):
             episodes = self._episodes[index]
+            navigation_episodes = episodes - self._goal_region_collisions[index]
             rows.append(
                 {
                     **asdict(profile),
                     "episodes": episodes,
                     "successes": self._successes[index],
                     "collisions": self._collisions[index],
+                    "goal_region_collisions": self._goal_region_collisions[index],
+                    "all_collisions": self._collisions[index] + self._goal_region_collisions[index],
                     "success_rate": self._successes[index] / episodes if episodes else 0.0,
+                    "navigation_success_rate": (
+                        self._successes[index] / navigation_episodes if navigation_episodes else 0.0
+                    ),
                     "collision_rate": self._collisions[index] / episodes if episodes else 0.0,
+                    "goal_region_collision_rate": self._goal_region_collisions[index] / episodes if episodes else 0.0,
+                    "all_collision_rate": (
+                        (self._collisions[index] + self._goal_region_collisions[index]) / episodes if episodes else 0.0
+                    ),
                     "mean_xy_speed_mps": self._velocity_sums[index] / episodes if episodes else 0.0,
                     "std_xy_speed_mps": _sample_standard_deviation(self._velocity_values[index]),
                 }
@@ -565,6 +620,8 @@ class EpisodeMetricsCollector:
             episodes = sum(self._episodes[index] for index in profile_indices)
             successes = sum(self._successes[index] for index in profile_indices)
             collisions = sum(self._collisions[index] for index in profile_indices)
+            goal_region_collisions = sum(self._goal_region_collisions[index] for index in profile_indices)
+            navigation_episodes = episodes - goal_region_collisions
             velocity_values = [value for index in profile_indices for value in self._velocity_values[index]]
             aggregates.append(
                 {
@@ -573,8 +630,13 @@ class EpisodeMetricsCollector:
                     "episodes": episodes,
                     "successes": successes,
                     "collisions": collisions,
+                    "goal_region_collisions": goal_region_collisions,
+                    "all_collisions": collisions + goal_region_collisions,
                     "success_rate": successes / episodes if episodes else 0.0,
+                    "navigation_success_rate": successes / navigation_episodes if navigation_episodes else 0.0,
                     "collision_rate": collisions / episodes if episodes else 0.0,
+                    "goal_region_collision_rate": goal_region_collisions / episodes if episodes else 0.0,
+                    "all_collision_rate": (collisions + goal_region_collisions) / episodes if episodes else 0.0,
                     "mean_xy_speed_mps": sum(velocity_values) / episodes if episodes else 0.0,
                     "std_xy_speed_mps": _sample_standard_deviation(velocity_values),
                 }
@@ -585,16 +647,19 @@ class EpisodeMetricsCollector:
 def print_results(rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]]) -> None:
     """Print a compact result table without introducing a tabular dependency."""
     header = (
-        "scenario        crowd  episodes  success  collision  success%  "
-        "collision%  mean xy speed (m/s) +/- std"
+        "scenario        crowd  episodes  success  nav coll  goal coll  all coll  success%  nav success%  "
+        "nav coll%  goal coll%  all coll%  mean xy speed (m/s) +/- std"
     )
     print(header)
     print("-" * len(header))
     for row in [*rows, *aggregate_rows]:
         print(
             f"{row['scenario']:<15} {str(row['pedestrian_count']):>5} {row['episodes']:>9} "
-            f"{row['successes']:>8} {row['collisions']:>10} {100 * row['success_rate']:>8.1f} "
-            f"{100 * row['collision_rate']:>10.1f} {row['mean_xy_speed_mps']:>8.3f} "
+            f"{row['successes']:>8} {row['collisions']:>9} {row['goal_region_collisions']:>10} "
+            f"{row['all_collisions']:>9} {100 * row['success_rate']:>8.1f} "
+            f"{100 * row['navigation_success_rate']:>12.1f} "
+            f"{100 * row['collision_rate']:>10.1f} {100 * row['goal_region_collision_rate']:>11.1f} "
+            f"{100 * row['all_collision_rate']:>10.1f} {row['mean_xy_speed_mps']:>8.3f} "
             f"+/- {row['std_xy_speed_mps']:<.3f}"
         )
 
@@ -605,13 +670,15 @@ def save_artifacts(
     aggregate_rows: list[dict[str, Any]],
     metadata: dict[str, Any],
 ) -> Path:
-    """Write CSV, JSON, and the standard 3x3 dynamic-crowd summary plot."""
+    """Write CSV, JSON, and the dynamic-crowd summary plot."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     all_rows = [*rows, *aggregate_rows]
     fieldnames = [
-        "scenario", "pedestrian_count", "episodes", "successes", "collisions",
-        "success_rate", "collision_rate", "mean_xy_speed_mps", "std_xy_speed_mps",
+        "scenario", "pedestrian_count", "episodes", "successes", "collisions", "goal_region_collisions",
+        "all_collisions", "success_rate", "navigation_success_rate", "collision_rate",
+        "goal_region_collision_rate", "all_collision_rate",
+        "mean_xy_speed_mps", "std_xy_speed_mps",
     ]
     with (output_path / "dynamic_crowd_results.csv").open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
@@ -632,10 +699,11 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
 
     metric_specs = (
         ("success_rate", None, "Success rate (%)", 100.0, (0.0, 100.0)),
-        ("collision_rate", None, "Collision rate (%)", 100.0, (0.0, 100.0)),
+        ("navigation_success_rate", None, "Navigation success rate (%)", 100.0, (0.0, 100.0)),
+        ("collision_rate", None, "Navigation collision rate (%)", 100.0, (0.0, 100.0)),
         ("mean_xy_speed_mps", "std_xy_speed_mps", "Mean XY speed (m/s)", 1.0, None),
     )
-    figure, axes = plt.subplots(3, 3, figsize=(14, 10), sharex="col")
+    figure, axes = plt.subplots(len(metric_specs), 3, figsize=(14, 13), sharex="col")
     for col, scenario in enumerate(SCENARIO_ORDER):
         scenario_rows = sorted(
             (row for row in rows if row["scenario"] == scenario), key=lambda row: row["pedestrian_count"]
@@ -660,7 +728,7 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
                 axis.set_title(SCENARIO_LABELS[scenario])
             if col == 0:
                 axis.set_ylabel(ylabel)
-            if row_index == 2:
+            if row_index == len(metric_specs) - 1:
                 axis.set_xlabel("Pedestrians")
     figure.suptitle("Dynamic crowd evaluation (speed shaded: ±1 sample SD)", fontsize=16)
     figure.tight_layout(rect=(0, 0, 1, 0.97))

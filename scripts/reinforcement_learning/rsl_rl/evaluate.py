@@ -17,11 +17,13 @@ import cli_args  # isort: skip
 
 from evaluation import (  # isort: skip
     CollisionReplayRecorder,
-    EpisodeVelocityAccumulator,
     EpisodeMetricsCollector,
+    EpisodeVelocityAccumulator,
+    GOAL_REGION_COLLISION_RADIUS_M,
     dynamic_crowd_profiles,
     print_results,
     save_artifacts,
+    terminal_goal_region_collision_ids,
 )
 
 
@@ -161,6 +163,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
     velocity_accumulator = EpisodeVelocityAccumulator(args_cli.num_envs)
+    goal_region_collision_ids: set[int] = set()
 
     # Some task variants do not publish command-manager metrics in ``extras["log"]``.
     # Capture the terminal state immediately before ManagerBasedRLEnv resets it, while the
@@ -176,6 +179,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             failure_output_dir,
             step_dt_s,
             args_cli.failure_history_seconds,
+            goal_region_radius_m=GOAL_REGION_COLLISION_RADIUS_M,
         )
 
     original_reset_idx = raw_env._reset_idx
@@ -183,6 +187,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     def _tracked_reset_idx(env_ids):
         terminal_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
         velocity_accumulator.record_terminal(terminal_speed, env_ids)
+        goal_region_collision_ids.update(
+            terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
+        )
         if replay_recorder is not None:
             replay_recorder.capture_terminal_collisions(raw_env, env_ids)
         return original_reset_idx(env_ids)
@@ -219,8 +226,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 extras,
                 velocity_accumulator.completed_means(completed_ids),
                 completed_env_ids=completed_ids,
+                goal_region_collision_env_ids=goal_region_collision_ids,
             )
             velocity_accumulator.reset(completed_ids)
+            goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
     finally:
         env.close()
 
@@ -249,7 +258,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
             "metrics": {
                 "success_rate": "goal_reached term; collisions take precedence when simultaneous",
-                "collision_rate": "pedestrian_collision term only",
+                "navigation_success_rate": "successes divided by episodes outside the terminal-goal buffer",
+                "collision_rate": "pedestrian collisions outside the terminal-goal buffer",
+                "goal_region_collision_rate": (
+                    f"pedestrian collisions within {GOAL_REGION_COLLISION_RADIUS_M:.2f} m of the goal"
+                ),
+                "all_collision_rate": "all pedestrian collisions before goal-region classification",
                 "mean_xy_speed_mps": "episode-average world-frame horizontal robot speed over all episodes",
             },
             "velocity_metric_source": collector.velocity_metric_source,
@@ -259,6 +273,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "enabled": replay_recorder is not None,
                 "output_dir": str(failure_output_dir) if replay_recorder is not None else None,
                 "history_seconds": args_cli.failure_history_seconds if replay_recorder is not None else None,
+                "goal_region_radius_m": GOAL_REGION_COLLISION_RADIUS_M,
                 "collision_cases": replay_recorder.case_count if replay_recorder is not None else 0,
             },
         },

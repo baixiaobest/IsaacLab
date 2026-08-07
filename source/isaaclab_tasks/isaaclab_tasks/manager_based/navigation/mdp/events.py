@@ -297,5 +297,15 @@ def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir
     crowd_manager = env.crowd_manager
     num_active = crowd_manager.active_mask[env_ids].sum(dim=1)
     speed_range = crowd_manager._speed_range[env_ids]
+    robot_pos = env.scene["robot"].data.root_pos_w[env_ids, :2]
 
-    crowd_manager.reset_idx(env_ids, corridor_origin, flow_dir_t, corridor_length, corridor_width, num_active, speed_range)
+    crowd_manager.reset_idx(
+        env_ids,
+        corridor_origin,
+        flow_dir_t,
+        corridor_length,
+        corridor_width,
+        num_active,
+        speed_range,
+        robot_pos=robot_pos,
+    )

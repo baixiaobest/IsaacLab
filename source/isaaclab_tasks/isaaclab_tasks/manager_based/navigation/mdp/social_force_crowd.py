@@ -107,6 +107,12 @@ class SocialForceCrowdCfg:
     wall_margin: float = 0.3
     """Lateral margin kept clear of the corridor walls when (re)spawning pedestrians [m]."""
 
+    spawn_clearance: float = 1.0
+    """Minimum *surface* clearance from the robot when a pedestrian is spawned [m]."""
+
+    max_spawn_attempts: int = 32
+    """Maximum rejection-sampling attempts used to satisfy ``spawn_clearance``."""
+
 
 class SocialForceCrowdManager:
     """Vectorized social-force pedestrian simulation.
@@ -190,6 +196,7 @@ class SocialForceCrowdManager:
         corridor_width: torch.Tensor,
         num_active: torch.Tensor,
         speed_range: torch.Tensor,
+        robot_pos: torch.Tensor | None = None,
     ) -> None:
         """(Re)initialize all pedestrian slots for ``env_ids``.
 
@@ -201,6 +208,8 @@ class SocialForceCrowdManager:
             corridor_width: Corridor extent across the flow axis [m], shape ``(E,)``.
             num_active: Number of active pedestrian slots, shape ``(E,)``.
             speed_range: ``[min, max]`` preferred-speed range, shape ``(E, 2)``.
+            robot_pos: Current robot world-XY positions, shape ``(E, 2)``. When supplied,
+                pedestrian spawn locations must satisfy ``spawn_clearance`` around each robot.
         """
         e = env_ids
         p = self.max_pedestrians
@@ -218,7 +227,7 @@ class SocialForceCrowdManager:
         self._half_width[e] = corridor_width.unsqueeze(1) / 2.0
 
         local_pos, vel, goal, speed, b_robot = self._spawn_pedestrians(
-            e, corridor_length, corridor_width, flow_dir, speed_range
+            e, corridor_length, corridor_width, flow_dir, speed_range, robot_pos=robot_pos
         )
 
         self.pos[e] = corridor_origin.unsqueeze(1) + local_pos
@@ -291,6 +300,7 @@ class SocialForceCrowdManager:
         corridor_width: torch.Tensor,
         flow_dir: torch.Tensor,
         speed_range: torch.Tensor,
+        robot_pos: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample fresh corridor-local positions/velocities/goals/speeds/b_robot for all slots.
 
@@ -315,6 +325,9 @@ class SocialForceCrowdManager:
         local_y = (torch.rand(n, p, device=self.device) * 2.0 - 1.0) * half_width
 
         local_pos = torch.stack([local_x, local_y], dim=-1)
+        local_pos = self._resample_clear_of_robot(
+            env_ids, local_pos, corridor_length, corridor_width, robot_pos, self.active_mask[env_ids]
+        )
 
         speed = speed_range[:, 0].unsqueeze(1) + torch.rand(n, p, device=self.device) * (
             speed_range[:, 1] - speed_range[:, 0]
@@ -333,6 +346,42 @@ class SocialForceCrowdManager:
         b_robot = b_lo + torch.rand(n, p, device=self.device) * (b_hi - b_lo)
 
         return local_pos, vel, goal, speed, b_robot
+
+    def _resample_clear_of_robot(
+        self,
+        env_ids: torch.Tensor,
+        local_pos: torch.Tensor,
+        corridor_length: torch.Tensor,
+        corridor_width: torch.Tensor,
+        robot_pos: torch.Tensor | None,
+        candidate_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Rejection-sample candidate positions until every selected slot clears the robot."""
+        if robot_pos is None or self.cfg.spawn_clearance <= 0.0 or not bool(candidate_mask.any()):
+            return local_pos
+
+        n, p = local_pos.shape[:2]
+        half_length = corridor_length.unsqueeze(1) / 2.0
+        half_width = (corridor_width.unsqueeze(1) / 2.0 - self.cfg.wall_margin).clamp(min=0.0)
+        minimum_distance = self.radius[env_ids] + self.cfg.robot_radius + self.cfg.spawn_clearance
+
+        invalid = candidate_mask
+        for _ in range(self.cfg.max_spawn_attempts):
+            world_pos = self.corridor_origin[env_ids].unsqueeze(1) + local_pos
+            invalid = candidate_mask & (
+                torch.linalg.vector_norm(world_pos - robot_pos.unsqueeze(1), dim=-1) < minimum_distance
+            )
+            if not bool(invalid.any()):
+                return local_pos
+            candidate_x = torch.rand(n, p, device=self.device) * corridor_length.unsqueeze(1) - half_length
+            candidate_y = (torch.rand(n, p, device=self.device) * 2.0 - 1.0) * half_width
+            candidate = torch.stack([candidate_x, candidate_y], dim=-1)
+            local_pos = torch.where(invalid.unsqueeze(-1), candidate, local_pos)
+
+        raise RuntimeError(
+            "Unable to sample pedestrian positions with the configured robot spawn clearance; "
+            "reduce crowd density or spawn_clearance."
+        )
 
     # ------------------------------------------------------------------
     # Simulation step
@@ -403,9 +452,9 @@ class SocialForceCrowdManager:
         self.pos = self.pos + self.vel * dt
 
         # --- 5. Recycle pedestrians that reached the downstream end -----------------------
-        self._recycle()
+        self._recycle(robot_pos)
 
-    def _recycle(self) -> None:
+    def _recycle(self, robot_pos: torch.Tensor | None = None) -> None:
         local = self.pos - self.corridor_origin.unsqueeze(1)
         local_x = local[..., 0]
 
@@ -442,6 +491,14 @@ class SocialForceCrowdManager:
 
         new_local_x = start_x_b
         new_local_pos = torch.stack([new_local_x, new_y], dim=-1)
+        new_local_pos = self._resample_clear_of_robot(
+            torch.arange(n, device=self.device),
+            new_local_pos,
+            self.corridor_length,
+            self.corridor_width,
+            robot_pos,
+            crossed,
+        )
         new_world_pos = self.corridor_origin.unsqueeze(1) + new_local_pos
 
         new_goal_x = end_x_b
@@ -495,4 +552,3 @@ class SocialForceCrowdManager:
         """
         dist = torch.norm(robot_pos_w.unsqueeze(1) - self.pos, dim=-1)
         return torch.any((dist < self._radius_sum_robot) & self.active_mask, dim=1)
-

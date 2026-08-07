@@ -6,7 +6,9 @@ import importlib.util
 import json
 import math
 import sys
+import threading
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pytest
@@ -71,11 +73,13 @@ class _FakeCrowd:
 class _FakeEnv:
     def __init__(self, num_envs=2, max_pedestrians=3):
         self.num_envs = num_envs
+        self.device = "cpu"
         self.scene = {"robot": type("Robot", (), {"data": _FakeRobotData(num_envs)})()}
         self.crowd_manager = _FakeCrowd(num_envs, max_pedestrians)
+        self.command = type("Command", (), {"pos_command_w": torch.zeros(num_envs, 3)})()
         self.command_manager = type(
             "CommandManager",
-            (), {"get_term": lambda _, __: type("Command", (), {"pos_command_w": torch.zeros(num_envs, 3)})()},
+            (), {"get_term": lambda _, __: self.command},
         )()
 
 
@@ -150,6 +154,36 @@ def test_collector_reports_speed_sample_standard_deviation_only():
     aggregate = collector.aggregate_rows()[0]
     assert aggregate["episodes"] == 2
     assert math.isclose(aggregate["std_xy_speed_mps"], math.sqrt(0.08))
+
+
+def test_collector_separates_goal_region_collisions_from_navigation_collisions():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=2)
+
+    assert collector.consume(
+        _extras([0], collision=[0], velocity=[0.4]), goal_region_collision_env_ids=[0]
+    ) == 1
+    assert collector.consume(_extras([0], collision=[0], velocity=[0.4])) == 1
+
+    row = collector.rows()[0]
+    assert row["collisions"] == 1
+    assert row["goal_region_collisions"] == 1
+    assert row["all_collisions"] == 2
+    assert row["collision_rate"] == 0.5
+    assert row["goal_region_collision_rate"] == 0.5
+    assert row["all_collision_rate"] == 1.0
+
+
+def test_navigation_success_rate_excludes_goal_region_collision_episodes():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=2)
+
+    collector.consume(_extras([0], success=[0], velocity=[0.4]))
+    collector.consume(_extras([0], collision=[0], velocity=[0.4]), goal_region_collision_env_ids=[0])
+
+    row = collector.rows()[0]
+    assert row["success_rate"] == 0.5
+    assert row["navigation_success_rate"] == 1.0
 
 
 def test_collector_falls_back_to_legacy_linear_velocity_metric():
@@ -264,6 +298,25 @@ def test_collision_replay_keeps_ordered_history_terminal_state_and_active_slots(
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_goal_region_collision_ids_and_replay_automatic_tag(tmp_path):
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([0.0, 0.0])
+    env.command.pos_command_w[0, :2] = torch.tensor([0.5, 0.0])
+
+    assert evaluation.terminal_goal_region_collision_ids(env, torch.tensor([0]), radius_m=0.75) == {0}
+    assert evaluation.terminal_goal_region_collision_ids(env, torch.tensor([0]), radius_m=0.25) == set()
+
+    recorder = evaluation.CollisionReplayRecorder(
+        [evaluation.BenchmarkProfile("crossing", 2)], [0], tmp_path, step_dt_s=0.1
+    )
+    recorder.record_pre_step(env, torch.zeros(1, 3))
+    entry = recorder.capture_terminal_collisions(env, torch.tensor([0]))[0]
+    assert entry["goal_region_collision"]
+    assert entry["automatic_tags"] == [evaluation.GOAL_REGION_TAG]
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
 def test_collision_replay_writes_empty_index_and_skips_non_colliding_resets(tmp_path):
     recorder = evaluation.CollisionReplayRecorder(
         [evaluation.BenchmarkProfile("crossing", 2)], [0], tmp_path, step_dt_s=0.1
@@ -284,9 +337,76 @@ def test_failure_viewer_filters_tags_and_rotates_body_commands(tmp_path):
     failure_viewer.save_case_tags(tmp_path, tags)
     assert failure_viewer.load_case_tags(tmp_path) == tags
     cases = [
-        {"case_id": "collision_000001", "scenario": "crossing", "pedestrian_count": 2},
+        {
+            "case_id": "collision_000001",
+            "scenario": "crossing",
+            "pedestrian_count": 2,
+            "automatic_tags": ["goal-region"],
+        },
         {"case_id": "collision_000002", "scenario": "with_flow", "pedestrian_count": 4},
     ]
     assert failure_viewer.filter_cases(cases, tags, scenario="crossing", tag_filter="late brake") == [cases[0]]
+    assert failure_viewer.filter_cases(cases, tags, tag_filter="goal-region") == [cases[0]]
+    assert failure_viewer.filter_cases(cases, tags, exclude_tag="goal-region") == [cases[1]]
+    assert failure_viewer.available_tags(cases, tags) == ["crossing", "goal-region", "late brake"]
     assert failure_viewer.filter_cases(cases, tags, tag_filter="missing") == []
     assert np.allclose(failure_viewer.body_velocity_to_world(np.array([1.0, 0.0]), np.pi / 2), [0.0, 1.0])
+
+
+def test_failure_viewer_web_api_serves_replay_and_persists_tags(tmp_path):
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    np.savez_compressed(
+        cases_dir / "collision_000001.npz",
+        time_s=np.array([0.0]),
+        robot_position_xy=np.zeros((1, 2)),
+        robot_yaw=np.zeros(1),
+        robot_velocity_xy_world=np.zeros((1, 2)),
+        robot_command_velocity_body=np.zeros((1, 3)),
+        goal_position_xy=np.zeros((1, 2)),
+        pedestrian_position_xy=np.zeros((1, 1, 2)),
+        pedestrian_velocity_xy_world=np.zeros((1, 1, 2)),
+        pedestrian_active_mask=np.ones((1, 1), dtype=bool),
+    )
+    with (tmp_path / "failure_cases.json").open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "case_id": "collision_000001",
+                        "scenario": "crossing",
+                        "pedestrian_count": 2,
+                        "collision_time_s": 1.0,
+                        "colliding_agent_ids": [0],
+                        "step_dt_s": 0.1,
+                        "replay_file": "cases/collision_000001.npz",
+                    }
+                ],
+            },
+            file,
+        )
+
+    server = failure_viewer.FailureCaseWebServer(("127.0.0.1", 0), tmp_path, view_radius=5.0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(f"{base_url}/api/index") as response:
+            assert json.load(response)["index"]["cases"][0]["case_id"] == "collision_000001"
+        with urlopen(f"{base_url}/api/case/collision_000001") as response:
+            assert json.load(response)["pedestrian_active_mask"] == [[True]]
+        request = Request(
+            f"{base_url}/api/tags/collision_000001",
+            data=json.dumps({"tags": "late brake, crossing"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            assert json.load(response)["tags_by_case"] == {"collision_000001": ["late brake", "crossing"]}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1.0)
+
+    assert failure_viewer.load_case_tags(tmp_path) == {"collision_000001": ["late brake", "crossing"]}

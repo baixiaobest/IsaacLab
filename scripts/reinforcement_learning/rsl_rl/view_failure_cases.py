@@ -1,9 +1,13 @@
-"""Interactive desktop viewer for dynamic-crowd collision replay artifacts.
+"""Local web viewer for dynamic-crowd collision replay artifacts.
 
 Run after evaluation, for example::
 
     ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/view_failure_cases.py \
         logs/rsl_rl/<experiment>/evaluations/dynamic_crowd/failure_cases
+
+The server binds to localhost and opens a browser-based viewer.  It uses only
+the Python standard library plus NumPy, both of which are already available in
+the Isaac Lab runtime.
 """
 
 from __future__ import annotations
@@ -12,8 +16,12 @@ import argparse
 import json
 import os
 import tempfile
+import webbrowser
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 import numpy as np
 
@@ -22,6 +30,7 @@ from evaluation import SCENARIO_LABELS, SCENARIO_ORDER
 
 INDEX_FILENAME = "failure_cases.json"
 TAGS_FILENAME = "failure_case_tags.json"
+WEB_APP_FILENAME = "failure_case_viewer.html"
 
 
 def parse_tags(value: str) -> list[str]:
@@ -71,23 +80,41 @@ def save_case_tags(replay_dir: str | Path, tags_by_case: dict[str, list[str]]) -
     os.replace(temporary_path, path)
 
 
+def case_tags(case: dict[str, Any], tags_by_case: dict[str, list[str]]) -> list[str]:
+    """Return immutable automatic tags followed by user tags, without duplicates."""
+    automatic_tags = case.get("automatic_tags", [])
+    if not isinstance(automatic_tags, list):
+        automatic_tags = []
+    return parse_tags(",".join([*(str(tag) for tag in automatic_tags), *tags_by_case.get(case["case_id"], [])]))
+
+
+def available_tags(cases: list[dict[str, Any]], tags_by_case: dict[str, list[str]]) -> list[str]:
+    """Return every automatic and user-defined tag, ordered case-insensitively."""
+    tags = {tag for case in cases for tag in case_tags(case, tags_by_case)}
+    return sorted(tags, key=str.casefold)
+
+
 def filter_cases(
     cases: list[dict[str, Any]],
     tags_by_case: dict[str, list[str]],
     scenario: str | None = None,
     pedestrian_count: int | None = None,
     tag_filter: str = "",
+    exclude_tag: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Filter cases; comma-separated tag terms match any tag case-insensitively."""
+    """Filter cases; comma-separated terms include any tag and ``exclude_tag`` removes matches."""
     wanted_tags = {tag.casefold() for tag in parse_tags(tag_filter)}
+    excluded_tag = exclude_tag.casefold() if exclude_tag else None
     filtered = []
     for case in cases:
         if scenario is not None and case["scenario"] != scenario:
             continue
         if pedestrian_count is not None and case["pedestrian_count"] != pedestrian_count:
             continue
-        case_tags = {tag.casefold() for tag in tags_by_case.get(case["case_id"], [])}
-        if wanted_tags and not (wanted_tags & case_tags):
+        tags = {tag.casefold() for tag in case_tags(case, tags_by_case)}
+        if wanted_tags and not (wanted_tags & tags):
+            continue
+        if excluded_tag is not None and excluded_tag in tags:
             continue
         filtered.append(case)
     return filtered
@@ -109,288 +136,134 @@ def robot_triangle_vertices(
 ) -> np.ndarray:
     """Return an acute, yaw-aligned triangular robot footprint in world XY."""
     position_xy = np.asarray(position_xy, dtype=float)
-    # The rear corners sit behind the centre.  This keeps all three interior
-    # angles acute while giving the front vertex a clear heading direction.
-    local_vertices = np.array(
-        [
-            [length * 0.58, 0.0],
-            [-length * 0.42, half_width],
-            [-length * 0.42, -half_width],
-        ]
-    )
+    local_vertices = np.array([[length * 0.58, 0.0], [-length * 0.42, half_width], [-length * 0.42, -half_width]])
     return body_velocity_to_world(local_vertices, yaw) + position_xy
 
 
-class FailureCaseViewer:
-    """Matplotlib controls and plot state for a directory of collision replays."""
+class FailureCaseWebServer(ThreadingHTTPServer):
+    """Serve replay data and tag edits to the local browser application."""
 
-    def __init__(self, replay_dir: str | Path, view_radius: float = 5.0):
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Polygon
-        from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider, TextBox
+    daemon_threads = True
 
-        self.replay_dir = Path(replay_dir)
+    def __init__(self, address: tuple[str, int], replay_dir: Path, view_radius: float):
+        self.replay_dir = replay_dir.resolve()
+        self.view_radius = view_radius
         self.index = load_case_index(self.replay_dir)
-        self.cases = self.index["cases"]
         self.tags_by_case = load_case_tags(self.replay_dir)
-        self.view_radius = float(view_radius)
-        self.selected_scenario: str | None = None
-        self.selected_pedestrian_count: int | None = None
-        self.tag_filter = ""
-        self.matches: list[dict[str, Any]] = []
-        self.case: dict[str, Any] | None = None
-        self.frames: dict[str, np.ndarray] | None = None
+        self.web_app = (Path(__file__).with_name(WEB_APP_FILENAME)).read_bytes()
+        super().__init__(address, FailureCaseRequestHandler)
 
-        self.figure, self.axis = plt.subplots(figsize=(11, 8))
-        self._polygon_type = Polygon
-        self.figure.subplots_adjust(left=0.08, right=0.72, bottom=0.28, top=0.92)
-        self.figure.canvas.manager.set_window_title("Dynamic-crowd collision analysis")
+    def index_payload(self) -> dict[str, Any]:
+        # Reload user tags for edits made by another viewer instance.
+        self.tags_by_case = load_case_tags(self.replay_dir)
+        return {
+            "index": self.index,
+            "tags_by_case": self.tags_by_case,
+            "scenario_labels": SCENARIO_LABELS,
+            "scenario_order": SCENARIO_ORDER,
+            "view_radius": self.view_radius,
+        }
 
-        self.time_slider = Slider(self.figure.add_axes((0.08, 0.17, 0.64, 0.03)), "Time", 0, 1, valinit=0, valstep=1)
-        self.previous_occurrence_button = Button(self.figure.add_axes((0.08, 0.09, 0.05, 0.05)), "◀")
-        self.occurrence_slider = Slider(
-            self.figure.add_axes((0.15, 0.10, 0.50, 0.03)), "Occurrence", 1, 1, valinit=1, valstep=1
-        )
-        self.next_occurrence_button = Button(self.figure.add_axes((0.67, 0.09, 0.05, 0.05)), "▶")
-        self.scenario_buttons = RadioButtons(
-            self.figure.add_axes((0.76, 0.65, 0.20, 0.20)),
-            ["All", *(SCENARIO_LABELS[scenario] for scenario in SCENARIO_ORDER)],
-            active=0,
-        )
-        self.count_box = TextBox(
-            self.figure.add_axes((0.76, 0.58, 0.20, 0.04)), "Crowd count\n(blank = all)", initial=""
-        )
-        self.tag_filter_box = TextBox(
-            self.figure.add_axes((0.76, 0.48, 0.20, 0.04)), "Tag filter\n(any comma tag)", initial=""
-        )
-        self.tag_editor_box = TextBox(self.figure.add_axes((0.76, 0.35, 0.20, 0.04)), "Tags for case", initial="")
-        self.save_tags_button = Button(self.figure.add_axes((0.76, 0.29, 0.20, 0.04)), "Save tags")
-        self.toggles = CheckButtons(
-            self.figure.add_axes((0.76, 0.08, 0.20, 0.17)),
-            ["Pedestrian velocity", "Robot actual velocity", "Robot command", "Trails"],
-            [True, True, True, True],
-        )
-        self.status_text = self.figure.text(0.76, 0.88, "", va="top", wrap=True)
+    def replay_payload(self, case_id: str) -> dict[str, Any]:
+        case = next((item for item in self.index["cases"] if item.get("case_id") == case_id), None)
+        if case is None:
+            raise KeyError(f"Unknown case ID: {case_id}")
+        replay_path = (self.replay_dir / case["replay_file"]).resolve()
+        if not replay_path.is_relative_to(self.replay_dir) or not replay_path.is_file():
+            raise ValueError(f"Invalid replay path for case {case_id}")
+        with np.load(replay_path, allow_pickle=False) as replay:
+            return {name: replay[name].tolist() for name in replay.files}
 
-        self.time_slider.on_changed(lambda _: self.draw())
-        self.occurrence_slider.on_changed(self._select_occurrence)
-        self.previous_occurrence_button.on_clicked(lambda _: self._cycle_occurrence(-1))
-        self.next_occurrence_button.on_clicked(lambda _: self._cycle_occurrence(1))
-        self.scenario_buttons.on_clicked(self._set_scenario)
-        self.count_box.on_submit(self._set_count)
-        self.tag_filter_box.on_submit(self._set_tag_filter)
-        self.save_tags_button.on_clicked(self._save_tags)
-        self.toggles.on_clicked(lambda _: self.draw())
-        self._update_matches()
-
-    def _set_scenario(self, label: str) -> None:
-        lookup = {SCENARIO_LABELS[scenario]: scenario for scenario in SCENARIO_ORDER}
-        self.selected_scenario = lookup.get(label)
-        self._update_matches()
-
-    def _set_count(self, value: str) -> None:
-        value = value.strip()
-        try:
-            self.selected_pedestrian_count = int(value) if value else None
-        except ValueError:
-            self.selected_pedestrian_count = None
-            self.count_box.set_val("")
-        self._update_matches()
-
-    def _set_tag_filter(self, value: str) -> None:
-        self.tag_filter = value
-        self._update_matches()
-
-    def _update_matches(self, selected_case_id: str | None = None) -> None:
-        self.matches = filter_cases(
-            self.cases,
-            self.tags_by_case,
-            scenario=self.selected_scenario,
-            pedestrian_count=self.selected_pedestrian_count,
-            tag_filter=self.tag_filter,
-        )
-        maximum = max(1, len(self.matches))
-        self.occurrence_slider.valmax = maximum
-        self.occurrence_slider.ax.set_xlim(1, maximum)
-        selected_occurrence = 1
-        if selected_case_id is not None:
-            for index, case in enumerate(self.matches, start=1):
-                if case["case_id"] == selected_case_id:
-                    selected_occurrence = index
-                    break
-        self.occurrence_slider.set_val(selected_occurrence)
-        self._load_selected_case()
-
-    def _select_occurrence(self, _: float) -> None:
-        self._load_selected_case()
-
-    def _cycle_occurrence(self, direction: int) -> None:
-        """Select the previous or next filtered case, wrapping at either end."""
-        if not self.matches:
-            return
-        current = int(round(self.occurrence_slider.val)) - 1
-        self.occurrence_slider.set_val((current + direction) % len(self.matches) + 1)
-
-    def _load_selected_case(self) -> None:
-        if not self.matches:
-            self.case = None
-            self.frames = None
-            self.draw()
-            return
-        index = min(max(int(round(self.occurrence_slider.val)) - 1, 0), len(self.matches) - 1)
-        self.case = self.matches[index]
-        with np.load(self.replay_dir / self.case["replay_file"], allow_pickle=False) as replay:
-            self.frames = {name: replay[name] for name in replay.files}
-        frame_count = len(self.frames["time_s"])
-        self.time_slider.valmax = max(0, frame_count - 1)
-        self.time_slider.ax.set_xlim(0, max(1, frame_count - 1))
-        self.time_slider.set_val(frame_count - 1)
-        self.tag_editor_box.set_val(", ".join(self.tags_by_case.get(self.case["case_id"], [])))
-        self.draw()
-
-    def _save_tags(self, _event: Any) -> None:
-        if self.case is None:
-            return
-        selected_case_id = self.case["case_id"]
-        self.tags_by_case[selected_case_id] = parse_tags(self.tag_editor_box.text)
+    def update_tags(self, case_id: str, value: str) -> dict[str, list[str]]:
+        if not any(item.get("case_id") == case_id for item in self.index["cases"]):
+            raise KeyError(f"Unknown case ID: {case_id}")
+        self.tags_by_case = load_case_tags(self.replay_dir)
+        self.tags_by_case[case_id] = parse_tags(value)
         save_case_tags(self.replay_dir, self.tags_by_case)
-        self._update_matches(selected_case_id=selected_case_id)
+        return self.tags_by_case
 
-    def _toggle_enabled(self, label: str) -> bool:
-        labels = [text.get_text() for text in self.toggles.labels]
-        return self.toggles.get_status()[labels.index(label)]
 
-    def draw(self) -> None:
-        self.axis.clear()
-        if self.case is None or self.frames is None:
-            self.axis.set_axis_off()
-            self.status_text.set_text("No collision cases match the selected filters.")
-            self.figure.canvas.draw_idle()
+class FailureCaseRequestHandler(BaseHTTPRequestHandler):
+    """JSON API and static app handler.  It is intentionally localhost-only by default."""
+
+    server: FailureCaseWebServer
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def _send(self, status: HTTPStatus, content_type: str, payload: bytes) -> None:
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            # A browser may cancel an in-flight replay request when changing
+            # occurrences or closing the tab.  There is no response left to send.
             return
 
-        self.axis.set_axis_on()
-        frame_index = min(int(round(self.time_slider.val)), len(self.frames["time_s"]) - 1)
-        robot_position = self.frames["robot_position_xy"][frame_index]
-        robot_yaw = float(self.frames["robot_yaw"][frame_index])
-        pedestrian_position = self.frames["pedestrian_position_xy"][frame_index]
-        pedestrian_velocity = self.frames["pedestrian_velocity_xy_world"][frame_index]
-        active = self.frames["pedestrian_active_mask"][frame_index]
-        collider_ids = set(self.case["colliding_agent_ids"])
+    def _send_json(self, status: HTTPStatus, payload: Any) -> None:
+        self._send(status, "application/json; charset=utf-8", json.dumps(payload).encode("utf-8"))
 
-        robot_shape = self._polygon_type(
-            robot_triangle_vertices(robot_position, robot_yaw),
-            closed=True,
-            facecolor="tab:blue",
-            edgecolor="navy",
-            linewidth=1.5,
-            label="Robot (heading)",
-            zorder=5,
-        )
-        self.axis.add_patch(robot_shape)
-        self.axis.scatter(
-            *self.frames["goal_position_xy"][frame_index], marker="*", s=145, color="tab:green", label="Goal", zorder=3
-        )
-        self.axis.scatter(
-            pedestrian_position[active, 0],
-            pedestrian_position[active, 1],
-            s=42,
-            color="tab:orange",
-            label="Pedestrian",
-            zorder=3,
-        )
-        for pedestrian_id in collider_ids:
-            if active[pedestrian_id]:
-                self.axis.scatter(
-                    pedestrian_position[pedestrian_id, 0], pedestrian_position[pedestrian_id, 1],
-                    s=140, facecolors="none", edgecolors="red", linewidths=2.5, zorder=6, label="Collider"
-                )
+    def _error(self, status: HTTPStatus, message: str) -> None:
+        self._send_json(status, {"error": message})
 
-        if self._toggle_enabled("Pedestrian velocity") and np.any(active):
-            self.axis.quiver(
-                pedestrian_position[active, 0],
-                pedestrian_position[active, 1],
-                pedestrian_velocity[active, 0],
-                pedestrian_velocity[active, 1],
-                color="tab:orange",
-                angles="xy",
-                scale_units="xy",
-                scale=1.0,
-                width=0.004,
-                zorder=2,
-            )
-        robot_velocity = self.frames["robot_velocity_xy_world"][frame_index]
-        if self._toggle_enabled("Robot actual velocity"):
-            self.axis.quiver(
-                robot_position[0], robot_position[1], robot_velocity[0], robot_velocity[1],
-                color="tab:blue",
-                angles="xy",
-                scale_units="xy",
-                scale=1.0,
-                width=0.007,
-                zorder=6,
-                label="Actual velocity",
-            )
-        command = self.frames["robot_command_velocity_body"][frame_index]
-        command_world = body_velocity_to_world(command[:2], robot_yaw)
-        if self._toggle_enabled("Robot command"):
-            self.axis.quiver(
-                robot_position[0], robot_position[1], command_world[0], command_world[1],
-                color="tab:purple",
-                angles="xy",
-                scale_units="xy",
-                scale=1.0,
-                width=0.007,
-                zorder=6,
-                label="Command velocity",
-            )
-        if self._toggle_enabled("Trails"):
-            steps = max(1, int(round(1.0 / self.case["step_dt_s"])))
-            start = max(0, frame_index - steps)
-            robot_trail = self.frames["robot_position_xy"][start : frame_index + 1]
-            self.axis.plot(robot_trail[:, 0], robot_trail[:, 1], color="tab:blue", alpha=0.55, linewidth=2)
-            trail_positions = self.frames["pedestrian_position_xy"][start : frame_index + 1]
-            trail_active = self.frames["pedestrian_active_mask"][start : frame_index + 1]
-            for pedestrian_id in np.flatnonzero(np.any(trail_active, axis=0)):
-                positions = trail_positions[:, pedestrian_id]
-                mask = trail_active[:, pedestrian_id]
-                self.axis.plot(positions[mask, 0], positions[mask, 1], color="tab:orange", alpha=0.30, linewidth=1)
+    def do_GET(self) -> None:
+        path = urlparse(self.path).path
+        try:
+            if path == "/":
+                self._send(HTTPStatus.OK, "text/html; charset=utf-8", self.server.web_app)
+            elif path == "/api/index":
+                self._send_json(HTTPStatus.OK, self.server.index_payload())
+            elif path.startswith("/api/case/"):
+                self._send_json(HTTPStatus.OK, self.server.replay_payload(unquote(path.removeprefix("/api/case/"))))
+            else:
+                self._error(HTTPStatus.NOT_FOUND, "Not found")
+        except (KeyError, ValueError) as error:
+            self._error(HTTPStatus.NOT_FOUND, str(error))
+        except Exception as error:  # pragma: no cover - defensive response for malformed artifacts
+            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
 
-        self.axis.set_aspect("equal", adjustable="box")
-        self.axis.set_xlim(robot_position[0] - self.view_radius, robot_position[0] + self.view_radius)
-        self.axis.set_ylim(robot_position[1] - self.view_radius, robot_position[1] + self.view_radius)
-        self.axis.set_xlabel("World X (m)")
-        self.axis.set_ylabel("World Y (m)")
-        relative_time = float(self.frames["time_s"][frame_index] - self.frames["time_s"][-1])
-        self.axis.set_title(
-            f"{SCENARIO_LABELS[self.case['scenario']]} | {self.case['case_id']} | "
-            f"{relative_time:+.2f} s to collision"
-        )
-        handles, labels = self.axis.get_legend_handles_labels()
-        unique = dict(zip(labels, handles))
-        self.axis.legend(unique.values(), unique.keys(), loc="upper left")
-        self.axis.grid(True, alpha=0.25)
-        self.status_text.set_text(
-            f"{len(self.matches)} matching case(s)\n"
-            f"crowd: {self.case['pedestrian_count']}\n"
-            f"collider slots: {self.case['colliding_agent_ids']}\n"
-            f"body command: ({command[0]:+.2f}, {command[1]:+.2f}, {command[2]:+.2f} rad/s)"
-        )
-        self.figure.canvas.draw_idle()
-
-    def show(self) -> None:
-        import matplotlib.pyplot as plt
-
-        plt.show()
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        if not path.startswith("/api/tags/"):
+            self._error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            if not isinstance(request.get("tags"), str):
+                raise ValueError("'tags' must be a comma-separated string")
+            tags = self.server.update_tags(unquote(path.removeprefix("/api/tags/")), request["tags"])
+            self._send_json(HTTPStatus.OK, {"tags_by_case": tags})
+        except (json.JSONDecodeError, KeyError, ValueError) as error:
+            self._error(HTTPStatus.BAD_REQUEST, str(error))
+        except Exception as error:  # pragma: no cover - disk failures are environment dependent
+            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect dynamic-crowd pedestrian collision replays.")
+    parser = argparse.ArgumentParser(description="Open the dynamic-crowd collision replay web viewer.")
     parser.add_argument("replay_dir", type=Path, help="Directory containing failure_cases.json and cases/.")
-    parser.add_argument(
-        "--view_radius", type=float, default=5.0, help="Robot-centered bird's-eye plot radius in metres."
-    )
+    parser.add_argument("--view_radius", type=float, default=5.0, help="Robot-centered bird's-eye plot radius in metres.")
+    parser.add_argument("--host", default="127.0.0.1", help="Interface to bind (default: localhost only).")
+    parser.add_argument("--port", type=int, default=0, help="Port to bind; use 0 to choose a free port (default).")
+    parser.add_argument("--no_browser", action="store_true", help="Start the server without opening a browser window.")
     args = parser.parse_args()
-    FailureCaseViewer(args.replay_dir, args.view_radius).show()
+
+    with FailureCaseWebServer((args.host, args.port), args.replay_dir, args.view_radius) as server:
+        host, port = server.server_address[:2]
+        url = f"http://{host}:{port}/"
+        print(f"Failure-case viewer: {url}")
+        print("Press Ctrl+C to stop the local viewer server.")
+        if not args.no_browser:
+            webbrowser.open(url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nFailure-case viewer stopped.")
 
 
 if __name__ == "__main__":
