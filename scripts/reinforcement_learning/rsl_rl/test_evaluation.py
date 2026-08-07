@@ -70,7 +70,7 @@ def test_collector_accepts_scalar_environment_logs():
     assert collector.rows()[0]["mean_xy_speed_mps"] == 0.75
 
 
-def test_collector_reports_sample_standard_deviations():
+def test_collector_reports_speed_sample_standard_deviation_only():
     profiles = [evaluation.BenchmarkProfile("crossing", 2)]
     collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=2)
 
@@ -80,8 +80,8 @@ def test_collector_reports_sample_standard_deviations():
     row = collector.rows()[0]
     assert row["success_rate"] == 0.5
     assert row["collision_rate"] == 0.5
-    assert math.isclose(row["success_rate_std"], math.sqrt(0.5))
-    assert math.isclose(row["collision_rate_std"], math.sqrt(0.5))
+    assert "success_rate_std" not in row
+    assert "collision_rate_std" not in row
     assert math.isclose(row["mean_xy_speed_mps"], 0.6)
     assert math.isclose(row["std_xy_speed_mps"], math.sqrt(0.08))
 
@@ -160,4 +160,6 @@ def test_artifacts_include_csv_json_and_summary_plot(tmp_path):
     assert (output / "dynamic_crowd_summary.png").is_file()
     with (output / "dynamic_crowd_results.json").open(encoding="utf-8") as file:
         results = json.load(file)["results"]
-    assert {"success_rate_std", "collision_rate_std", "std_xy_speed_mps"} <= results[0].keys()
+    assert "std_xy_speed_mps" in results[0]
+    assert "success_rate_std" not in results[0]
+    assert "collision_rate_std" not in results[0]
