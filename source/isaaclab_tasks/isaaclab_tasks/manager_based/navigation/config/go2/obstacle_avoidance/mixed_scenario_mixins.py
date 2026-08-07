@@ -197,6 +197,19 @@ class _MixedRewardsCfg:
         },
     )
 
+    # Penalize traversing close to the forward half-plane of a moving pedestrian.
+    # The relative-speed factor makes a quick pass accumulate approximately the same
+    # cost as a slow pass through the same region.
+    pedestrian_front_proximity_speed = RewTerm(
+        func=nav_mdp.pedestrian_proximity_speed_penalty,
+        weight=-0.1,
+        params={
+            "sigma": 2.0,
+            "in_front_only": True,
+            "min_agent_speed": 0.1,
+        },
+    )
+
 
 @configclass
 class _MixedTerminationsCfg:
