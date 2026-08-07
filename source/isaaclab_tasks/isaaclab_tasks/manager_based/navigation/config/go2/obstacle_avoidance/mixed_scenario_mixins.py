@@ -318,6 +318,9 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
 """Pedestrian desired-speed range used by the standardized dynamic-crowd benchmark."""
 
+EVALUATION_SCENARIO_CODES = {"crossing": 0, "with_flow": 1, "against_flow": 2}
+"""Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts."""
+
 
 def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
     """Overlay a mixed configuration with the deterministic dynamic-crowd benchmark setup.

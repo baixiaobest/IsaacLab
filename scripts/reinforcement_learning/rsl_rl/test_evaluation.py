@@ -8,6 +8,14 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
+import pytest
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
 
 MODULE_PATH = Path(__file__).with_name("evaluation.py")
 SPEC = importlib.util.spec_from_file_location("rsl_rl_evaluation", MODULE_PATH)
@@ -15,6 +23,60 @@ assert SPEC and SPEC.loader
 evaluation = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = evaluation
 SPEC.loader.exec_module(evaluation)
+sys.modules["evaluation"] = evaluation
+
+VIEWER_PATH = Path(__file__).with_name("view_failure_cases.py")
+VIEWER_SPEC = importlib.util.spec_from_file_location("rsl_rl_failure_viewer", VIEWER_PATH)
+assert VIEWER_SPEC and VIEWER_SPEC.loader
+failure_viewer = importlib.util.module_from_spec(VIEWER_SPEC)
+sys.modules[VIEWER_SPEC.name] = failure_viewer
+VIEWER_SPEC.loader.exec_module(failure_viewer)
+
+TORCH_AVAILABLE = torch is not None and hasattr(torch, "zeros")
+
+
+class _FakeRobotData:
+    def __init__(self, num_envs):
+        self.root_pos_w = torch.zeros(num_envs, 3)
+        self.root_lin_vel_w = torch.zeros(num_envs, 3)
+        self.heading_w = torch.zeros(num_envs)
+
+
+class _FakeCrowd:
+    class _Cfg:
+        robot_radius = 0.4
+
+    def __init__(self, num_envs, max_pedestrians):
+        self.max_pedestrians = max_pedestrians
+        self.cfg = self._Cfg()
+        self.pos = torch.zeros(num_envs, max_pedestrians, 2)
+        self.vel = torch.zeros(num_envs, max_pedestrians, 2)
+        self.active = torch.zeros(num_envs, max_pedestrians, dtype=torch.bool)
+        self.radius = torch.full((num_envs, max_pedestrians), 0.25)
+
+    def get_world_positions(self):
+        return self.pos
+
+    def get_velocities(self):
+        return self.vel
+
+    def get_active_mask(self):
+        return self.active
+
+    def get_robot_collision(self, robot_positions):
+        distance = torch.linalg.vector_norm(self.pos - robot_positions.unsqueeze(1), dim=-1)
+        return torch.any((distance < self.radius + self.cfg.robot_radius) & self.active, dim=1)
+
+
+class _FakeEnv:
+    def __init__(self, num_envs=2, max_pedestrians=3):
+        self.num_envs = num_envs
+        self.scene = {"robot": type("Robot", (), {"data": _FakeRobotData(num_envs)})()}
+        self.crowd_manager = _FakeCrowd(num_envs, max_pedestrians)
+        self.command_manager = type(
+            "CommandManager",
+            (), {"get_term": lambda _, __: type("Command", (), {"pos_command_w": torch.zeros(num_envs, 3)})()},
+        )()
 
 
 def _extras(completed, success=(), collision=(), velocity=()):
@@ -163,3 +225,68 @@ def test_artifacts_include_csv_json_and_summary_plot(tmp_path):
     assert "std_xy_speed_mps" in results[0]
     assert "success_rate_std" not in results[0]
     assert "collision_rate_std" not in results[0]
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_collision_replay_keeps_ordered_history_terminal_state_and_active_slots(tmp_path):
+    profiles = [evaluation.BenchmarkProfile("crossing", 2), evaluation.BenchmarkProfile("with_flow", 4)]
+    recorder = evaluation.CollisionReplayRecorder(profiles, [0, 1], tmp_path, step_dt_s=0.1, history_seconds=0.3)
+    env = _FakeEnv()
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.active[1, 0] = True
+
+    for step in range(4):
+        env.scene["robot"].data.root_pos_w[:, 0] = float(step)
+        env.scene["robot"].data.root_lin_vel_w[:, 0] = float(step)
+        env.scene["robot"].data.heading_w[:] = 0.1 * step
+        env.crowd_manager.pos[:, 0, 0] = 10.0
+        recorder.record_pre_step(env, torch.tensor([[float(step), 0.0, 0.1], [0.0, 0.0, 0.0]]))
+
+    # Only env 0 collides on its terminal state; env 1 resets without a replay.
+    env.scene["robot"].data.root_pos_w[0, 0] = 4.0
+    env.crowd_manager.pos[0, 0] = torch.tensor([4.0, 0.0])
+    entries = recorder.capture_terminal_collisions(env, torch.tensor([0, 1]))
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["scenario"] == "crossing"
+    assert entry["pedestrian_count"] == 2
+    assert entry["colliding_agent_ids"] == [0]
+    assert entry["frame_count"] == 4
+    with np.load(tmp_path / entry["replay_file"], allow_pickle=False) as replay:
+        assert np.allclose(replay["time_s"], [0.1, 0.2, 0.3, 0.4])
+        assert np.allclose(replay["robot_position_xy"][:, 0], [1.0, 2.0, 3.0, 4.0])
+        assert replay["pedestrian_active_mask"].shape == (4, 3)
+        assert np.all(replay["pedestrian_active_mask"][:, 0])
+        assert not np.any(replay["pedestrian_active_mask"][:, 1:])
+    with (tmp_path / "failure_cases.json").open(encoding="utf-8") as file:
+        assert json.load(file)["cases"] == [entry]
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_collision_replay_writes_empty_index_and_skips_non_colliding_resets(tmp_path):
+    recorder = evaluation.CollisionReplayRecorder(
+        [evaluation.BenchmarkProfile("crossing", 2)], [0], tmp_path, step_dt_s=0.1
+    )
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([10.0, 0.0])
+    recorder.record_pre_step(env, torch.zeros(1, 3))
+
+    assert recorder.capture_terminal_collisions(env, torch.tensor([0])) == []
+    assert recorder.case_count == 0
+    with (tmp_path / "failure_cases.json").open(encoding="utf-8") as file:
+        assert json.load(file)["cases"] == []
+
+
+def test_failure_viewer_filters_tags_and_rotates_body_commands(tmp_path):
+    tags = {"collision_000001": ["late brake", "crossing"]}
+    failure_viewer.save_case_tags(tmp_path, tags)
+    assert failure_viewer.load_case_tags(tmp_path) == tags
+    cases = [
+        {"case_id": "collision_000001", "scenario": "crossing", "pedestrian_count": 2},
+        {"case_id": "collision_000002", "scenario": "with_flow", "pedestrian_count": 4},
+    ]
+    assert failure_viewer.filter_cases(cases, tags, scenario="crossing", tag_filter="late brake") == [cases[0]]
+    assert failure_viewer.filter_cases(cases, tags, tag_filter="missing") == []
+    assert np.allclose(failure_viewer.body_velocity_to_world(np.array([1.0, 0.0]), np.pi / 2), [0.0, 1.0])

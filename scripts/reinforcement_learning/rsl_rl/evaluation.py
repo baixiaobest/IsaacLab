@@ -10,10 +10,14 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
+import tempfile
 from dataclasses import asdict, dataclass
 from numbers import Number
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+import numpy as np
 
 
 SCENARIO_ORDER = ("crossing", "with_flow", "against_flow")
@@ -30,6 +34,283 @@ class BenchmarkProfile:
 
     scenario: str
     pedestrian_count: int
+
+
+def _write_json_atomically(path: Path, payload: Any) -> None:
+    """Replace a JSON file atomically so an interrupted evaluation leaves the old index usable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+    ) as file:
+        json.dump(payload, file, indent=2)
+        file.write("\n")
+        temporary_path = Path(file.name)
+    os.replace(temporary_path, path)
+
+
+class CollisionReplayRecorder:
+    """Capture bounded vector-environment history and export pedestrian-collision replays.
+
+    State stays in a per-environment GPU ring buffer during evaluation.  CPU transfers and disk
+    writes occur only at a collision, immediately before Isaac Lab clears the terminal state.
+    """
+
+    schema_version = 1
+
+    def __init__(
+        self,
+        profiles: list[BenchmarkProfile],
+        env_profile_indices: Iterable[int],
+        output_dir: str | Path,
+        step_dt_s: float,
+        history_seconds: float = 3.0,
+    ):
+        if step_dt_s <= 0.0:
+            raise ValueError("step_dt_s must be positive.")
+        if history_seconds <= 0.0:
+            raise ValueError("history_seconds must be positive.")
+
+        self.profiles = profiles
+        self.env_profile_indices = [int(index) for index in env_profile_indices]
+        if not self.env_profile_indices or any(
+            index < 0 or index >= len(profiles) for index in self.env_profile_indices
+        ):
+            raise ValueError("Every vector environment must be assigned a valid profile index.")
+        self.output_dir = Path(output_dir)
+        self.cases_dir = self.output_dir / "cases"
+        self.index_path = self.output_dir / "failure_cases.json"
+        self.step_dt_s = float(step_dt_s)
+        self.history_seconds = float(history_seconds)
+        # The terminal collision frame is added only when exporting, so the ring itself contains
+        # exactly the requested leading history.
+        self.history_frames = math.ceil(self.history_seconds / self.step_dt_s - 1e-9)
+        self.capacity = self.history_frames
+
+        self._buffers: dict[str, Any] | None = None
+        self._write_indices = None
+        self._counts = None
+        self._elapsed_steps = None
+        self._last_command = None
+        self._env_ids = None
+        self._next_case_number = 1
+        self._cases: list[dict[str, Any]] = []
+        self._load_existing_index()
+        if not self.index_path.is_file():
+            self._write_index()
+
+    @property
+    def case_count(self) -> int:
+        return len(self._cases)
+
+    def _load_existing_index(self) -> None:
+        if not self.index_path.is_file():
+            return
+        with self.index_path.open(encoding="utf-8") as file:
+            payload = json.load(file)
+        if payload.get("schema_version") != self.schema_version or not isinstance(payload.get("cases"), list):
+            raise ValueError(f"Unsupported failure-case index: {self.index_path}")
+        self._cases = payload["cases"]
+        numbers = []
+        for case in self._cases:
+            case_id = str(case.get("case_id", ""))
+            if case_id.startswith("collision_") and case_id[10:].isdigit():
+                numbers.append(int(case_id[10:]))
+        self._next_case_number = max(numbers, default=0) + 1
+
+    def _write_index(self) -> None:
+        _write_json_atomically(
+            self.index_path,
+            {
+                "schema_version": self.schema_version,
+                "step_dt_s": self.step_dt_s,
+                "history_seconds": self.history_seconds,
+                "cases": self._cases,
+            },
+        )
+
+    def _initialize_buffers(self, env: Any) -> None:
+        import torch
+
+        robot = env.scene["robot"]
+        crowd = env.crowd_manager
+        num_envs = len(self.env_profile_indices)
+        if env.num_envs != num_envs:
+            raise ValueError("Replay recorder profile assignment does not match env.num_envs.")
+        max_pedestrians = crowd.max_pedestrians
+        device = robot.data.root_pos_w.device
+        self._buffers = {
+            "time_s": torch.zeros(num_envs, self.capacity, device=device),
+            "robot_position_xy": torch.zeros(num_envs, self.capacity, 2, device=device),
+            "robot_yaw": torch.zeros(num_envs, self.capacity, device=device),
+            "robot_velocity_xy_world": torch.zeros(num_envs, self.capacity, 2, device=device),
+            "robot_command_velocity_body": torch.zeros(num_envs, self.capacity, 3, device=device),
+            "goal_position_xy": torch.zeros(num_envs, self.capacity, 2, device=device),
+            "pedestrian_position_xy": torch.zeros(num_envs, self.capacity, max_pedestrians, 2, device=device),
+            "pedestrian_velocity_xy_world": torch.zeros(num_envs, self.capacity, max_pedestrians, 2, device=device),
+            "pedestrian_active_mask": torch.zeros(
+                num_envs, self.capacity, max_pedestrians, dtype=torch.bool, device=device
+            ),
+        }
+        self._write_indices = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._counts = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._elapsed_steps = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._last_command = torch.zeros(num_envs, 3, device=device)
+        self._env_ids = torch.arange(num_envs, device=device)
+
+    @staticmethod
+    def _three_component_command(command_velocity_body: Any) -> Any:
+        """Pad a command tensor to ``(vx, vy, yaw_rate)`` without accepting ambiguous ranks."""
+        import torch
+
+        if command_velocity_body.ndim != 2 or command_velocity_body.shape[1] < 2:
+            raise ValueError("Command velocity must have shape (num_envs, at least 2).")
+        command = torch.zeros(command_velocity_body.shape[0], 3, device=command_velocity_body.device)
+        command[:, : min(3, command_velocity_body.shape[1])] = command_velocity_body[:, :3]
+        return command
+
+    def _snapshot(self, env: Any, command_velocity_body: Any) -> None:
+        import torch
+
+        if self._buffers is None:
+            self._initialize_buffers(env)
+        assert self._buffers is not None
+        assert self._env_ids is not None
+        assert self._write_indices is not None
+        assert self._counts is not None
+        assert self._elapsed_steps is not None
+
+        command = self._three_component_command(command_velocity_body)
+        if command.shape[0] != len(self.env_profile_indices):
+            raise ValueError("Command velocity must contain one row per vector environment.")
+
+        robot = env.scene["robot"]
+        crowd = env.crowd_manager
+        command_term = env.command_manager.get_term("pose_2d_command")
+        goal = command_term.pos_command_w[:, :2]
+        indices = self._write_indices
+        env_ids = self._env_ids
+
+        self._buffers["time_s"][env_ids, indices] = self._elapsed_steps.to(dtype=torch.float32) * self.step_dt_s
+        self._buffers["robot_position_xy"][env_ids, indices] = robot.data.root_pos_w[:, :2]
+        self._buffers["robot_yaw"][env_ids, indices] = robot.data.heading_w
+        self._buffers["robot_velocity_xy_world"][env_ids, indices] = robot.data.root_lin_vel_w[:, :2]
+        self._buffers["robot_command_velocity_body"][env_ids, indices] = command
+        self._buffers["goal_position_xy"][env_ids, indices] = goal
+        self._buffers["pedestrian_position_xy"][env_ids, indices] = crowd.get_world_positions()
+        self._buffers["pedestrian_velocity_xy_world"][env_ids, indices] = crowd.get_velocities()
+        self._buffers["pedestrian_active_mask"][env_ids, indices] = crowd.get_active_mask()
+        self._last_command[:] = command
+        self._write_indices = (indices + 1) % self.capacity
+        self._counts = (self._counts + 1).clamp(max=self.capacity)
+        self._elapsed_steps += 1
+
+    def record_pre_step(self, env: Any, command_velocity_body: Any) -> None:
+        """Store the state and body-frame command immediately before an environment step."""
+        self._snapshot(env, command_velocity_body)
+
+    def _ordered_frames(self, env_id: int) -> dict[str, np.ndarray]:
+        import torch
+
+        if self._buffers is None or self._counts is None or self._write_indices is None:
+            raise RuntimeError("No replay state has been recorded.")
+        count = int(self._counts[env_id].item())
+        if count == 0:
+            raise RuntimeError(f"Environment {env_id} has no replay frames.")
+        if count < self.capacity:
+            order = torch.arange(count, device=self._write_indices.device)
+        else:
+            start = self._write_indices[env_id]
+            order = (torch.arange(self.capacity, device=start.device) + start) % self.capacity
+        return {
+            name: values[env_id].index_select(0, order).detach().cpu().numpy()
+            for name, values in self._buffers.items()
+        }
+
+    def _terminal_frame(self, env: Any, env_id: int) -> dict[str, np.ndarray]:
+        """Read one terminal-state frame without mutating other live environments' rings."""
+        assert self._elapsed_steps is not None and self._last_command is not None
+        robot = env.scene["robot"]
+        crowd = env.crowd_manager
+        command_term = env.command_manager.get_term("pose_2d_command")
+        return {
+            "time_s": np.asarray([float(self._elapsed_steps[env_id].item()) * self.step_dt_s], dtype=np.float32),
+            "robot_position_xy": robot.data.root_pos_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
+            "robot_yaw": robot.data.heading_w[env_id : env_id + 1].detach().cpu().numpy(),
+            "robot_velocity_xy_world": robot.data.root_lin_vel_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
+            "robot_command_velocity_body": self._last_command[env_id : env_id + 1].detach().cpu().numpy(),
+            "goal_position_xy": command_term.pos_command_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
+            "pedestrian_position_xy": crowd.get_world_positions()[env_id : env_id + 1].detach().cpu().numpy(),
+            "pedestrian_velocity_xy_world": crowd.get_velocities()[env_id : env_id + 1].detach().cpu().numpy(),
+            "pedestrian_active_mask": crowd.get_active_mask()[env_id : env_id + 1].detach().cpu().numpy(),
+        }
+
+    def _collision_indices(self, env: Any, env_id: int) -> list[int]:
+        import torch
+
+        robot_position = env.scene["robot"].data.root_pos_w[env_id, :2]
+        crowd = env.crowd_manager
+        distance = torch.linalg.vector_norm(crowd.get_world_positions()[env_id] - robot_position, dim=-1)
+        threshold = crowd.radius[env_id] + crowd.cfg.robot_radius
+        colliding = (distance < threshold) & crowd.get_active_mask()[env_id]
+        return torch.nonzero(colliding, as_tuple=False).reshape(-1).detach().cpu().tolist()
+
+    def capture_terminal_collisions(self, env: Any, reset_env_ids: Any) -> list[dict[str, Any]]:
+        """Export collisions among environments about to reset, then clear their histories."""
+        import torch
+
+        if self._buffers is None:
+            return []
+        env_ids = torch.as_tensor(reset_env_ids, device=self._env_ids.device, dtype=torch.long).reshape(-1)
+        if env_ids.numel() == 0:
+            return []
+        robot_positions = env.scene["robot"].data.root_pos_w[:, :2]
+        collision_mask = env.crowd_manager.get_robot_collision(robot_positions)
+        collision_env_ids = env_ids[collision_mask[env_ids]]
+
+        exported = []
+        for env_id in collision_env_ids.detach().cpu().tolist():
+            exported.append(self._export_case(env, int(env_id)))
+        self.reset(env_ids)
+        return exported
+
+    def _export_case(self, env: Any, env_id: int) -> dict[str, Any]:
+        frames = self._ordered_frames(env_id)
+        terminal_frame = self._terminal_frame(env, env_id)
+        frames = {name: np.concatenate([values, terminal_frame[name]], axis=0) for name, values in frames.items()}
+        profile = self.profiles[self.env_profile_indices[env_id]]
+        colliding_agent_ids = self._collision_indices(env, env_id)
+        case_id = f"collision_{self._next_case_number:06d}"
+        self._next_case_number += 1
+        filename = f"{case_id}.npz"
+        self.cases_dir.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(self.cases_dir / filename, **frames)
+        entry = {
+            "case_id": case_id,
+            "scenario": profile.scenario,
+            "pedestrian_count": profile.pedestrian_count,
+            "environment_id": env_id,
+            "collision_time_s": float(frames["time_s"][-1]),
+            "colliding_agent_ids": colliding_agent_ids,
+            "step_dt_s": self.step_dt_s,
+            "history_seconds": self.history_seconds,
+            "frame_count": int(frames["time_s"].shape[0]),
+            "replay_file": str(Path("cases") / filename),
+        }
+        self._cases.append(entry)
+        self._write_index()
+        return entry
+
+    def reset(self, env_ids: Any) -> None:
+        """Discard history for environments that have just completed an episode."""
+        if self._buffers is None:
+            return
+        import torch
+
+        ids = torch.as_tensor(env_ids, device=self._env_ids.device, dtype=torch.long).reshape(-1)
+        self._write_indices[ids] = 0
+        self._counts[ids] = 0
+        self._elapsed_steps[ids] = 0
+        self._last_command[ids] = 0.0
 
 
 def _sample_standard_deviation(values: Iterable[float]) -> float:

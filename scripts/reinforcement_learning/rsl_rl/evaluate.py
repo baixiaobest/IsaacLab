@@ -16,6 +16,7 @@ from isaaclab.app import AppLauncher
 import cli_args  # isort: skip
 
 from evaluation import (  # isort: skip
+    CollisionReplayRecorder,
     EpisodeVelocityAccumulator,
     EpisodeMetricsCollector,
     dynamic_crowd_profiles,
@@ -33,6 +34,18 @@ parser.add_argument(
     "--episodes_per_profile", type=int, default=50, help="Completed episodes for every scenario/count cell."
 )
 parser.add_argument("--output_dir", type=str, default=None, help="Artifact directory (defaults under the checkpoint).")
+parser.add_argument(
+    "--failure_history_seconds", type=float, default=3.0,
+    help="Seconds of context before a pedestrian collision to retain in each replay.",
+)
+parser.add_argument(
+    "--failure_output_dir", type=str, default=None,
+    help="Collision replay directory (defaults to <output_dir>/failure_cases).",
+)
+parser.add_argument(
+    "--disable_failure_recording", action="store_true",
+    help="Do not save pedestrian-collision replay artifacts during evaluation.",
+)
 parser.add_argument(
     "--use_pretrained_checkpoint", action="store_true", help="Use the published checkpoint when available."
 )
@@ -71,6 +84,7 @@ from isaaclab_rl.rsl_rl import (  # noqa: E402
 from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint  # noqa: E402
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
     EVALUATION_CROWD_SPEED_RANGE,
+    EVALUATION_SCENARIO_CODES,
     configure_dynamic_crowd_evaluation,
     install_dynamic_crowd_evaluation_profiles,
 )
@@ -79,7 +93,6 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
-SCENARIO_CODES = {"crossing": 0, "with_flow": 1, "against_flow": 2}
 
 
 def _resolve_checkpoint(agent_cfg: RslRlBaseRunnerCfg) -> tuple[str, str]:
@@ -113,6 +126,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     configure_dynamic_crowd_evaluation(env_cfg)
 
     checkpoint, log_dir = _resolve_checkpoint(agent_cfg)
+    output_dir = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
+    failure_output_dir = (
+        Path(args_cli.failure_output_dir) if args_cli.failure_output_dir else output_dir / "failure_cases"
+    )
     env_cfg.log_dir = log_dir
     env = gym.make(args_cli.task, cfg=env_cfg)
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -139,7 +156,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     install_dynamic_crowd_evaluation_profiles(
         env.unwrapped,
         [profiles[index].pedestrian_count for index in env_profile_indices],
-        [SCENARIO_CODES[profiles[index].scenario] for index in env_profile_indices],
+        [EVALUATION_SCENARIO_CODES[profiles[index].scenario] for index in env_profile_indices],
     )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
@@ -149,16 +166,28 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # Capture the terminal state immediately before ManagerBasedRLEnv resets it, while the
     # per-step samples below provide the rest of each episode's world-XY speed trace.
     raw_env = env.unwrapped
+    step_dt_s = env.unwrapped.step_dt
+    episode_length_s = env.unwrapped.cfg.episode_length_s
+    replay_recorder = None
+    if not args_cli.disable_failure_recording:
+        replay_recorder = CollisionReplayRecorder(
+            profiles,
+            env_profile_indices,
+            failure_output_dir,
+            step_dt_s,
+            args_cli.failure_history_seconds,
+        )
+
     original_reset_idx = raw_env._reset_idx
 
     def _tracked_reset_idx(env_ids):
         terminal_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
         velocity_accumulator.record_terminal(terminal_speed, env_ids)
+        if replay_recorder is not None:
+            replay_recorder.capture_terminal_collisions(raw_env, env_ids)
         return original_reset_idx(env_ids)
 
     raw_env._reset_idx = _tracked_reset_idx
-    step_dt_s = env.unwrapped.step_dt
-    episode_length_s = env.unwrapped.cfg.episode_length_s
 
     print(
         f"[INFO] Evaluating {checkpoint} on {len(profiles)} dynamic-crowd profiles "
@@ -170,6 +199,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             velocity_accumulator.record_step(step_speed)
             with torch.inference_mode():
                 actions = policy(obs)
+                if replay_recorder is not None:
+                    submitted_actions = actions
+                    if env.clip_actions is not None:
+                        submitted_actions = torch.clamp(submitted_actions, -env.clip_actions, env.clip_actions)
+                    action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
+                    action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
+                    replay_recorder.record_pre_step(raw_env, submitted_actions * action_scales)
                 obs, _, dones, extras = env.step(actions)
             if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                 policy.reset(dones)
@@ -199,7 +235,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     rows = collector.rows()
     aggregates = collector.aggregate_rows()
-    output_dir = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
     artifact_dir = save_artifacts(
         output_dir,
         rows,
@@ -210,7 +245,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "seed": agent_cfg.seed,
             "episodes_per_profile": args_cli.episodes_per_profile,
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
-            "scenarios": list(SCENARIO_CODES),
+            "scenarios": list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
             "metrics": {
                 "success_rate": "goal_reached term; collisions take precedence when simultaneous",
@@ -220,10 +255,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "velocity_metric_source": collector.velocity_metric_source,
             "step_dt_s": step_dt_s,
             "episode_length_s": episode_length_s,
+            "failure_replays": {
+                "enabled": replay_recorder is not None,
+                "output_dir": str(failure_output_dir) if replay_recorder is not None else None,
+                "history_seconds": args_cli.failure_history_seconds if replay_recorder is not None else None,
+                "collision_cases": replay_recorder.case_count if replay_recorder is not None else 0,
+            },
         },
     )
     print_results(rows, aggregates)
     print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
+    if replay_recorder is not None:
+        print(f"[INFO] Wrote {replay_recorder.case_count} collision replay(s) to: {failure_output_dir}")
 
 
 if __name__ == "__main__":
