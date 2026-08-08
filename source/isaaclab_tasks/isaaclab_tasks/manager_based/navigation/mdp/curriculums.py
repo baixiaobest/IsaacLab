@@ -70,10 +70,13 @@ def pedestrian_crowd_curriculum(
         count_range_high: tuple[int, int],
         speed_range_low: tuple[float, float],
         speed_range_high: tuple[float, float],
+        lateral_heading_max_low: float = 0.0,
+        lateral_heading_max_high: float = 0.0,
 ):
-    """Ramp the active pedestrian count and preferred-speed range with terrain level.
+    """Ramp active count, preferred speed, and lateral heading range with terrain level.
 
-    For each env in ``env_ids``, linearly interpolates ``count_range``/``speed_range``
+    For each env in ``env_ids``, linearly interpolates ``count_range``, ``speed_range``, and
+    the symmetric ``lateral_heading_max``
     between the "low" (terrain level 0) and "high" (terrain level == ``max_level``)
     settings according to ``env.scene.terrain.terrain_levels[env_id] / max_level``, then
     forwards the result to ``env.crowd_manager`` (a :class:`SocialForceCrowdManager`).
@@ -102,10 +105,17 @@ def pedestrian_crowd_curriculum(
     speed_max = speed_range_low[1] + t * (speed_range_high[1] - speed_range_low[1])
     speed_range = torch.stack([speed_min, speed_max], dim=-1)
 
+    heading_max = lateral_heading_max_low + t * (lateral_heading_max_high - lateral_heading_max_low)
+
     env.crowd_manager.set_active_count(env_ids_t, num_active)
     env.crowd_manager.set_speed_range(env_ids_t, speed_range)
+    env.crowd_manager.set_lateral_heading_max(env_ids_t, heading_max)
 
-    return {"mean_active": num_active.float().mean(), "mean_speed": speed_max.mean()}
+    return {
+        "mean_active": num_active.float().mean(),
+        "mean_speed": speed_max.mean(),
+        "mean_lateral_heading_max": heading_max.mean(),
+    }
 
 
 def terrain_level_contact_penalty_curriculum(

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata as metadata
+import math
 import os
 import sys
 from pathlib import Path
@@ -85,6 +86,7 @@ from isaaclab_rl.rsl_rl import (  # noqa: E402
 )
 from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint  # noqa: E402
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
+    EVALUATION_CROWD_LATERAL_HEADING_MAX,
     EVALUATION_CROWD_SPEED_RANGE,
     EVALUATION_SCENARIO_CODES,
     configure_dynamic_crowd_evaluation,
@@ -256,6 +258,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
+            "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
             "metrics": {
                 "success_rate": "goal_reached term; collisions take precedence when simultaneous",
                 "navigation_success_rate": "successes divided by episodes outside the terminal-goal buffer",

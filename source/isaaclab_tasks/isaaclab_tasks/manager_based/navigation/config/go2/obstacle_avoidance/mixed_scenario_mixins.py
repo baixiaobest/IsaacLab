@@ -69,6 +69,8 @@ PED_COUNT_RANGE_LOW = (2, 3)
 PED_COUNT_RANGE_HIGH = (10, 12)
 PED_SPEED_RANGE_LOW = (0.3, 0.7)
 PED_SPEED_RANGE_HIGH = (0.9, 1.5)
+PED_LATERAL_HEADING_MAX_LOW = 0.0
+PED_LATERAL_HEADING_MAX_HIGH = math.radians(12.0)
 
 EPISODE_LENGTH = 15.0
 RESAMPLING_TIME_RANGE = (15.1, 15.1)
@@ -173,6 +175,8 @@ class _MixedCurriculumCfg:
             "count_range_high": PED_COUNT_RANGE_HIGH,
             "speed_range_low": PED_SPEED_RANGE_LOW,
             "speed_range_high": PED_SPEED_RANGE_HIGH,
+            "lateral_heading_max_low": PED_LATERAL_HEADING_MAX_LOW,
+            "lateral_heading_max_high": PED_LATERAL_HEADING_MAX_HIGH,
         },
     )
 
@@ -331,6 +335,9 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
 """Pedestrian desired-speed range used by the standardized dynamic-crowd benchmark."""
 
+EVALUATION_CROWD_LATERAL_HEADING_MAX = PED_LATERAL_HEADING_MAX_HIGH
+"""Fixed maximum pedestrian heading offset used by the dynamic-crowd benchmark [rad]."""
+
 EVALUATION_SCENARIO_CODES = {"crossing": 0, "with_flow": 1, "against_flow": 2}
 """Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts."""
 
@@ -354,6 +361,7 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
         env_cfg.scene.pedestrian_visuals = make_pedestrian_visual_collection_cfg(16)
 
     env_cfg.social_force.max_pedestrians = 16
+    env_cfg.social_force.lateral_heading_max = EVALUATION_CROWD_LATERAL_HEADING_MAX
     env_cfg.pedestrian_init_count = 2
     env_cfg.pedestrian_init_speed_range = EVALUATION_CROWD_SPEED_RANGE
 

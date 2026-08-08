@@ -97,6 +97,16 @@ class SocialForceCrowdCfg:
     sharply to the robot, high values react early/gently). Resampled per slot on spawn and
     recycle."""
 
+    lateral_heading_max: float = 0.0
+    """Maximum absolute pedestrian heading offset from the corridor flow axis [rad].
+
+    Each offset is sampled independently when a pedestrian is spawned or recycled.  The
+    downstream component remains aligned with ``flow_dir``; the lateral component is encoded
+    in the pedestrian's downstream goal, so the goal-attraction force sustains it instead of
+    treating it as a one-step velocity perturbation. Offsets are sampled uniformly from
+    ``[-lateral_heading_max, +lateral_heading_max]``; the maximum must lie in ``[0, pi / 2)``.
+    """
+
     robot_radius: float = 0.4
     """Effective collision radius of the robot used for the repulsion force [m]."""
 
@@ -152,6 +162,11 @@ class SocialForceCrowdManager:
         # Cached curriculum-controlled speed range, used when (re)spawning/recycling.
         self._speed_range = torch.zeros(n, 2, device=device)
         self._speed_range[:, 1] = 1.0
+        self._lateral_heading_max = torch.zeros(n, device=device)
+        self.set_lateral_heading_max(
+            torch.arange(n, device=device),
+            torch.full((n,), cfg.lateral_heading_max, device=device),
+        )
 
         # Parking spot for inactive pedestrian slots (far below ground, out of the way).
         self._park_z = -50.0
@@ -283,6 +298,20 @@ class SocialForceCrowdManager:
         """
         self._speed_range[env_ids] = speed_range
 
+    def set_lateral_heading_max(self, env_ids: torch.Tensor, heading_max: torch.Tensor) -> None:
+        """Update the symmetric heading-offset bound used for future spawns and recycles.
+
+        Args:
+            env_ids: Environment indices to update.
+            heading_max: Maximum absolute offset in radians, shape ``(E,)``.
+        """
+        heading_max = heading_max.to(device=self.device, dtype=self.pos.dtype)
+        if heading_max.shape != (len(env_ids),):
+            raise ValueError("heading_max must have shape (len(env_ids),).")
+        if torch.any(heading_max < 0.0) or torch.any(heading_max >= torch.pi / 2):
+            raise ValueError("Lateral heading maxima must lie in [0, pi/2).")
+        self._lateral_heading_max[env_ids] = heading_max
+
     def _update_pair_mask(self) -> None:
         """Refresh the cached pairwise active-pair mask from ``active_mask``."""
         active = self.active_mask
@@ -333,19 +362,44 @@ class SocialForceCrowdManager:
             speed_range[:, 1] - speed_range[:, 0]
         ).unsqueeze(1)
 
-        # Goal is the downstream end of the corridor along the flow direction, at the
-        # pedestrian's own lateral offset (keeps the goal-attraction force purely axial).
+        # Goal is the downstream end of the corridor along the flow direction.  Each
+        # pedestrian samples a bounded heading offset; its downstream goal receives the
+        # corresponding lateral displacement so goal attraction preserves the lateral motion.
         # flow_dir is +-1; when flow_dir == -1 the downstream end is local x = -half_length.
         goal_x = torch.where(flow_dir.unsqueeze(1) > 0, half_length, -half_length)
-        goal = torch.stack([goal_x.expand(-1, p), local_y], dim=-1)
-
-        vel = torch.zeros(n, p, 2, device=self.device)
-        vel[..., 0] = flow_dir.unsqueeze(1) * speed
+        goal, vel = self._sample_downstream_goal_and_velocity(
+            e, local_pos, goal_x.expand(-1, p), corridor_width, speed
+        )
 
         b_lo, b_hi = self.cfg.b_robot_range
         b_robot = b_lo + torch.rand(n, p, device=self.device) * (b_hi - b_lo)
 
         return local_pos, vel, goal, speed, b_robot
+
+    def _sample_downstream_goal_and_velocity(
+        self,
+        env_ids: torch.Tensor,
+        local_pos: torch.Tensor,
+        goal_x: torch.Tensor,
+        corridor_width: torch.Tensor,
+        speed: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample a lateral heading and return a wall-safe downstream goal and velocity."""
+        n, p = local_pos.shape[:2]
+        heading_max = self._lateral_heading_max[env_ids].unsqueeze(1)
+        heading = (2.0 * torch.rand(n, p, device=self.device) - 1.0) * heading_max
+        half_width = (corridor_width.unsqueeze(1) / 2.0 - self.cfg.wall_margin).clamp(min=0.0)
+        downstream_distance = torch.abs(goal_x - local_pos[..., 0])
+        goal_y = (local_pos[..., 1] + downstream_distance * torch.tan(heading)).clamp(
+            min=-half_width, max=half_width
+        )
+        goal = torch.stack([goal_x, goal_y], dim=-1)
+
+        # Derive the initial velocity from the same wall-clamped goal.  This avoids a
+        # transient that points into a wall when a sampled heading would otherwise exceed it.
+        direction = goal - local_pos
+        direction = direction / torch.linalg.vector_norm(direction, dim=-1, keepdim=True).clamp(min=1e-6)
+        return goal, direction * speed.unsqueeze(-1)
 
     def _resample_clear_of_robot(
         self,
@@ -502,11 +556,14 @@ class SocialForceCrowdManager:
         new_world_pos = self.corridor_origin.unsqueeze(1) + new_local_pos
 
         new_goal_x = end_x_b
-        new_goal = torch.stack([new_goal_x, new_y], dim=-1)
+        new_goal, new_vel = self._sample_downstream_goal_and_velocity(
+            torch.arange(n, device=self.device),
+            new_local_pos,
+            new_goal_x,
+            self.corridor_width,
+            new_speed,
+        )
         new_world_goal = self.corridor_origin.unsqueeze(1) + new_goal
-
-        new_vel = torch.zeros_like(self.vel)
-        new_vel[..., 0] = self.flow_dir.unsqueeze(1).expand(-1, p) * new_speed
 
         crossed_pos = crossed.unsqueeze(-1)
         self.pos = torch.where(crossed_pos, new_world_pos, self.pos)
