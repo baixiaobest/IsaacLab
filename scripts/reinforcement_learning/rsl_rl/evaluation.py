@@ -464,6 +464,8 @@ class EpisodeMetricsCollector:
         fallback_velocity_metric: str | None = "linear_velocity",
         success_term: str = "goal_reached",
         collision_term: str = "pedestrian_collision",
+        timeout_term: str = "time_out",
+        base_contact_term: str = "base_contact",
     ):
         if episodes_per_profile <= 0:
             raise ValueError("episodes_per_profile must be positive.")
@@ -476,6 +478,8 @@ class EpisodeMetricsCollector:
         self.episodes_per_profile = episodes_per_profile
         self.success_ids_key = f"Episode_Termination/Envs/Ids/{success_term}"
         self.collision_ids_key = f"Episode_Termination/Envs/Ids/{collision_term}"
+        self.timeout_ids_key = f"Episode_Termination/Envs/Ids/{timeout_term}"
+        self.base_contact_ids_key = f"Episode_Termination/Envs/Ids/{base_contact_term}"
         self.metric_ids_key = f"Metrics/{command_name}/{velocity_metric}/Ids"
         self.metric_values_key = f"Metrics/{command_name}/{velocity_metric}/Envs"
         self.fallback_metric_ids_key = (
@@ -489,6 +493,8 @@ class EpisodeMetricsCollector:
         self._successes = [0] * len(profiles)
         self._collisions = [0] * len(profiles)
         self._goal_region_collisions = [0] * len(profiles)
+        self._timeouts = [0] * len(profiles)
+        self._base_contacts = [0] * len(profiles)
         self._velocity_sums = [0.0] * len(profiles)
         # Retain episode-level speed means to report their variation across episodes.
         self._velocity_values: list[list[float]] = [[] for _ in profiles]
@@ -556,6 +562,8 @@ class EpisodeMetricsCollector:
 
         success_ids = _ids(log.get(self.success_ids_key))
         collision_ids = _ids(log.get(self.collision_ids_key))
+        timeout_ids = _ids(log.get(self.timeout_ids_key))
+        base_contact_ids = _ids(log.get(self.base_contact_ids_key))
         goal_region_collision_ids = _ids(goal_region_collision_env_ids)
         accepted = 0
         for env_id in sorted(completed_ids):
@@ -577,6 +585,10 @@ class EpisodeMetricsCollector:
                     self._collisions[profile_index] += 1
             elif env_id in success_ids:
                 self._successes[profile_index] += 1
+            if env_id in timeout_ids:
+                self._timeouts[profile_index] += 1
+            if env_id in base_contact_ids:
+                self._base_contacts[profile_index] += 1
             self._velocity_values[profile_index].append(metric_by_env[env_id])
             accepted += 1
         return accepted
@@ -595,6 +607,8 @@ class EpisodeMetricsCollector:
                     "collisions": self._collisions[index],
                     "goal_region_collisions": self._goal_region_collisions[index],
                     "all_collisions": self._collisions[index] + self._goal_region_collisions[index],
+                    "timeouts": self._timeouts[index],
+                    "base_contacts": self._base_contacts[index],
                     "success_rate": self._successes[index] / episodes if episodes else 0.0,
                     "navigation_success_rate": (
                         self._successes[index] / navigation_episodes if navigation_episodes else 0.0
@@ -604,6 +618,8 @@ class EpisodeMetricsCollector:
                     "all_collision_rate": (
                         (self._collisions[index] + self._goal_region_collisions[index]) / episodes if episodes else 0.0
                     ),
+                    "timeout_rate": self._timeouts[index] / episodes if episodes else 0.0,
+                    "base_contact_rate": self._base_contacts[index] / episodes if episodes else 0.0,
                     "mean_xy_speed_mps": self._velocity_sums[index] / episodes if episodes else 0.0,
                     "std_xy_speed_mps": _sample_standard_deviation(self._velocity_values[index]),
                 }
@@ -621,6 +637,8 @@ class EpisodeMetricsCollector:
             successes = sum(self._successes[index] for index in profile_indices)
             collisions = sum(self._collisions[index] for index in profile_indices)
             goal_region_collisions = sum(self._goal_region_collisions[index] for index in profile_indices)
+            timeouts = sum(self._timeouts[index] for index in profile_indices)
+            base_contacts = sum(self._base_contacts[index] for index in profile_indices)
             navigation_episodes = episodes - goal_region_collisions
             velocity_values = [value for index in profile_indices for value in self._velocity_values[index]]
             aggregates.append(
@@ -632,11 +650,15 @@ class EpisodeMetricsCollector:
                     "collisions": collisions,
                     "goal_region_collisions": goal_region_collisions,
                     "all_collisions": collisions + goal_region_collisions,
+                    "timeouts": timeouts,
+                    "base_contacts": base_contacts,
                     "success_rate": successes / episodes if episodes else 0.0,
                     "navigation_success_rate": successes / navigation_episodes if navigation_episodes else 0.0,
                     "collision_rate": collisions / episodes if episodes else 0.0,
                     "goal_region_collision_rate": goal_region_collisions / episodes if episodes else 0.0,
                     "all_collision_rate": (collisions + goal_region_collisions) / episodes if episodes else 0.0,
+                    "timeout_rate": timeouts / episodes if episodes else 0.0,
+                    "base_contact_rate": base_contacts / episodes if episodes else 0.0,
                     "mean_xy_speed_mps": sum(velocity_values) / episodes if episodes else 0.0,
                     "std_xy_speed_mps": _sample_standard_deviation(velocity_values),
                 }
@@ -648,7 +670,7 @@ def print_results(rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any
     """Print a compact result table without introducing a tabular dependency."""
     header = (
         "scenario        crowd  episodes  success  nav coll  goal coll  all coll  success%  nav success%  "
-        "nav coll%  goal coll%  all coll%  mean xy speed (m/s) +/- std"
+        "nav coll%  goal coll%  all coll%  timeout  base contact  mean xy speed (m/s) +/- std"
     )
     print(header)
     print("-" * len(header))
@@ -659,7 +681,8 @@ def print_results(rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any
             f"{row['all_collisions']:>9} {100 * row['success_rate']:>8.1f} "
             f"{100 * row['navigation_success_rate']:>12.1f} "
             f"{100 * row['collision_rate']:>10.1f} {100 * row['goal_region_collision_rate']:>11.1f} "
-            f"{100 * row['all_collision_rate']:>10.1f} {row['mean_xy_speed_mps']:>8.3f} "
+            f"{100 * row['all_collision_rate']:>10.1f} {row['timeouts']:>8} {row['base_contacts']:>13} "
+            f"{row['mean_xy_speed_mps']:>8.3f} "
             f"+/- {row['std_xy_speed_mps']:<.3f}"
         )
 
@@ -676,8 +699,8 @@ def save_artifacts(
     all_rows = [*rows, *aggregate_rows]
     fieldnames = [
         "scenario", "pedestrian_count", "episodes", "successes", "collisions", "goal_region_collisions",
-        "all_collisions", "success_rate", "navigation_success_rate", "collision_rate",
-        "goal_region_collision_rate", "all_collision_rate",
+        "all_collisions", "timeouts", "base_contacts", "success_rate", "navigation_success_rate", "collision_rate",
+        "goal_region_collision_rate", "all_collision_rate", "timeout_rate", "base_contact_rate",
         "mean_xy_speed_mps", "std_xy_speed_mps",
     ]
     with (output_path / "dynamic_crowd_results.csv").open("w", newline="", encoding="utf-8") as file:
@@ -687,6 +710,7 @@ def save_artifacts(
     with (output_path / "dynamic_crowd_results.json").open("w", encoding="utf-8") as file:
         json.dump({"metadata": metadata, "results": rows, "aggregates": aggregate_rows}, file, indent=2)
     _save_summary_plot(output_path / "dynamic_crowd_summary.png", rows)
+    _save_failure_histogram(output_path / "dynamic_crowd_failure_histogram.png", aggregate_rows)
     return output_path
 
 
@@ -732,5 +756,40 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
                 axis.set_xlabel("Pedestrians")
     figure.suptitle("Dynamic crowd evaluation (speed shaded: ±1 sample SD)", fontsize=16)
     figure.tight_layout(rect=(0, 0, 1, 0.97))
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
+
+
+def _save_failure_histogram(path: Path, aggregate_rows: list[dict[str, Any]]) -> None:
+    """Save one failure-type histogram for each scenario.
+
+    Pedestrian collisions in the terminal-goal buffer are intentionally omitted because the
+    ``collisions`` count already represents navigation collisions only.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    failure_specs = (
+        ("timeouts", "Timeout", "#4C78A8"),
+        ("collisions", "Agent collision", "#E45756"),
+        ("base_contacts", "Base contact", "#F2A541"),
+    )
+    aggregate_by_scenario = {row["scenario"]: row for row in aggregate_rows}
+    figure, axes = plt.subplots(1, len(SCENARIO_ORDER), figsize=(14, 4.5), sharey=True)
+    for axis, scenario in zip(axes, SCENARIO_ORDER):
+        row = aggregate_by_scenario.get(scenario, {})
+        labels = [label for _, label, _ in failure_specs]
+        values = [int(row.get(metric, 0)) for metric, _, _ in failure_specs]
+        bars = axis.bar(labels, values, color=[color for _, _, color in failure_specs])
+        axis.bar_label(bars, padding=3)
+        axis.set_title(SCENARIO_LABELS[scenario])
+        axis.set_ylim(bottom=0)
+        axis.grid(axis="y", alpha=0.3)
+        axis.tick_params(axis="x", rotation=20)
+    axes[0].set_ylabel("Completed episodes")
+    figure.suptitle("Dynamic crowd failures (goal-region agent collisions excluded)", fontsize=14)
+    figure.tight_layout(rect=(0, 0, 1, 0.92))
     figure.savefig(path, dpi=180)
     plt.close(figure)

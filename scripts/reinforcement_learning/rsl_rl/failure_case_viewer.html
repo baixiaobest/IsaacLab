@@ -7,14 +7,16 @@
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #111827; color: #e5e7eb; }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body { max-width: 1580px; margin: 0 auto; padding: 24px; }
     h1 { font-size: 1.55rem; margin: 0; } h2 { font-size: .88rem; letter-spacing: .04em; text-transform: uppercase; color: #9ca3af; margin: 0 0 10px; }
-    header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; } .run-selector { display: flex; align-items: center; gap: 7px; color: #cbd5e1; font-size: .86rem; } .run-selector select { min-width: 190px; }
+    .tabs { display: flex; gap: 7px; flex-wrap: wrap; } .tab { min-height: 32px; } .tab.active { background: #1d4ed8; border-color: #2563eb; }
     #subtitle, #message { color: #9ca3af; font-size: .9rem; } #message.error { color: #fca5a5; }
     .workspace { display: grid; grid-template-columns: minmax(480px, 1fr) 330px; gap: 18px; align-items: start; }
     .card { background: #1f2937; border: 1px solid #374151; border-radius: 10px; box-shadow: 0 8px 24px #0002; }
     .plot-card { overflow: hidden; } #plot-title { padding: 13px 16px; border-bottom: 1px solid #374151; font-weight: 600; }
-    canvas { display: block; width: 100%; height: min(68vh, 760px); min-height: 470px; background: #0b1220; }
+    #plot { display: block; width: 100%; height: min(68vh, 760px); min-height: 470px; background: #0b1220; }
     .timeline { display: grid; grid-template-columns: 76px 1fr 108px; gap: 10px; align-items: center; padding: 14px 16px; }
     input[type="range"] { width: 100%; accent-color: #60a5fa; } .time-value { font-variant-numeric: tabular-nums; text-align: right; color: #cbd5e1; }
     .controls { padding: 16px; display: grid; gap: 18px; }
@@ -28,13 +30,14 @@
     .summary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; margin: 0; font-size: .85rem; } .summary dt { color: #9ca3af; } .summary dd { margin: 0; overflow-wrap: anywhere; }
     .tag-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; } #save-tags { background: #1d4ed8; border-color: #2563eb; } #save-tags:hover { background: #2563eb; }
     .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 0 16px 12px; color: #cbd5e1; font-size: .8rem; } .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; } .legend .robot { background: #60a5fa; border-radius: 1px; } .legend .pedestrian { background: #fb923c; } .legend .collider { border: 2px solid #f87171; background: transparent; } .legend .goal { background: #4ade80; }
-    @media (max-width: 950px) { body { padding: 14px; } .workspace { grid-template-columns: 1fr; } .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .group:last-child { border-bottom: 1px solid #374151; padding-bottom: 16px; } }
-    @media (max-width: 620px) { header { align-items: flex-start; flex-direction: column; } .controls, .switches { grid-template-columns: 1fr; } canvas { min-height: 360px; height: 58vh; } .timeline { grid-template-columns: 62px 1fr; } .time-value { grid-column: 2; text-align: left; } }
+    #evaluation-tab { display: grid; gap: 18px; } .evaluation-controls { padding: 15px 16px; display: flex; flex-wrap: wrap; align-items: end; gap: 12px 18px; } .evaluation-controls label { display: flex; align-items: center; gap: 7px; } .evaluation-controls input { min-height: auto; } .evaluation-controls .hint { color: #9ca3af; font-size: .82rem; flex: 1 1 240px; } .scenario-chart-group { display: grid; gap: 10px; } .scenario-chart-group > h2 { margin: 0; color: #e5e7eb; font-size: 1.15rem; } .evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; } .chart-card { padding: 14px; } .chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; } .chart-heading h3 { margin: 0; font-size: 1rem; } .chart-canvas { display: block; width: 100%; height: 410px; background: #0b1220; border: 1px solid #374151; border-radius: 7px; } #evaluation-empty { padding: 20px; color: #fbbf24; }
+    @media (max-width: 950px) { body { padding: 14px; } .workspace, .evaluation-grid { grid-template-columns: 1fr; } .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .group:last-child { border-bottom: 1px solid #374151; padding-bottom: 16px; } }
+    @media (max-width: 620px) { header { align-items: flex-start; flex-direction: column; } .controls, .switches { grid-template-columns: 1fr; } #plot { min-height: 360px; height: 58vh; } .chart-canvas { height: 340px; } .timeline { grid-template-columns: 62px 1fr; } .time-value { grid-column: 2; text-align: left; } }
   </style>
 </head>
 <body>
-  <header><div><h1>Collision Failure Analysis</h1><div id="subtitle">Loading replay cases…</div></div><div id="message" role="status"></div></header>
-  <main class="workspace">
+  <header><div><h1>Dynamic Crowd Evaluation</h1><div id="subtitle">Loading replay cases…</div></div><label class="run-selector">Evaluation run <select id="evaluation-run" aria-label="Evaluation run"></select></label><nav class="tabs" aria-label="Viewer sections"><button id="replay-tab-button" class="tab active" type="button">Collision replays</button><button id="evaluation-tab-button" class="tab" type="button">Evaluation plots</button></nav><div id="message" role="status"></div></header>
+  <main id="replay-tab" class="workspace">
     <section class="card plot-card">
       <div id="plot-title">No case selected</div>
       <canvas id="plot" aria-label="Robot-centered bird's-eye collision replay"></canvas>
@@ -69,12 +72,35 @@
       </section>
     </aside>
   </main>
+  <main id="evaluation-tab" hidden>
+    <section id="evaluation-empty" class="card" hidden></section>
+    <section id="evaluation-dashboard" hidden>
+      <section class="card evaluation-controls">
+        <label><input id="exclude-goal-success" type="checkbox" checked>Exclude goal-region collisions from the success-rate denominator</label>
+        <label><input id="exclude-goal-collision" type="checkbox" checked>Exclude goal-region collisions from collision rate and histogram</label>
+        <span class="hint">Plots use all completed episodes from each crowd-count cell.</span>
+      </section>
+      <section class="scenario-chart-group" data-scenario-group="crossing"><h2>Crossing</h2><section class="evaluation-grid">
+        <section class="card chart-card"><div class="chart-heading"><h3>Success and collision rates</h3><button class="export-rate" data-scenario="crossing" type="button">Export PNG</button></div><canvas id="rate-plot-crossing" class="chart-canvas" aria-label="Success and collision rates for crossing"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Failure histogram</h3><button class="export-failure" data-scenario="crossing" type="button">Export PNG</button></div><canvas id="failure-plot-crossing" class="chart-canvas" aria-label="Failure counts for crossing"></canvas></section>
+      </section></section>
+      <section class="scenario-chart-group" data-scenario-group="with_flow"><h2>With flow</h2><section class="evaluation-grid">
+        <section class="card chart-card"><div class="chart-heading"><h3>Success and collision rates</h3><button class="export-rate" data-scenario="with_flow" type="button">Export PNG</button></div><canvas id="rate-plot-with-flow" class="chart-canvas" aria-label="Success and collision rates with pedestrian flow"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Failure histogram</h3><button class="export-failure" data-scenario="with_flow" type="button">Export PNG</button></div><canvas id="failure-plot-with-flow" class="chart-canvas" aria-label="Failure counts with pedestrian flow"></canvas></section>
+      </section></section>
+      <section class="scenario-chart-group" data-scenario-group="against_flow"><h2>Against flow</h2><section class="evaluation-grid">
+        <section class="card chart-card"><div class="chart-heading"><h3>Success and collision rates</h3><button class="export-rate" data-scenario="against_flow" type="button">Export PNG</button></div><canvas id="rate-plot-against-flow" class="chart-canvas" aria-label="Success and collision rates against pedestrian flow"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Failure histogram</h3><button class="export-failure" data-scenario="against_flow" type="button">Export PNG</button></div><canvas id="failure-plot-against-flow" class="chart-canvas" aria-label="Failure counts against pedestrian flow"></canvas></section>
+      </section>
+    </section>
+    </section>
+  </main>
   <script>
   (() => {
     "use strict";
     const $ = (id) => document.getElementById(id);
-    const controls = { scenario: $("scenario"), count: $("crowd-count"), include: $("include-tags"), exclude: $("exclude-tag"), occurrence: $("occurrence"), previous: $("previous-case"), next: $("next-case"), time: $("time"), viewMode: $("view-mode"), resetView: $("reset-view"), pedestrianVelocity: $("pedestrian-velocity"), robotVelocity: $("robot-velocity"), robotCommand: $("robot-command"), trails: $("trails") };
-    const state = { data: null, tags: {}, matches: [], case: null, frames: null, request: 0, worldCenter: null, worldZoom: 1, pan: null, lastScale: 1 };
+    const controls = { run: $("evaluation-run"), scenario: $("scenario"), count: $("crowd-count"), include: $("include-tags"), exclude: $("exclude-tag"), occurrence: $("occurrence"), previous: $("previous-case"), next: $("next-case"), time: $("time"), viewMode: $("view-mode"), resetView: $("reset-view"), pedestrianVelocity: $("pedestrian-velocity"), robotVelocity: $("robot-velocity"), robotCommand: $("robot-command"), trails: $("trails") };
+    const state = { data: null, runId: null, tags: {}, matches: [], case: null, frames: null, request: 0, worldCenter: null, worldZoom: 1, pan: null, lastScale: 1 };
     const canvas = $("plot"), context = canvas.getContext("2d");
     const tagSet = (caseItem) => {
       const all = [...(Array.isArray(caseItem.automatic_tags) ? caseItem.automatic_tags : []), ...(state.tags[caseItem.case_id] || [])];
@@ -82,7 +108,8 @@
     };
     const parseTags = (value) => { const seen = new Set(); return value.split(",").map((tag) => tag.trim()).filter((tag) => { const key = tag.toLocaleLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; }); };
     const setMessage = (message, error = false) => { const element = $("message"); element.textContent = message; element.className = error ? "error" : ""; };
-    async function api(url, options) { const response = await fetch(url, options); const data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText); return data; }
+    async function api(url, options) { const runParameter = state.runId && url.startsWith("/api/") ? `${url.includes("?") ? "&" : "?"}run=${encodeURIComponent(state.runId)}` : ""; const response = await fetch(`${url}${runParameter}`, options); const data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText); return data; }
+    function populateRunSelector() { const runs = state.data.runs || []; controls.run.replaceChildren(...runs.map((run) => new Option(run.label, run.id))); controls.run.value = state.runId || state.data.selected_run_id; controls.run.disabled = runs.length <= 1; }
     function populateFilters() {
       const { scenario_labels: labels, scenario_order: order, index } = state.data;
       controls.scenario.replaceChildren(new Option("All scenarios", ""), ...order.map((scenario) => new Option(labels[scenario], scenario)));
@@ -162,15 +189,62 @@
       if (controls.robotVelocity.checked) vector(robot, frames.robot_velocity_xy_world[index], "#60a5fa", 2.5); if (controls.robotCommand.checked) { const command = frames.robot_command_velocity_body[index], worldCommand = [Math.cos(yaw) * command[0] - Math.sin(yaw) * command[1], Math.sin(yaw) * command[0] + Math.cos(yaw) * command[1]]; vector(robot, worldCommand, "#c084fc", 2.5); }
       context.fillStyle = "#94a3b8"; context.font = "12px system-ui"; context.textAlign = "left"; context.fillText(`${robotCentered ? "Robot-centered" : "World fixed · drag to pan, scroll to zoom"} · grid: 1 m`, 10, 20); updateCaseDetails();
     }
+    const dashboard = { charts: { crossing: { rates: $("rate-plot-crossing"), failures: $("failure-plot-crossing") }, with_flow: { rates: $("rate-plot-with-flow"), failures: $("failure-plot-with-flow") }, against_flow: { rates: $("rate-plot-against-flow"), failures: $("failure-plot-against-flow") } }, excludeGoalSuccess: $("exclude-goal-success"), excludeGoalCollision: $("exclude-goal-collision") };
+    function resizeChartCanvas(chart) {
+      const rect = chart.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height));
+      if (chart.width !== width * ratio || chart.height !== height * ratio) { chart.width = width * ratio; chart.height = height * ratio; }
+      const chartContext = chart.getContext("2d"); chartContext.setTransform(ratio, 0, 0, ratio, 0, 0); return { chartContext, width, height };
+    }
+    function dashboardRows() { return state.data?.evaluation?.results || []; }
+    function dashboardAggregate(scenario) {
+      const aggregate = (state.data.evaluation.aggregates || []).find((row) => row.scenario === scenario);
+      if (aggregate) return aggregate;
+      return dashboardRows().filter((row) => row.scenario === scenario).reduce((total, row) => Object.fromEntries(["episodes", "successes", "collisions", "goal_region_collisions", "all_collisions", "timeouts", "base_contacts"].map((key) => [key, (total[key] || 0) + (Number(row[key]) || 0)])), {});
+    }
+    function metricRate(row, metric) {
+      if (Number.isFinite(Number(row[metric]))) return 100 * Number(row[metric]);
+      const episodes = Number(row.episodes) || 0, goal = Number(row.goal_region_collisions) || 0, collisions = Number(row.collisions) || 0;
+      if (metric === "navigation_success_rate") return 100 * (Number(row.successes) || 0) / Math.max(1, episodes - goal);
+      if (metric === "success_rate") return 100 * (Number(row.successes) || 0) / Math.max(1, episodes);
+      if (metric === "collision_rate") return 100 * collisions / Math.max(1, episodes);
+      return 100 * (Number(row.all_collisions) || collisions + goal) / Math.max(1, episodes);
+    }
+    function chartBackground(chartContext, width, height) { chartContext.clearRect(0, 0, width, height); chartContext.fillStyle = "#0b1220"; chartContext.fillRect(0, 0, width, height); }
+    function drawRatePlot(scenario, chart) {
+      if (!chart) return; const { chartContext, width, height } = resizeChartCanvas(chart); chartBackground(chartContext, width, height);
+      const successMetric = dashboard.excludeGoalSuccess.checked ? "navigation_success_rate" : "success_rate", collisionMetric = dashboard.excludeGoalCollision.checked ? "collision_rate" : "all_collision_rate", scenarioRows = dashboardRows().filter((row) => row.scenario === scenario).sort((a, b) => Number(a.pedestrian_count) - Number(b.pedestrian_count));
+      const margin = { left: 45, right: 14, top: 48, bottom: 42 }, plotWidth = width - margin.left - margin.right, plotHeight = height - margin.top - margin.bottom;
+      chartContext.font = "12px system-ui"; chartContext.textAlign = "left"; chartContext.fillStyle = "#e5e7eb"; chartContext.fillText("Success rate", margin.left, 18); chartContext.fillStyle = "#60a5fa"; chartContext.fillRect(margin.left + 79, 10, 11, 3); chartContext.fillStyle = "#e5e7eb"; chartContext.fillText("Collision rate", margin.left + 97, 18); chartContext.fillStyle = "#f87171"; chartContext.fillRect(margin.left + 190, 10, 11, 3);
+      [0, 25, 50, 75, 100].forEach((value) => { const y = margin.top + plotHeight * (1 - value / 100); chartContext.strokeStyle = "#223047"; chartContext.beginPath(); chartContext.moveTo(margin.left, y); chartContext.lineTo(width - margin.right, y); chartContext.stroke(); chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "right"; chartContext.fillText(`${value}%`, margin.left - 7, y + 4); });
+      if (!scenarioRows.length) { chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "center"; chartContext.fillText("No results", margin.left + plotWidth / 2, margin.top + plotHeight / 2); return; }
+      const counts = scenarioRows.map((row) => Number(row.pedestrian_count)), minCount = Math.min(...counts), maxCount = Math.max(...counts), x = (count) => margin.left + (maxCount === minCount ? plotWidth / 2 : (count - minCount) / (maxCount - minCount) * plotWidth), y = (value) => margin.top + plotHeight * (1 - Math.max(0, Math.min(100, value)) / 100);
+      [[successMetric, "#60a5fa"], [collisionMetric, "#f87171"]].forEach(([metric, color]) => { chartContext.strokeStyle = color; chartContext.lineWidth = 2.5; chartContext.beginPath(); scenarioRows.forEach((row, index) => { const pointX = x(Number(row.pedestrian_count)), pointY = y(metricRate(row, metric)); index ? chartContext.lineTo(pointX, pointY) : chartContext.moveTo(pointX, pointY); }); chartContext.stroke(); chartContext.fillStyle = color; scenarioRows.forEach((row) => { chartContext.beginPath(); chartContext.arc(x(Number(row.pedestrian_count)), y(metricRate(row, metric)), 3.5, 0, Math.PI * 2); chartContext.fill(); }); });
+      chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "center"; counts.forEach((count) => chartContext.fillText(String(count), x(count), height - 22)); chartContext.fillText("Pedestrians", margin.left + plotWidth / 2, height - 6);
+    }
+    function drawFailurePlot(scenario, chart) {
+      if (!chart) return; const { chartContext, width, height } = resizeChartCanvas(chart); chartBackground(chartContext, width, height);
+      const specs = [["timeouts", "Timeout", "#4C78A8"], [dashboard.excludeGoalCollision.checked ? "collisions" : "all_collisions", "Agent collision", "#E45756"], ["base_contacts", "Base contact", "#F2A541"]], values = specs.map(([metric]) => Number(dashboardAggregate(scenario)[metric]) || 0), maxValue = Math.max(1, ...values);
+      const margin = { left: 39, right: 14, top: 43, bottom: 49 }, plotWidth = width - margin.left - margin.right, plotHeight = height - margin.top - margin.bottom, barGap = Math.min(28, plotWidth * .08), barWidth = (plotWidth - barGap * (specs.length - 1)) / specs.length;
+      chartContext.font = "12px system-ui"; [0, .25, .5, .75, 1].forEach((fraction) => { const value = Math.round(maxValue * fraction), y = margin.top + plotHeight * (1 - fraction); chartContext.strokeStyle = "#223047"; chartContext.beginPath(); chartContext.moveTo(margin.left, y); chartContext.lineTo(width - margin.right, y); chartContext.stroke(); chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "right"; chartContext.fillText(String(value), margin.left - 7, y + 4); });
+      chartContext.font = "11px system-ui"; values.forEach((value, index) => { const barHeight = plotHeight * value / maxValue, x = margin.left + index * (barWidth + barGap), y = margin.top + plotHeight - barHeight; chartContext.fillStyle = specs[index][2]; chartContext.fillRect(x, y, barWidth, barHeight); chartContext.fillStyle = "#e5e7eb"; chartContext.textAlign = "center"; chartContext.fillText(String(value), x + barWidth / 2, y - 6); chartContext.fillStyle = "#94a3b8"; const words = specs[index][1].split(" "); words.forEach((word, wordIndex) => chartContext.fillText(word, x + barWidth / 2, height - 22 + wordIndex * 11)); });
+      chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "left"; chartContext.font = "11px system-ui"; chartContext.fillText(`Goal-region collisions ${dashboard.excludeGoalCollision.checked ? "excluded" : "included"} in agent-collision bars`, margin.left, 16);
+    }
+    function drawDashboard() { if (!state.data?.evaluation || $("evaluation-tab").hidden) return; state.data.scenario_order.forEach((scenario) => { const charts = dashboard.charts[scenario]; if (charts) { drawRatePlot(scenario, charts.rates); drawFailurePlot(scenario, charts.failures); } }); }
+    function activateTab(name) { const evaluations = name === "evaluation"; $("replay-tab").hidden = evaluations; $("evaluation-tab").hidden = !evaluations; $("replay-tab-button").classList.toggle("active", !evaluations); $("evaluation-tab-button").classList.toggle("active", evaluations); if (evaluations) drawDashboard(); }
+    function downloadCanvas(chart, filename) { const link = document.createElement("a"); link.download = filename; link.href = chart.toDataURL("image/png"); link.click(); }
     function cycleOccurrence(direction) { if (!state.matches.length) return; const current = Number(controls.occurrence.value) - 1, next = (current + direction + state.matches.length) % state.matches.length; controls.occurrence.value = next + 1; loadCase(state.matches[next].case_id); }
     async function saveTags() { if (!state.case) return; const frameIndex = Number(controls.time.value); try { const result = await api(`/api/tags/${encodeURIComponent(state.case.case_id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: $("case-tags").value }) }); state.tags = result.tags_by_case; updateTagOptions(); await refreshCases(state.case.case_id, frameIndex); setMessage("Tags saved."); } catch (error) { setMessage(error.message, true); } }
     function resetWorldView() { if (!state.frames) return; state.worldCenter = [...state.frames.robot_position_xy[Number(controls.time.value)]]; state.worldZoom = 1; draw(); }
-    [controls.scenario, controls.count, controls.exclude].forEach((element) => element.addEventListener("change", () => refreshCases())); controls.include.addEventListener("input", () => refreshCases()); controls.occurrence.addEventListener("change", () => { const index = Math.min(Math.max(1, Number(controls.occurrence.value) || 1), state.matches.length) - 1; if (state.matches[index]) loadCase(state.matches[index].case_id); }); controls.previous.addEventListener("click", () => cycleOccurrence(-1)); controls.next.addEventListener("click", () => cycleOccurrence(1)); controls.time.addEventListener("input", draw); controls.viewMode.addEventListener("change", draw); controls.resetView.addEventListener("click", resetWorldView); [controls.pedestrianVelocity, controls.robotVelocity, controls.robotCommand, controls.trails].forEach((element) => element.addEventListener("change", draw)); $("save-tags").addEventListener("click", saveTags); window.addEventListener("resize", draw);
+    [controls.scenario, controls.count, controls.exclude].forEach((element) => element.addEventListener("change", () => refreshCases())); controls.include.addEventListener("input", () => refreshCases()); controls.occurrence.addEventListener("change", () => { const index = Math.min(Math.max(1, Number(controls.occurrence.value) || 1), state.matches.length) - 1; if (state.matches[index]) loadCase(state.matches[index].case_id); }); controls.previous.addEventListener("click", () => cycleOccurrence(-1)); controls.next.addEventListener("click", () => cycleOccurrence(1)); controls.time.addEventListener("input", draw); controls.viewMode.addEventListener("change", draw); controls.resetView.addEventListener("click", resetWorldView); [controls.pedestrianVelocity, controls.robotVelocity, controls.robotCommand, controls.trails].forEach((element) => element.addEventListener("change", draw)); $("save-tags").addEventListener("click", saveTags);
+    $("replay-tab-button").addEventListener("click", () => activateTab("replay")); $("evaluation-tab-button").addEventListener("click", () => activateTab("evaluation")); [dashboard.excludeGoalSuccess, dashboard.excludeGoalCollision].forEach((element) => element.addEventListener("change", drawDashboard)); document.querySelectorAll(".export-rate").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].rates, `dynamic_crowd_${button.dataset.scenario}_rates.png`))); document.querySelectorAll(".export-failure").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].failures, `dynamic_crowd_${button.dataset.scenario}_failure_histogram.png`))); window.addEventListener("resize", () => { draw(); drawDashboard(); });
+    function updateEvaluationDashboardAvailability() { if (state.data.evaluation) { $("evaluation-dashboard").hidden = false; $("evaluation-empty").hidden = true; $("evaluation-tab-button").disabled = false; } else { $("evaluation-dashboard").hidden = true; $("evaluation-empty").hidden = false; $("evaluation-empty").textContent = `Evaluation plots are unavailable: ${state.data.evaluation_error || "dynamic_crowd_results.json was not found."}`; $("evaluation-tab-button").disabled = true; activateTab("replay"); } }
+    async function loadEvaluationRun(runId) { try { state.request += 1; state.runId = runId; state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; state.case = null; state.frames = null; state.worldCenter = null; state.worldZoom = 1; populateRunSelector(); updateEvaluationDashboardAvailability(); populateFilters(); $("subtitle").textContent = `${state.data.index.cases.length} recorded collision case${state.data.index.cases.length === 1 ? "" : "s"} · run ${state.runId}`; await refreshCases(); drawDashboard(); } catch (error) { setMessage(error.message, true); } }
+    controls.run.addEventListener("change", () => loadEvaluationRun(controls.run.value));
     canvas.addEventListener("pointerdown", (event) => { if (controls.viewMode.value !== "world" || event.button !== 0 || !state.worldCenter) return; state.pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, center: [...state.worldCenter], scale: state.lastScale }; canvas.setPointerCapture(event.pointerId); canvas.style.cursor = "grabbing"; });
     canvas.addEventListener("pointermove", (event) => { if (!state.pan || event.pointerId !== state.pan.pointerId) return; const deltaX = event.clientX - state.pan.x, deltaY = event.clientY - state.pan.y; state.worldCenter = [state.pan.center[0] - deltaX / state.pan.scale, state.pan.center[1] + deltaY / state.pan.scale]; draw(); });
     const stopPan = (event) => { if (state.pan && event.pointerId === state.pan.pointerId) { state.pan = null; canvas.style.cursor = controls.viewMode.value === "world" ? "grab" : "default"; } }; canvas.addEventListener("pointerup", stopPan); canvas.addEventListener("pointercancel", stopPan);
     canvas.addEventListener("wheel", (event) => { if (controls.viewMode.value !== "world" || !state.frames) return; event.preventDefault(); state.worldZoom = Math.min(40, Math.max(.1, state.worldZoom * Math.exp(-event.deltaY * .001))); draw(); }, { passive: false });
-    (async () => { try { state.data = await api("/api/index"); state.tags = state.data.tags_by_case || {}; $("subtitle").textContent = `${state.data.index.cases.length} recorded collision case${state.data.index.cases.length === 1 ? "" : "s"} · local browser viewer`; populateFilters(); await refreshCases(); } catch (error) { setMessage(error.message, true); $("subtitle").textContent = "Unable to load failure-case index"; } })();
+    (async () => { try { state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; populateRunSelector(); updateEvaluationDashboardAvailability(); $("subtitle").textContent = `${state.data.index.cases.length} recorded collision case${state.data.index.cases.length === 1 ? "" : "s"} · run ${state.runId}`; populateFilters(); await refreshCases(); } catch (error) { setMessage(error.message, true); $("subtitle").textContent = "Unable to load failure-case index"; } })();
   })();
   </script>
 </body>

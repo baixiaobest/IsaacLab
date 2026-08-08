@@ -10,6 +10,7 @@ import importlib.metadata as metadata
 import math
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
@@ -36,14 +37,19 @@ parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.
 parser.add_argument(
     "--episodes_per_profile", type=int, default=50, help="Completed episodes for every scenario/count cell."
 )
-parser.add_argument("--output_dir", type=str, default=None, help="Artifact directory (defaults under the checkpoint).")
+parser.add_argument(
+    "--output_dir",
+    type=str,
+    default=None,
+    help="Evaluation artifact root; each run creates a timestamped subdirectory (defaults under the checkpoint).",
+)
 parser.add_argument(
     "--failure_history_seconds", type=float, default=3.0,
     help="Seconds of context before a pedestrian collision to retain in each replay.",
 )
 parser.add_argument(
     "--failure_output_dir", type=str, default=None,
-    help="Collision replay directory (defaults to <output_dir>/failure_cases).",
+    help="Collision replay root; each run creates a timestamped subdirectory (defaults to the evaluation run).",
 )
 parser.add_argument(
     "--disable_failure_recording", action="store_true",
@@ -88,6 +94,10 @@ from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_che
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
     EVALUATION_CROWD_LATERAL_HEADING_MAX,
     EVALUATION_CROWD_SPEED_RANGE,
+    EVALUATION_GOAL_REACHED_ANGULAR_THRESHOLD,
+    EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD,
+    EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS,
+    EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD,
     EVALUATION_SCENARIO_CODES,
     configure_dynamic_crowd_evaluation,
     install_dynamic_crowd_evaluation_profiles,
@@ -115,6 +125,21 @@ def _resolve_checkpoint(agent_cfg: RslRlBaseRunnerCfg) -> tuple[str, str]:
     return checkpoint, os.path.dirname(checkpoint)
 
 
+def _create_timestamped_run_dir(output_root: Path) -> Path:
+    """Create a unique, human-readable evaluation run directory."""
+    output_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+    for sequence in range(1_000):
+        suffix = "" if sequence == 0 else f"_{sequence:02d}"
+        run_dir = output_root / f"{timestamp}{suffix}"
+        try:
+            run_dir.mkdir()
+        except FileExistsError:
+            continue
+        return run_dir
+    raise RuntimeError(f"Could not create a unique evaluation run directory in {output_root}.")
+
+
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
@@ -130,10 +155,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     configure_dynamic_crowd_evaluation(env_cfg)
 
     checkpoint, log_dir = _resolve_checkpoint(agent_cfg)
-    output_dir = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
-    failure_output_dir = (
-        Path(args_cli.failure_output_dir) if args_cli.failure_output_dir else output_dir / "failure_cases"
-    )
+    output_root = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
+    output_dir = _create_timestamped_run_dir(output_root)
+    if args_cli.failure_output_dir:
+        failure_output_dir = _create_timestamped_run_dir(Path(args_cli.failure_output_dir)) / "failure_cases"
+    else:
+        failure_output_dir = output_dir / "failure_cases"
     env_cfg.log_dir = log_dir
     env = gym.make(args_cli.task, cfg=env_cfg)
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -254,11 +281,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "task": args_cli.task,
             "checkpoint": str(checkpoint),
             "seed": agent_cfg.seed,
+            "run_id": output_dir.name,
+            "output_root": str(output_root),
             "episodes_per_profile": args_cli.episodes_per_profile,
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
             "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
+            "goal_reach_condition": {
+                "distance_threshold_m": EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD,
+                "heading_error_threshold_deg": math.degrees(EVALUATION_GOAL_REACHED_ANGULAR_THRESHOLD),
+                "xy_speed_threshold_mps": EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD,
+                "stay_for_seconds": EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS,
+            },
             "metrics": {
                 "success_rate": "goal_reached term; collisions take precedence when simultaneous",
                 "navigation_success_rate": "successes divided by episodes outside the terminal-goal buffer",
@@ -267,6 +302,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     f"pedestrian collisions within {GOAL_REGION_COLLISION_RADIUS_M:.2f} m of the goal"
                 ),
                 "all_collision_rate": "all pedestrian collisions before goal-region classification",
+                "timeout_rate": "episodes terminated by the time_out term",
+                "base_contact_rate": "episodes terminated by the base_contact term",
                 "mean_xy_speed_mps": "episode-average world-frame horizontal robot speed over all episodes",
             },
             "velocity_metric_source": collector.velocity_metric_source,

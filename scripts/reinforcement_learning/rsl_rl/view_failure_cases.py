@@ -1,13 +1,13 @@
-"""Local web viewer for dynamic-crowd collision replay artifacts.
+"""Local web viewer for dynamic-crowd collision replays and evaluation summaries.
 
 Run after evaluation, for example::
 
     ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/view_failure_cases.py \
-        logs/rsl_rl/<experiment>/evaluations/dynamic_crowd/failure_cases
+        logs/rsl_rl/<experiment>/evaluations/dynamic_crowd
 
-The server binds to localhost and opens a browser-based viewer.  It uses only
-the Python standard library plus NumPy, both of which are already available in
-the Isaac Lab runtime.
+The server binds to localhost and opens a browser-based viewer with a selector
+for timestamped evaluation runs. It uses only the Python standard library plus
+NumPy, both of which are already available in the Isaac Lab runtime.
 """
 
 from __future__ import annotations
@@ -17,11 +17,12 @@ import json
 import os
 import tempfile
 import webbrowser
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
 
@@ -31,6 +32,16 @@ from evaluation import SCENARIO_LABELS, SCENARIO_ORDER
 INDEX_FILENAME = "failure_cases.json"
 TAGS_FILENAME = "failure_case_tags.json"
 WEB_APP_FILENAME = "failure_case_viewer.html"
+RESULTS_FILENAME = "dynamic_crowd_results.json"
+
+
+@dataclass(frozen=True)
+class EvaluationRun:
+    """Filesystem locations for one evaluation run shown by the web viewer."""
+
+    run_id: str
+    replay_dir: Path
+    evaluation_dir: Path
 
 
 def parse_tags(value: str) -> list[str]:
@@ -53,6 +64,58 @@ def load_case_index(replay_dir: str | Path) -> dict[str, Any]:
     if payload.get("schema_version") != 1 or not isinstance(payload.get("cases"), list):
         raise ValueError(f"Unsupported failure-case index: {path}")
     return payload
+
+
+def load_evaluation_results(evaluation_dir: str | Path) -> dict[str, Any]:
+    """Load the dynamic-crowd results exported by ``evaluate.py``."""
+    path = Path(evaluation_dir) / RESULTS_FILENAME
+    with path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+    if not isinstance(payload.get("results"), list) or not isinstance(payload.get("aggregates"), list):
+        raise ValueError(f"Unsupported dynamic-crowd results: {path}")
+    return payload
+
+
+def discover_evaluation_runs(artifact_dir: str | Path, evaluation_dir: str | Path | None = None) -> list[EvaluationRun]:
+    """Discover timestamped evaluation runs while retaining legacy single-run paths."""
+    artifact_path = Path(artifact_dir).resolve()
+    explicit_evaluation_dir = Path(evaluation_dir).resolve() if evaluation_dir else None
+
+    def timestamped_runs(root: Path) -> list[EvaluationRun]:
+        if not root.is_dir():
+            return []
+        return [
+            EvaluationRun(child.name, child / "failure_cases", child)
+            for child in sorted(root.iterdir(), reverse=True)
+            if child.is_dir() and (child / RESULTS_FILENAME).is_file()
+        ]
+
+    if explicit_evaluation_dir is not None:
+        return [EvaluationRun(explicit_evaluation_dir.name, artifact_path, explicit_evaluation_dir)]
+    # Before timestamped runs existed, the viewer was launched with
+    # ``dynamic_crowd/failure_cases``.  Keep that command working by treating the
+    # legacy shared replay directory as an alias for its timestamped-run parent.
+    if artifact_path.name == "failure_cases":
+        sibling_runs = timestamped_runs(artifact_path.parent)
+        if sibling_runs:
+            return sibling_runs
+    if (artifact_path / INDEX_FILENAME).is_file():
+        run_dir = artifact_path.parent
+        siblings = timestamped_runs(run_dir.parent)
+        if any(run.evaluation_dir == run_dir for run in siblings):
+            return siblings
+        return [EvaluationRun(run_dir.name, artifact_path, run_dir)]
+    if (artifact_path / RESULTS_FILENAME).is_file():
+        siblings = timestamped_runs(artifact_path.parent)
+        if siblings:
+            return siblings
+        return [EvaluationRun(artifact_path.name, artifact_path / "failure_cases", artifact_path)]
+    runs = timestamped_runs(artifact_path)
+    if runs:
+        return runs
+    raise ValueError(
+        f"No evaluation runs found in {artifact_path}. Expected timestamped directories containing {RESULTS_FILENAME}."
+    )
 
 
 def load_case_tags(replay_dir: str | Path) -> dict[str, list[str]]:
@@ -145,42 +208,74 @@ class FailureCaseWebServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], replay_dir: Path, view_radius: float):
-        self.replay_dir = replay_dir.resolve()
+    def __init__(
+        self,
+        address: tuple[str, int],
+        replay_dir: Path,
+        view_radius: float,
+        evaluation_dir: Path | None = None,
+    ):
+        self.runs = discover_evaluation_runs(replay_dir, evaluation_dir)
+        self.runs_by_id = {run.run_id: run for run in self.runs}
+        self.default_run_id = self.runs[0].run_id
         self.view_radius = view_radius
-        self.index = load_case_index(self.replay_dir)
-        self.tags_by_case = load_case_tags(self.replay_dir)
         self.web_app = (Path(__file__).with_name(WEB_APP_FILENAME)).read_bytes()
         super().__init__(address, FailureCaseRequestHandler)
 
-    def index_payload(self) -> dict[str, Any]:
-        # Reload user tags for edits made by another viewer instance.
-        self.tags_by_case = load_case_tags(self.replay_dir)
+    def _run(self, run_id: str | None) -> EvaluationRun:
+        selected_run_id = run_id or self.default_run_id
+        try:
+            return self.runs_by_id[selected_run_id]
+        except KeyError as error:
+            raise KeyError(f"Unknown evaluation run: {selected_run_id}") from error
+
+    def index_payload(self, run_id: str | None = None) -> dict[str, Any]:
+        """Return one selected run plus the available timestamped run folders."""
+        run = self._run(run_id)
+        index = load_case_index(run.replay_dir) if (run.replay_dir / INDEX_FILENAME).is_file() else {
+            "schema_version": 1,
+            "cases": [],
+        }
+        tags_by_case = load_case_tags(run.replay_dir)
+        evaluation_results: dict[str, Any] | None = None
+        evaluation_error: str | None = None
+        try:
+            evaluation_results = load_evaluation_results(run.evaluation_dir)
+        except (OSError, ValueError) as error:
+            evaluation_error = str(error)
         return {
-            "index": self.index,
-            "tags_by_case": self.tags_by_case,
+            "index": index,
+            "tags_by_case": tags_by_case,
             "scenario_labels": SCENARIO_LABELS,
             "scenario_order": SCENARIO_ORDER,
             "view_radius": self.view_radius,
+            "evaluation": evaluation_results,
+            "evaluation_error": evaluation_error,
+            "selected_run_id": run.run_id,
+            "runs": [{"id": item.run_id, "label": item.run_id} for item in self.runs],
         }
 
-    def replay_payload(self, case_id: str) -> dict[str, Any]:
-        case = next((item for item in self.index["cases"] if item.get("case_id") == case_id), None)
+    def replay_payload(self, case_id: str, run_id: str | None = None) -> dict[str, Any]:
+        run = self._run(run_id)
+        index = load_case_index(run.replay_dir)
+        case = next((item for item in index["cases"] if item.get("case_id") == case_id), None)
         if case is None:
             raise KeyError(f"Unknown case ID: {case_id}")
-        replay_path = (self.replay_dir / case["replay_file"]).resolve()
-        if not replay_path.is_relative_to(self.replay_dir) or not replay_path.is_file():
+        replay_path = (run.replay_dir / case["replay_file"]).resolve()
+        if not replay_path.is_relative_to(run.replay_dir) or not replay_path.is_file():
             raise ValueError(f"Invalid replay path for case {case_id}")
         with np.load(replay_path, allow_pickle=False) as replay:
             return {name: replay[name].tolist() for name in replay.files}
 
-    def update_tags(self, case_id: str, value: str) -> dict[str, list[str]]:
-        if not any(item.get("case_id") == case_id for item in self.index["cases"]):
+    def update_tags(self, case_id: str, value: str, run_id: str | None = None) -> dict[str, list[str]]:
+        run = self._run(run_id)
+        index = load_case_index(run.replay_dir)
+        if not any(item.get("case_id") == case_id for item in index["cases"]):
             raise KeyError(f"Unknown case ID: {case_id}")
-        self.tags_by_case = load_case_tags(self.replay_dir)
-        self.tags_by_case[case_id] = parse_tags(value)
-        save_case_tags(self.replay_dir, self.tags_by_case)
-        return self.tags_by_case
+        tags_by_case = load_case_tags(run.replay_dir)
+        tags_by_case[case_id] = parse_tags(value)
+        save_case_tags(run.replay_dir, tags_by_case)
+        return tags_by_case
 
 
 class FailureCaseRequestHandler(BaseHTTPRequestHandler):
@@ -211,14 +306,18 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
         self._send_json(status, {"error": message})
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+        run_id = parse_qs(parsed_url.query).get("run", [None])[0]
         try:
             if path == "/":
                 self._send(HTTPStatus.OK, "text/html; charset=utf-8", self.server.web_app)
             elif path == "/api/index":
-                self._send_json(HTTPStatus.OK, self.server.index_payload())
+                self._send_json(HTTPStatus.OK, self.server.index_payload(run_id))
             elif path.startswith("/api/case/"):
-                self._send_json(HTTPStatus.OK, self.server.replay_payload(unquote(path.removeprefix("/api/case/"))))
+                self._send_json(
+                    HTTPStatus.OK, self.server.replay_payload(unquote(path.removeprefix("/api/case/")), run_id)
+                )
             else:
                 self._error(HTTPStatus.NOT_FOUND, "Not found")
         except (KeyError, ValueError) as error:
@@ -227,7 +326,9 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
 
     def do_POST(self) -> None:
-        path = urlparse(self.path).path
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+        run_id = parse_qs(parsed_url.query).get("run", [None])[0]
         if not path.startswith("/api/tags/"):
             self._error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -236,7 +337,7 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(content_length).decode("utf-8"))
             if not isinstance(request.get("tags"), str):
                 raise ValueError("'tags' must be a comma-separated string")
-            tags = self.server.update_tags(unquote(path.removeprefix("/api/tags/")), request["tags"])
+            tags = self.server.update_tags(unquote(path.removeprefix("/api/tags/")), request["tags"], run_id)
             self._send_json(HTTPStatus.OK, {"tags_by_case": tags})
         except (json.JSONDecodeError, KeyError, ValueError) as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
@@ -245,15 +346,27 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Open the dynamic-crowd collision replay web viewer.")
-    parser.add_argument("replay_dir", type=Path, help="Directory containing failure_cases.json and cases/.")
+    parser = argparse.ArgumentParser(description="Open the dynamic-crowd collision replay and evaluation web viewer.")
+    parser.add_argument(
+        "replay_dir",
+        type=Path,
+        help="Evaluation root containing timestamped runs, or a legacy failure_cases directory.",
+    )
+    parser.add_argument(
+        "--evaluation_dir",
+        type=Path,
+        default=None,
+        help="Directory containing dynamic_crowd_results.json (defaults to the parent of replay_dir).",
+    )
     parser.add_argument("--view_radius", type=float, default=5.0, help="Robot-centered bird's-eye plot radius in metres.")
     parser.add_argument("--host", default="127.0.0.1", help="Interface to bind (default: localhost only).")
     parser.add_argument("--port", type=int, default=0, help="Port to bind; use 0 to choose a free port (default).")
     parser.add_argument("--no_browser", action="store_true", help="Start the server without opening a browser window.")
     args = parser.parse_args()
 
-    with FailureCaseWebServer((args.host, args.port), args.replay_dir, args.view_radius) as server:
+    with FailureCaseWebServer(
+        (args.host, args.port), args.replay_dir, args.view_radius, evaluation_dir=args.evaluation_dir
+    ) as server:
         host, port = server.server_address[:2]
         url = f"http://{host}:{port}/"
         print(f"Failure-case viewer: {url}")

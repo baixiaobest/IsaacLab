@@ -83,12 +83,13 @@ class _FakeEnv:
         )()
 
 
-def _extras(completed, success=(), collision=(), velocity=()):
+def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
     return {
         "log": {
             "Episode_Termination/Envs/Ids/time_out": list(completed),
             "Episode_Termination/Envs/Ids/goal_reached": list(success),
             "Episode_Termination/Envs/Ids/pedestrian_collision": list(collision),
+            "Episode_Termination/Envs/Ids/base_contact": list(base_contact),
             "Metrics/pose_2d_command/linear_velocity_xy/Ids": list(completed),
             "Metrics/pose_2d_command/linear_velocity_xy/Envs": list(velocity),
         }
@@ -186,6 +187,21 @@ def test_navigation_success_rate_excludes_goal_region_collision_episodes():
     assert row["navigation_success_rate"] == 1.0
 
 
+def test_failure_counts_include_timeouts_and_base_contacts_but_exclude_goal_region_agent_collisions():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=3)
+
+    collector.consume(_extras([0], collision=[0], velocity=[0.4]), goal_region_collision_env_ids=[0])
+    collector.consume(_extras([0], collision=[0], velocity=[0.4]))
+    collector.consume(_extras([0], base_contact=[0], velocity=[0.4]))
+
+    row = collector.rows()[0]
+    assert row["timeouts"] == 3
+    assert row["collisions"] == 1
+    assert row["goal_region_collisions"] == 1
+    assert row["base_contacts"] == 1
+
+
 def test_collector_falls_back_to_legacy_linear_velocity_metric():
     profiles = [evaluation.BenchmarkProfile("crossing", 2)]
     collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=1)
@@ -254,11 +270,14 @@ def test_artifacts_include_csv_json_and_summary_plot(tmp_path):
     assert (output / "dynamic_crowd_results.csv").is_file()
     assert (output / "dynamic_crowd_results.json").is_file()
     assert (output / "dynamic_crowd_summary.png").is_file()
+    assert (output / "dynamic_crowd_failure_histogram.png").is_file()
     with (output / "dynamic_crowd_results.json").open(encoding="utf-8") as file:
         results = json.load(file)["results"]
     assert "std_xy_speed_mps" in results[0]
     assert "success_rate_std" not in results[0]
     assert "collision_rate_std" not in results[0]
+    assert "timeouts" in results[0]
+    assert "base_contacts" in results[0]
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
@@ -353,6 +372,30 @@ def test_failure_viewer_filters_tags_and_rotates_body_commands(tmp_path):
     assert np.allclose(failure_viewer.body_velocity_to_world(np.array([1.0, 0.0]), np.pi / 2), [0.0, 1.0])
 
 
+def test_failure_viewer_discovers_and_selects_timestamped_evaluation_runs(tmp_path):
+    evaluation_root = tmp_path / "dynamic_crowd"
+    for run_id in ("2026-08-09_10-30-00", "2026-08-09_11-45-00"):
+        run_dir = evaluation_root / run_id
+        (run_dir / "failure_cases").mkdir(parents=True)
+        with (run_dir / "dynamic_crowd_results.json").open("w", encoding="utf-8") as file:
+            json.dump({"results": [], "aggregates": []}, file)
+        with (run_dir / "failure_cases" / "failure_cases.json").open("w", encoding="utf-8") as file:
+            json.dump({"schema_version": 1, "cases": []}, file)
+
+    runs = failure_viewer.discover_evaluation_runs(evaluation_root)
+    assert [run.run_id for run in runs] == ["2026-08-09_11-45-00", "2026-08-09_10-30-00"]
+    (evaluation_root / "failure_cases").mkdir()
+    legacy_runs = failure_viewer.discover_evaluation_runs(evaluation_root / "failure_cases")
+    assert [run.run_id for run in legacy_runs] == ["2026-08-09_11-45-00", "2026-08-09_10-30-00"]
+    server = failure_viewer.FailureCaseWebServer(("127.0.0.1", 0), evaluation_root, view_radius=5.0)
+    try:
+        payload = server.index_payload("2026-08-09_10-30-00")
+        assert payload["selected_run_id"] == "2026-08-09_10-30-00"
+        assert [run["id"] for run in payload["runs"]] == ["2026-08-09_11-45-00", "2026-08-09_10-30-00"]
+    finally:
+        server.server_close()
+
+
 def test_failure_viewer_web_api_serves_replay_and_persists_tags(tmp_path):
     cases_dir = tmp_path / "cases"
     cases_dir.mkdir()
@@ -386,14 +429,36 @@ def test_failure_viewer_web_api_serves_replay_and_persists_tags(tmp_path):
             },
             file,
         )
+    with (tmp_path / "dynamic_crowd_results.json").open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "results": [
+                    {
+                        "scenario": "crossing",
+                        "pedestrian_count": 2,
+                        "episodes": 10,
+                        "successes": 6,
+                        "collisions": 2,
+                        "goal_region_collisions": 1,
+                        "all_collisions": 3,
+                    }
+                ],
+                "aggregates": [],
+            },
+            file,
+        )
 
-    server = failure_viewer.FailureCaseWebServer(("127.0.0.1", 0), tmp_path, view_radius=5.0)
+    server = failure_viewer.FailureCaseWebServer(
+        ("127.0.0.1", 0), tmp_path, view_radius=5.0, evaluation_dir=tmp_path
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
     try:
         with urlopen(f"{base_url}/api/index") as response:
-            assert json.load(response)["index"]["cases"][0]["case_id"] == "collision_000001"
+            payload = json.load(response)
+            assert payload["index"]["cases"][0]["case_id"] == "collision_000001"
+            assert payload["evaluation"]["results"][0]["successes"] == 6
         with urlopen(f"{base_url}/api/case/collision_000001") as response:
             assert json.load(response)["pedestrian_active_mask"] == [[True]]
         request = Request(
