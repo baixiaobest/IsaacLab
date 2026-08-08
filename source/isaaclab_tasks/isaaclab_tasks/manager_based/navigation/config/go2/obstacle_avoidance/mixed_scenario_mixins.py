@@ -338,6 +338,18 @@ EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
 EVALUATION_CROWD_LATERAL_HEADING_MAX = PED_LATERAL_HEADING_MAX_HIGH
 """Fixed maximum pedestrian heading offset used by the dynamic-crowd benchmark [rad]."""
 
+EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
+"""Maximum goal distance for an evaluation success [m]."""
+
+EVALUATION_GOAL_REACHED_ANGULAR_THRESHOLD = math.radians(45.0)
+"""Maximum goal-heading error for an evaluation success [rad]."""
+
+EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD = 0.3
+"""Maximum horizontal robot speed for an evaluation success [m/s]."""
+
+EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS = 0.1
+"""Required continuous time satisfying the evaluation goal condition [s]."""
+
 EVALUATION_SCENARIO_CODES = {"crossing": 0, "with_flow": 1, "against_flow": 2}
 """Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts."""
 
@@ -364,6 +376,18 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     env_cfg.social_force.lateral_heading_max = EVALUATION_CROWD_LATERAL_HEADING_MAX
     env_cfg.pedestrian_init_count = 2
     env_cfg.pedestrian_init_speed_range = EVALUATION_CROWD_SPEED_RANGE
+
+    # This benchmark accepts a controlled arrival at the goal instead of the stricter
+    # training pose.  It is intentionally applied only by this evaluation overlay;
+    # the training configuration remains unchanged.
+    env_cfg.terminations.goal_reached.params.update(
+        {
+            "distance_threshold": EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD,
+            "angular_threshold": EVALUATION_GOAL_REACHED_ANGULAR_THRESHOLD,
+            "velocity_threshold": EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD,
+            "stay_for_seconds": EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS,
+        }
+    )
 
     # Evaluation fixes terrain and crowd difficulty rather than advancing the training curricula.
     env_cfg.curriculum.terrain_levels = None
