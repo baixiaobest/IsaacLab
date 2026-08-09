@@ -351,6 +351,87 @@ def test_collision_replay_writes_empty_index_and_skips_non_colliding_resets(tmp_
         assert json.load(file)["cases"] == []
 
 
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_success_replays_keep_the_complete_episode_and_obey_scenario_quotas(tmp_path):
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    recorder = evaluation.CollisionReplayRecorder(
+        profiles,
+        [0],
+        tmp_path,
+        step_dt_s=0.1,
+        history_seconds=0.2,
+        successes_per_scenario=1,
+        episode_length_s=1.0,
+    )
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    for step in range(4):
+        env.scene["robot"].data.root_pos_w[0, 0] = float(step)
+        env.crowd_manager.pos[0, 0, 0] = float(step) + 1.4
+        recorder.record_pre_step(env, torch.zeros(1, 3))
+
+    env.scene["robot"].data.root_pos_w[0, 0] = 4.0
+    env.crowd_manager.pos[0, 0, 0] = 5.4
+    entries = recorder.capture_terminal_episodes(env, torch.tensor([0]), success_env_ids=torch.tensor([0]))
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["case_id"] == "success_000001"
+    assert entry["outcome"] == "success"
+    assert entry["full_episode"]
+    assert entry["automatic_tags"] == [evaluation.INTERESTING_INTERACTION_TAG]
+    assert math.isclose(entry["minimum_agent_distance_m"], 1.4, abs_tol=1e-6)
+    assert entry["frame_count"] == 5
+    assert recorder.success_case_count == 1
+    assert recorder.success_recording_complete
+    with np.load(tmp_path / entry["replay_file"], allow_pickle=False) as replay:
+        assert np.allclose(replay["time_s"], [0.0, 0.1, 0.2, 0.3, 0.4])
+        assert np.allclose(replay["robot_position_xy"][:, 0], [0.0, 1.0, 2.0, 3.0, 4.0])
+
+    recorder.record_pre_step(env, torch.zeros(1, 3))
+    assert recorder.capture_terminal_episodes(env, torch.tensor([0]), success_env_ids=torch.tensor([0])) == []
+    assert recorder.success_case_count == 1
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_success_replays_require_interaction_and_share_one_quota_per_scenario(tmp_path):
+    recorder = evaluation.CollisionReplayRecorder(
+        [evaluation.BenchmarkProfile("crossing", 2), evaluation.BenchmarkProfile("crossing", 4)],
+        [0, 1],
+        tmp_path,
+        step_dt_s=0.1,
+        successes_per_scenario=1,
+        episode_length_s=1.0,
+        interesting_interaction_distance_m=1.5,
+    )
+    env = _FakeEnv(num_envs=2)
+    env.crowd_manager.active[:, 0] = True
+    env.crowd_manager.pos[0, 0, 0] = 1.4
+    env.crowd_manager.pos[1, 0, 0] = 1.4
+    recorder.record_pre_step(env, torch.zeros(2, 3))
+
+    entries = recorder.capture_terminal_episodes(env, torch.tensor([0, 1]), success_env_ids=torch.tensor([0, 1]))
+    assert [entry["case_id"] for entry in entries] == ["success_000001"]
+    assert entries[0]["pedestrian_count"] == 2
+    assert recorder.success_recording_complete
+
+    uninteresting = evaluation.CollisionReplayRecorder(
+        [evaluation.BenchmarkProfile("against_flow", 2)],
+        [0],
+        tmp_path / "uninteresting",
+        step_dt_s=0.1,
+        successes_per_scenario=1,
+        episode_length_s=1.0,
+    )
+    uninteresting_env = _FakeEnv(num_envs=1)
+    uninteresting_env.crowd_manager.active[0, 0] = True
+    uninteresting_env.crowd_manager.pos[0, 0, 0] = 1.6
+    uninteresting.record_pre_step(uninteresting_env, torch.zeros(1, 3))
+    assert uninteresting.capture_terminal_episodes(
+        uninteresting_env, torch.tensor([0]), success_env_ids=torch.tensor([0])
+    ) == []
+    assert not uninteresting.success_recording_complete
+
+
 def test_failure_viewer_filters_tags_and_rotates_body_commands(tmp_path):
     tags = {"collision_000001": ["late brake", "crossing"]}
     failure_viewer.save_case_tags(tmp_path, tags)
@@ -376,10 +457,10 @@ def test_failure_viewer_discovers_and_selects_timestamped_evaluation_runs(tmp_pa
     evaluation_root = tmp_path / "dynamic_crowd"
     for run_id in ("2026-08-09_10-30-00", "2026-08-09_11-45-00"):
         run_dir = evaluation_root / run_id
-        (run_dir / "failure_cases").mkdir(parents=True)
+        (run_dir / "episode_cases").mkdir(parents=True)
         with (run_dir / "dynamic_crowd_results.json").open("w", encoding="utf-8") as file:
             json.dump({"results": [], "aggregates": []}, file)
-        with (run_dir / "failure_cases" / "failure_cases.json").open("w", encoding="utf-8") as file:
+        with (run_dir / "episode_cases" / "failure_cases.json").open("w", encoding="utf-8") as file:
             json.dump({"schema_version": 1, "cases": []}, file)
 
     runs = failure_viewer.discover_evaluation_runs(evaluation_root)

@@ -48,8 +48,27 @@ parser.add_argument(
     help="Seconds of context before a pedestrian collision to retain in each replay.",
 )
 parser.add_argument(
-    "--failure_output_dir", type=str, default=None,
-    help="Collision replay root; each run creates a timestamped subdirectory (defaults to the evaluation run).",
+    "--success_cases_per_scenario",
+    type=int,
+    default=0,
+    help=(
+        "Interesting complete successful episodes to save for each scenario; "
+        "0 disables success recording (default)."
+    ),
+)
+parser.add_argument(
+    "--interesting_interaction_distance_m",
+    type=float,
+    default=1.5,
+    help="A success replay is sampled only if the robot comes within this distance of an active pedestrian.",
+)
+parser.add_argument(
+    "--failure_output_dir",
+    "--replay_output_dir",
+    dest="replay_output_dir",
+    type=str,
+    default=None,
+    help="Episode-replay root; each run creates a timestamped subdirectory (defaults to the evaluation run).",
 )
 parser.add_argument(
     "--disable_failure_recording", action="store_true",
@@ -157,10 +176,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     checkpoint, log_dir = _resolve_checkpoint(agent_cfg)
     output_root = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
     output_dir = _create_timestamped_run_dir(output_root)
-    if args_cli.failure_output_dir:
-        failure_output_dir = _create_timestamped_run_dir(Path(args_cli.failure_output_dir)) / "failure_cases"
+    if args_cli.replay_output_dir:
+        failure_output_dir = _create_timestamped_run_dir(Path(args_cli.replay_output_dir)) / "episode_cases"
     else:
-        failure_output_dir = output_dir / "failure_cases"
+        failure_output_dir = output_dir / "episode_cases"
     env_cfg.log_dir = log_dir
     env = gym.make(args_cli.task, cfg=env_cfg)
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -201,7 +220,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     step_dt_s = env.unwrapped.step_dt
     episode_length_s = env.unwrapped.cfg.episode_length_s
     replay_recorder = None
-    if not args_cli.disable_failure_recording:
+    if not args_cli.disable_failure_recording or args_cli.success_cases_per_scenario:
         replay_recorder = CollisionReplayRecorder(
             profiles,
             env_profile_indices,
@@ -209,6 +228,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             step_dt_s,
             args_cli.failure_history_seconds,
             goal_region_radius_m=GOAL_REGION_COLLISION_RADIUS_M,
+            successes_per_scenario=args_cli.success_cases_per_scenario,
+            episode_length_s=episode_length_s,
+            record_collisions=not args_cli.disable_failure_recording,
+            interesting_interaction_distance_m=args_cli.interesting_interaction_distance_m,
         )
 
     original_reset_idx = raw_env._reset_idx
@@ -220,7 +243,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
         )
         if replay_recorder is not None:
-            replay_recorder.capture_terminal_collisions(raw_env, env_ids)
+            success_env_ids = torch.nonzero(
+                raw_env.termination_manager.get_term("goal_reached"), as_tuple=False
+            ).reshape(-1)
+            replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
         return original_reset_idx(env_ids)
 
     raw_env._reset_idx = _tracked_reset_idx
@@ -229,8 +255,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         f"[INFO] Evaluating {checkpoint} on {len(profiles)} dynamic-crowd profiles "
         f"with {args_cli.episodes_per_profile} episodes each."
     )
+    if args_cli.success_cases_per_scenario:
+        print(
+            "[INFO] Recording "
+            f"{args_cli.success_cases_per_scenario} interesting complete success replay(s) per scenario "
+            f"(robot-agent distance < {args_cli.interesting_interaction_distance_m:.2f} m)."
+        )
     try:
-        while simulation_app.is_running() and not collector.complete:
+        while simulation_app.is_running() and not (
+            collector.complete and (replay_recorder is None or replay_recorder.success_recording_complete)
+        ):
             step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
             velocity_accumulator.record_step(step_speed)
             with torch.inference_mode():
@@ -264,6 +298,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     if not collector.complete:
         raise RuntimeError("Evaluation stopped before all benchmark profiles completed.")
+    if replay_recorder is not None and not replay_recorder.success_recording_complete:
+        raise RuntimeError("Evaluation stopped before all requested successful-episode replays were recorded.")
     if collector.velocity_metric_source == "direct_world_xy_speed":
         print("[INFO] Mean XY speed was measured directly from the robot world-frame velocity.")
     elif collector.velocity_metric_source != "linear_velocity_xy":
@@ -284,6 +320,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "run_id": output_dir.name,
             "output_root": str(output_root),
             "episodes_per_profile": args_cli.episodes_per_profile,
+            "success_cases_per_scenario": args_cli.success_cases_per_scenario,
+            "interesting_interaction_distance_m": args_cli.interesting_interaction_distance_m,
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
@@ -310,18 +348,28 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "step_dt_s": step_dt_s,
             "episode_length_s": episode_length_s,
             "failure_replays": {
-                "enabled": replay_recorder is not None,
+                "enabled": replay_recorder is not None and not args_cli.disable_failure_recording,
                 "output_dir": str(failure_output_dir) if replay_recorder is not None else None,
                 "history_seconds": args_cli.failure_history_seconds if replay_recorder is not None else None,
                 "goal_region_radius_m": GOAL_REGION_COLLISION_RADIUS_M,
-                "collision_cases": replay_recorder.case_count if replay_recorder is not None else 0,
+                "collision_cases": replay_recorder.collision_case_count if replay_recorder is not None else 0,
+            },
+            "success_replays": {
+                "enabled": args_cli.success_cases_per_scenario > 0,
+                "output_dir": str(failure_output_dir) if replay_recorder is not None else None,
+                "cases_per_scenario": args_cli.success_cases_per_scenario,
+                "interesting_interaction_distance_m": args_cli.interesting_interaction_distance_m,
+                "success_cases": replay_recorder.success_case_count if replay_recorder is not None else 0,
             },
         },
     )
     print_results(rows, aggregates)
     print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
     if replay_recorder is not None:
-        print(f"[INFO] Wrote {replay_recorder.case_count} collision replay(s) to: {failure_output_dir}")
+        print(
+            f"[INFO] Wrote {replay_recorder.collision_case_count} collision replay(s) and "
+            f"{replay_recorder.success_case_count} complete success replay(s) to: {failure_output_dir}"
+        )
 
 
 if __name__ == "__main__":

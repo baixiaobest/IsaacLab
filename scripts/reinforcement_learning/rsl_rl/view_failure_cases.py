@@ -1,4 +1,4 @@
-"""Local web viewer for dynamic-crowd collision replays and evaluation summaries.
+"""Local web viewer for dynamic-crowd episode replays and evaluation summaries.
 
 Run after evaluation, for example::
 
@@ -33,6 +33,8 @@ INDEX_FILENAME = "failure_cases.json"
 TAGS_FILENAME = "failure_case_tags.json"
 WEB_APP_FILENAME = "failure_case_viewer.html"
 RESULTS_FILENAME = "dynamic_crowd_results.json"
+REPLAY_DIRNAME = "episode_cases"
+LEGACY_REPLAY_DIRNAME = "failure_cases"
 
 
 @dataclass(frozen=True)
@@ -85,17 +87,21 @@ def discover_evaluation_runs(artifact_dir: str | Path, evaluation_dir: str | Pat
         if not root.is_dir():
             return []
         return [
-            EvaluationRun(child.name, child / "failure_cases", child)
+            EvaluationRun(
+                child.name,
+                child / REPLAY_DIRNAME if (child / REPLAY_DIRNAME).is_dir() else child / LEGACY_REPLAY_DIRNAME,
+                child,
+            )
             for child in sorted(root.iterdir(), reverse=True)
             if child.is_dir() and (child / RESULTS_FILENAME).is_file()
         ]
 
     if explicit_evaluation_dir is not None:
         return [EvaluationRun(explicit_evaluation_dir.name, artifact_path, explicit_evaluation_dir)]
-    # Before timestamped runs existed, the viewer was launched with
-    # ``dynamic_crowd/failure_cases``.  Keep that command working by treating the
-    # legacy shared replay directory as an alias for its timestamped-run parent.
-    if artifact_path.name == "failure_cases":
+    # Before episode replays included successes, artifacts lived in
+    # ``dynamic_crowd/failure_cases``. Keep that command working by treating either
+    # replay-directory name as an alias for its timestamped-run parent.
+    if artifact_path.name in (REPLAY_DIRNAME, LEGACY_REPLAY_DIRNAME):
         sibling_runs = timestamped_runs(artifact_path.parent)
         if sibling_runs:
             return sibling_runs
@@ -109,7 +115,10 @@ def discover_evaluation_runs(artifact_dir: str | Path, evaluation_dir: str | Pat
         siblings = timestamped_runs(artifact_path.parent)
         if siblings:
             return siblings
-        return [EvaluationRun(artifact_path.name, artifact_path / "failure_cases", artifact_path)]
+        replay_dir = artifact_path / REPLAY_DIRNAME
+        if not replay_dir.is_dir():
+            replay_dir = artifact_path / LEGACY_REPLAY_DIRNAME
+        return [EvaluationRun(artifact_path.name, replay_dir, artifact_path)]
     runs = timestamped_runs(artifact_path)
     if runs:
         return runs
@@ -346,11 +355,11 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Open the dynamic-crowd collision replay and evaluation web viewer.")
+    parser = argparse.ArgumentParser(description="Open the dynamic-crowd episode replay and evaluation web viewer.")
     parser.add_argument(
         "replay_dir",
         type=Path,
-        help="Evaluation root containing timestamped runs, or a legacy failure_cases directory.",
+        help="Evaluation root containing timestamped runs, or a legacy replay-artifact directory.",
     )
     parser.add_argument(
         "--evaluation_dir",

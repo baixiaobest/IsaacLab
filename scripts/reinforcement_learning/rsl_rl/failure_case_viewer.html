@@ -36,16 +36,17 @@
   </style>
 </head>
 <body>
-  <header><div><h1>Dynamic Crowd Evaluation</h1><div id="subtitle">Loading replay cases…</div></div><label class="run-selector">Evaluation run <select id="evaluation-run" aria-label="Evaluation run"></select></label><nav class="tabs" aria-label="Viewer sections"><button id="replay-tab-button" class="tab active" type="button">Collision replays</button><button id="evaluation-tab-button" class="tab" type="button">Evaluation plots</button></nav><div id="message" role="status"></div></header>
+  <header><div><h1>Dynamic Crowd Evaluation</h1><div id="subtitle">Loading episode replays…</div></div><label class="run-selector">Evaluation run <select id="evaluation-run" aria-label="Evaluation run"></select></label><nav class="tabs" aria-label="Viewer sections"><button id="replay-tab-button" class="tab active" type="button">Episode replays</button><button id="evaluation-tab-button" class="tab" type="button">Evaluation plots</button></nav><div id="message" role="status"></div></header>
   <main id="replay-tab" class="workspace">
     <section class="card plot-card">
       <div id="plot-title">No case selected</div>
-      <canvas id="plot" aria-label="Robot-centered bird's-eye collision replay"></canvas>
+      <canvas id="plot" aria-label="Robot-centered bird's-eye episode replay"></canvas>
       <div class="legend"><span><i class="robot"></i>Robot heading</span><span><i class="pedestrian"></i>Pedestrian</span><span><i class="collider"></i>Colliding pedestrian</span><span><i class="goal"></i>Goal</span><span>Blue: actual velocity</span><span>Purple: command</span></div>
       <div class="timeline"><label for="time">Time</label><input id="time" type="range" min="0" max="0" value="0" step="1"><output id="time-value" class="time-value">—</output></div>
     </section>
     <aside class="card controls">
-      <section class="group"><h2>Filter cases</h2>
+      <section class="group"><h2>Filter episode replays</h2>
+        <label>Outcome <select id="outcome"><option value="">All outcomes</option><option value="collision">Collision</option><option value="success">Success</option></select></label>
         <label>Scenario <select id="scenario"></select></label>
         <label>Crowd count <select id="crowd-count"><option value="">All counts</option></select></label>
         <label>Include tags <input id="include-tags" list="tag-options" placeholder="Any comma-separated tag"></label>
@@ -99,7 +100,7 @@
   (() => {
     "use strict";
     const $ = (id) => document.getElementById(id);
-    const controls = { run: $("evaluation-run"), scenario: $("scenario"), count: $("crowd-count"), include: $("include-tags"), exclude: $("exclude-tag"), occurrence: $("occurrence"), previous: $("previous-case"), next: $("next-case"), time: $("time"), viewMode: $("view-mode"), resetView: $("reset-view"), pedestrianVelocity: $("pedestrian-velocity"), robotVelocity: $("robot-velocity"), robotCommand: $("robot-command"), trails: $("trails") };
+    const controls = { run: $("evaluation-run"), outcome: $("outcome"), scenario: $("scenario"), count: $("crowd-count"), include: $("include-tags"), exclude: $("exclude-tag"), occurrence: $("occurrence"), previous: $("previous-case"), next: $("next-case"), time: $("time"), viewMode: $("view-mode"), resetView: $("reset-view"), pedestrianVelocity: $("pedestrian-velocity"), robotVelocity: $("robot-velocity"), robotCommand: $("robot-command"), trails: $("trails") };
     const state = { data: null, runId: null, tags: {}, matches: [], case: null, frames: null, request: 0, worldCenter: null, worldZoom: 1, pan: null, lastScale: 1 };
     const canvas = $("plot"), context = canvas.getContext("2d");
     const tagSet = (caseItem) => {
@@ -125,8 +126,9 @@
       if (tags.some((tag) => tag.toLocaleLowerCase() === selected.toLocaleLowerCase())) controls.exclude.value = selected;
     }
     function matchingCases() {
-      const scenario = controls.scenario.value, count = controls.count.value, wanted = new Set(parseTags(controls.include.value).map((tag) => tag.toLocaleLowerCase())), excluded = controls.exclude.value.toLocaleLowerCase();
+      const outcome = controls.outcome.value, scenario = controls.scenario.value, count = controls.count.value, wanted = new Set(parseTags(controls.include.value).map((tag) => tag.toLocaleLowerCase())), excluded = controls.exclude.value.toLocaleLowerCase();
       return state.data.index.cases.filter((item) => {
+        if (outcome && (item.outcome || "collision") !== outcome) return false;
         if (scenario && item.scenario !== scenario) return false;
         if (count && String(item.pedestrian_count) !== count) return false;
         const tags = tagSet(item).map((tag) => tag.toLocaleLowerCase());
@@ -137,7 +139,7 @@
       state.matches = matchingCases();
       if (!state.matches.some((item) => item.case_id === selectedId)) selectedId = state.matches[0]?.case_id || null;
       controls.occurrence.max = Math.max(1, state.matches.length); controls.occurrence.disabled = !selectedId; controls.previous.disabled = !selectedId; controls.next.disabled = !selectedId;
-      $("occurrence-count").textContent = `${state.matches.length} matching case${state.matches.length === 1 ? "" : "s"}`;
+      $("occurrence-count").textContent = `${state.matches.length} matching replay${state.matches.length === 1 ? "" : "s"}`;
       if (!selectedId) { state.case = null; state.frames = null; controls.occurrence.value = 1; draw(); return; }
       controls.occurrence.value = state.matches.findIndex((item) => item.case_id === selectedId) + 1;
       await loadCase(selectedId, frameIndex);
@@ -153,17 +155,19 @@
       } catch (error) { setMessage(error.message, true); }
     }
     function updateCaseDetails() {
-      if (!state.case || !state.frames) { $("plot-title").textContent = "No collision case matches the current filters"; $("summary").innerHTML = "<dt>Status</dt><dd>No matching case</dd>"; $("automatic-tags").textContent = ""; return; }
-      const item = state.case, frame = Number(controls.time.value), relative = state.frames.time_s[frame] - state.frames.time_s.at(-1), labels = state.data.scenario_labels;
-      $("plot-title").textContent = `${labels[item.scenario] || item.scenario} · ${item.case_id} · ${relative.toFixed(2)} s to collision`;
+      if (!state.case || !state.frames) { $("plot-title").textContent = "No episode replay matches the current filters"; $("summary").innerHTML = "<dt>Status</dt><dd>No matching replay</dd>"; $("automatic-tags").textContent = ""; return; }
+      const item = state.case, frame = Number(controls.time.value), relative = state.frames.time_s[frame] - state.frames.time_s.at(-1), labels = state.data.scenario_labels, success = item.outcome === "success", terminalLabel = success ? "goal reached" : "collision";
+      $("plot-title").textContent = `${labels[item.scenario] || item.scenario} · ${item.case_id} · ${relative.toFixed(2)} s to ${terminalLabel}`;
       $("time-value").textContent = `${relative.toFixed(2)} s (${frame + 1}/${state.frames.time_s.length})`;
-      $("summary").replaceChildren(...[["Scenario", labels[item.scenario] || item.scenario], ["Crowd", String(item.pedestrian_count)], ["Collider slots", (item.colliding_agent_ids || []).join(", ") || "—"], ["Collision time", `${Number(item.collision_time_s).toFixed(2)} s`]].flatMap(([name, value]) => { const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = name; description.textContent = value; return [term, description]; }));
+      const terminalTime = item.terminal_time_s ?? item.collision_time_s;
+      const interactionDetails = success && Number.isFinite(Number(item.minimum_agent_distance_m)) ? [["Min agent distance", `${Number(item.minimum_agent_distance_m).toFixed(2)} m`], ["Interaction range", `< ${Number(item.interesting_interaction_distance_m).toFixed(2)} m`]] : [];
+      $("summary").replaceChildren(...[["Outcome", success ? "Success" : "Collision"], ["Scenario", labels[item.scenario] || item.scenario], ["Crowd", String(item.pedestrian_count)], ...interactionDetails, ...(success ? [] : [["Collider slots", (item.colliding_agent_ids || []).join(", ") || "—"]]), [success ? "Goal reached" : "Collision time", `${Number(terminalTime).toFixed(2)} s`]].flatMap(([name, value]) => { const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = name; description.textContent = value; return [term, description]; }));
       const automatic = Array.isArray(item.automatic_tags) ? item.automatic_tags : []; $("automatic-tags").textContent = `Automatic tags: ${automatic.join(", ") || "none"}`;
     }
     function resizeCanvas() { const rect = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height)); if (canvas.width !== width * ratio || canvas.height !== height * ratio) { canvas.width = width * ratio; canvas.height = height * ratio; } context.setTransform(ratio, 0, 0, ratio, 0, 0); return { width, height }; }
     function draw() {
       const { width, height } = resizeCanvas(); context.clearRect(0, 0, width, height); context.fillStyle = "#0b1220"; context.fillRect(0, 0, width, height);
-      if (!state.case || !state.frames) { context.fillStyle = "#9ca3af"; context.font = "16px system-ui"; context.textAlign = "center"; context.fillText("No collision case matches the current filters.", width / 2, height / 2); updateCaseDetails(); return; }
+      if (!state.case || !state.frames) { context.fillStyle = "#9ca3af"; context.font = "16px system-ui"; context.textAlign = "center"; context.fillText("No episode replay matches the current filters.", width / 2, height / 2); updateCaseDetails(); return; }
       const frames = state.frames, index = Number(controls.time.value), robot = frames.robot_position_xy[index], radius = Number(state.data.view_radius), robotCentered = controls.viewMode.value === "robot";
       if (!robotCentered && state.worldCenter === null) state.worldCenter = [...robot];
       const viewCenter = robotCentered ? robot : state.worldCenter, scale = Math.min(width, height) / (2 * radius) * (robotCentered ? 1 : state.worldZoom), toScreen = (point) => [width / 2 + (point[0] - viewCenter[0]) * scale, height / 2 - (point[1] - viewCenter[1]) * scale]; state.lastScale = scale; canvas.style.cursor = robotCentered ? "default" : (state.pan ? "grabbing" : "grab");
@@ -235,16 +239,17 @@
     function cycleOccurrence(direction) { if (!state.matches.length) return; const current = Number(controls.occurrence.value) - 1, next = (current + direction + state.matches.length) % state.matches.length; controls.occurrence.value = next + 1; loadCase(state.matches[next].case_id); }
     async function saveTags() { if (!state.case) return; const frameIndex = Number(controls.time.value); try { const result = await api(`/api/tags/${encodeURIComponent(state.case.case_id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: $("case-tags").value }) }); state.tags = result.tags_by_case; updateTagOptions(); await refreshCases(state.case.case_id, frameIndex); setMessage("Tags saved."); } catch (error) { setMessage(error.message, true); } }
     function resetWorldView() { if (!state.frames) return; state.worldCenter = [...state.frames.robot_position_xy[Number(controls.time.value)]]; state.worldZoom = 1; draw(); }
-    [controls.scenario, controls.count, controls.exclude].forEach((element) => element.addEventListener("change", () => refreshCases())); controls.include.addEventListener("input", () => refreshCases()); controls.occurrence.addEventListener("change", () => { const index = Math.min(Math.max(1, Number(controls.occurrence.value) || 1), state.matches.length) - 1; if (state.matches[index]) loadCase(state.matches[index].case_id); }); controls.previous.addEventListener("click", () => cycleOccurrence(-1)); controls.next.addEventListener("click", () => cycleOccurrence(1)); controls.time.addEventListener("input", draw); controls.viewMode.addEventListener("change", draw); controls.resetView.addEventListener("click", resetWorldView); [controls.pedestrianVelocity, controls.robotVelocity, controls.robotCommand, controls.trails].forEach((element) => element.addEventListener("change", draw)); $("save-tags").addEventListener("click", saveTags);
+    [controls.outcome, controls.scenario, controls.count, controls.exclude].forEach((element) => element.addEventListener("change", () => refreshCases())); controls.include.addEventListener("input", () => refreshCases()); controls.occurrence.addEventListener("change", () => { const index = Math.min(Math.max(1, Number(controls.occurrence.value) || 1), state.matches.length) - 1; if (state.matches[index]) loadCase(state.matches[index].case_id); }); controls.previous.addEventListener("click", () => cycleOccurrence(-1)); controls.next.addEventListener("click", () => cycleOccurrence(1)); controls.time.addEventListener("input", draw); controls.viewMode.addEventListener("change", draw); controls.resetView.addEventListener("click", resetWorldView); [controls.pedestrianVelocity, controls.robotVelocity, controls.robotCommand, controls.trails].forEach((element) => element.addEventListener("change", draw)); $("save-tags").addEventListener("click", saveTags);
     $("replay-tab-button").addEventListener("click", () => activateTab("replay")); $("evaluation-tab-button").addEventListener("click", () => activateTab("evaluation")); [dashboard.excludeGoalSuccess, dashboard.excludeGoalCollision].forEach((element) => element.addEventListener("change", drawDashboard)); document.querySelectorAll(".export-rate").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].rates, `dynamic_crowd_${button.dataset.scenario}_rates.png`))); document.querySelectorAll(".export-failure").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].failures, `dynamic_crowd_${button.dataset.scenario}_failure_histogram.png`))); window.addEventListener("resize", () => { draw(); drawDashboard(); });
     function updateEvaluationDashboardAvailability() { if (state.data.evaluation) { $("evaluation-dashboard").hidden = false; $("evaluation-empty").hidden = true; $("evaluation-tab-button").disabled = false; } else { $("evaluation-dashboard").hidden = true; $("evaluation-empty").hidden = false; $("evaluation-empty").textContent = `Evaluation plots are unavailable: ${state.data.evaluation_error || "dynamic_crowd_results.json was not found."}`; $("evaluation-tab-button").disabled = true; activateTab("replay"); } }
-    async function loadEvaluationRun(runId) { try { state.request += 1; state.runId = runId; state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; state.case = null; state.frames = null; state.worldCenter = null; state.worldZoom = 1; populateRunSelector(); updateEvaluationDashboardAvailability(); populateFilters(); $("subtitle").textContent = `${state.data.index.cases.length} recorded collision case${state.data.index.cases.length === 1 ? "" : "s"} · run ${state.runId}`; await refreshCases(); drawDashboard(); } catch (error) { setMessage(error.message, true); } }
+    function replaySubtitle() { const cases = state.data.index.cases, collisions = cases.filter((item) => (item.outcome || "collision") === "collision").length, successes = cases.filter((item) => item.outcome === "success").length; return `${collisions} collision replay${collisions === 1 ? "" : "s"} · ${successes} complete success replay${successes === 1 ? "" : "s"} · run ${state.runId}`; }
+    async function loadEvaluationRun(runId) { try { state.request += 1; state.runId = runId; state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; state.case = null; state.frames = null; state.worldCenter = null; state.worldZoom = 1; populateRunSelector(); updateEvaluationDashboardAvailability(); populateFilters(); $("subtitle").textContent = replaySubtitle(); await refreshCases(); drawDashboard(); } catch (error) { setMessage(error.message, true); } }
     controls.run.addEventListener("change", () => loadEvaluationRun(controls.run.value));
     canvas.addEventListener("pointerdown", (event) => { if (controls.viewMode.value !== "world" || event.button !== 0 || !state.worldCenter) return; state.pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, center: [...state.worldCenter], scale: state.lastScale }; canvas.setPointerCapture(event.pointerId); canvas.style.cursor = "grabbing"; });
     canvas.addEventListener("pointermove", (event) => { if (!state.pan || event.pointerId !== state.pan.pointerId) return; const deltaX = event.clientX - state.pan.x, deltaY = event.clientY - state.pan.y; state.worldCenter = [state.pan.center[0] - deltaX / state.pan.scale, state.pan.center[1] + deltaY / state.pan.scale]; draw(); });
     const stopPan = (event) => { if (state.pan && event.pointerId === state.pan.pointerId) { state.pan = null; canvas.style.cursor = controls.viewMode.value === "world" ? "grab" : "default"; } }; canvas.addEventListener("pointerup", stopPan); canvas.addEventListener("pointercancel", stopPan);
     canvas.addEventListener("wheel", (event) => { if (controls.viewMode.value !== "world" || !state.frames) return; event.preventDefault(); state.worldZoom = Math.min(40, Math.max(.1, state.worldZoom * Math.exp(-event.deltaY * .001))); draw(); }, { passive: false });
-    (async () => { try { state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; populateRunSelector(); updateEvaluationDashboardAvailability(); $("subtitle").textContent = `${state.data.index.cases.length} recorded collision case${state.data.index.cases.length === 1 ? "" : "s"} · run ${state.runId}`; populateFilters(); await refreshCases(); } catch (error) { setMessage(error.message, true); $("subtitle").textContent = "Unable to load failure-case index"; } })();
+    (async () => { try { state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; populateRunSelector(); updateEvaluationDashboardAvailability(); $("subtitle").textContent = replaySubtitle(); populateFilters(); await refreshCases(); } catch (error) { setMessage(error.message, true); $("subtitle").textContent = "Unable to load replay index"; } })();
   })();
   </script>
 </body>
