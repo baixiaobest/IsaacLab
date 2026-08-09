@@ -2,15 +2,19 @@
 
 Unlike :mod:`rvo2_crowd`, which runs a single CPU/numpy RVO2 simulation, this module
 simulates ``num_envs x max_pedestrians`` agents in parallel on ``env.device`` using a
-Helbing-Molnar style social force model. The robot does not participate in the force
-balance (no robot->pedestrian coupling) so that per-env pedestrian dynamics never depend
-on other environments' robot state.
+Helbing-Molnar style social force model. The robot has one-way coupling into pedestrian
+dynamics: responsive pedestrians avoid it, while a configurable fraction ignore it for
+their entire episode. The robot itself receives no social-force reaction, so each
+environment's crowd still depends only on that environment's robot state.
 
 Each pedestrian ``i`` is driven by a Helbing-Molnar style social force
 :math:`f_i = f_i^{goal} + f_i^{ped} + f_i^{robot} + f_i^{wall}`, clamped to
 ``max_force`` and integrated with semi-implicit Euler:
 ``v_i <- clamp(v_i + f_i * dt, max_speed_factor * desired_speed_i)``,
 ``pos_i <- pos_i + v_i * dt``.
+
+For a pedestrian assigned to ignore the robot, :math:`f_i^{robot} = 0`; all
+other force terms remain active.
 
 **Goal-attraction force** (relaxation toward the desired velocity)::
 
@@ -97,6 +101,13 @@ class SocialForceCrowdCfg:
     sharply to the robot, high values react early/gently). Resampled per slot on spawn and
     recycle."""
 
+    robot_ignore_probability: float = 0.20
+    """Probability that an active pedestrian ignores robot repulsion for an entire episode.
+
+    The assignment is sampled independently for every active pedestrian when the crowd is
+    reset with the robot. Ignoring pedestrians still react to other pedestrians and walls.
+    """
+
     lateral_heading_max: float = 0.0
     """Maximum absolute pedestrian heading offset from the corridor flow axis [rad].
 
@@ -123,6 +134,10 @@ class SocialForceCrowdCfg:
     max_spawn_attempts: int = 32
     """Maximum rejection-sampling attempts used to satisfy ``spawn_clearance``."""
 
+    def __post_init__(self):
+        if not 0.0 <= self.robot_ignore_probability <= 1.0:
+            raise ValueError("robot_ignore_probability must lie in [0, 1].")
+
 
 class SocialForceCrowdManager:
     """Vectorized social-force pedestrian simulation.
@@ -135,6 +150,9 @@ class SocialForceCrowdManager:
     """
 
     def __init__(self, cfg: SocialForceCrowdCfg, num_envs: int, device: str):
+        if not 0.0 <= cfg.robot_ignore_probability <= 1.0:
+            raise ValueError("robot_ignore_probability must lie in [0, 1].")
+
         self.cfg = cfg
         self.num_envs = num_envs
         self.max_pedestrians = cfg.max_pedestrians
@@ -149,6 +167,10 @@ class SocialForceCrowdManager:
         self.radius = torch.full((n, p), 0.25, device=device)
         self.height = torch.full((n, p), 1.7, device=device)
         self.active_mask = torch.zeros(n, p, dtype=torch.bool, device=device)
+
+        # Per-episode robot-awareness assignment. This is sampled only by reset_idx, which
+        # runs after the robot teleports for a new episode; recycle preserves the assignment.
+        self.ignores_robot = torch.zeros(n, p, dtype=torch.bool, device=device)
 
         # Per-pedestrian robot-repulsion decay length (attentiveness), resampled on
         # spawn/recycle from cfg.b_robot_range.
@@ -238,6 +260,7 @@ class SocialForceCrowdManager:
         num_active = num_active.to(self.device).long()
         slot_idx = torch.arange(p, device=self.device).unsqueeze(0)  # (1, P)
         self.active_mask[e] = slot_idx < num_active.unsqueeze(1)
+        self._sample_robot_ignore_mask(e)
         self._update_pair_mask()
         self._half_width[e] = corridor_width.unsqueeze(1) / 2.0
 
@@ -269,6 +292,10 @@ class SocialForceCrowdManager:
         newly_active = new_mask & (~self.active_mask[e])
 
         self.active_mask[e] = new_mask
+        # This path only changes the configured crowd size. New slots receive their
+        # per-episode awareness assignment in reset_idx; slots that became inactive must
+        # never retain an ignore assignment.
+        self.ignores_robot[e] &= new_mask
         self._update_pair_mask()
 
         if newly_active.any():
@@ -316,6 +343,12 @@ class SocialForceCrowdManager:
         """Refresh the cached pairwise active-pair mask from ``active_mask``."""
         active = self.active_mask
         self._pair_mask = active.unsqueeze(2) & active.unsqueeze(1) & self._self_mask
+
+    def _sample_robot_ignore_mask(self, env_ids: torch.Tensor) -> None:
+        """Independently assign robot-ignoring behavior to active slots for a new episode."""
+        active = self.active_mask[env_ids]
+        sampled = torch.rand(active.shape, device=self.device) < self.cfg.robot_ignore_probability
+        self.ignores_robot[env_ids] = sampled & active
 
     def _park_inactive(self, env_ids: torch.Tensor) -> None:
         inactive = ~self.active_mask[env_ids]
@@ -472,7 +505,8 @@ class SocialForceCrowdManager:
             diff_robot = self.pos - robot_pos.unsqueeze(1)  # (N, P, 2)
             dist_robot = torch.linalg.norm(diff_robot, dim=-1).clamp(min=1e-6)  # (N, P)
             magnitude_robot = cfg.a_robot * torch.exp((self._radius_sum_robot - dist_robot) / self.b_robot)
-            magnitude_robot = torch.where(active, magnitude_robot, torch.zeros_like(magnitude_robot))
+            robot_responsive = active & ~self.ignores_robot
+            magnitude_robot = torch.where(robot_responsive, magnitude_robot, torch.zeros_like(magnitude_robot))
             f_robot = (magnitude_robot / dist_robot).unsqueeze(-1) * diff_robot
         else:
             f_robot = torch.zeros_like(f_ped)
