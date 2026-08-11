@@ -174,11 +174,11 @@ class ObservationsCfg:
 
     @configclass
     class LidarObsCfg(ObsGroup):
-        """Occupancy grid from the Unitree L2 lidar (64×64 @ 0.2 m/cell, 12.8 m span)."""
+        """Occupancy grid from the Unitree L2 lidar (32×32 @ 0.4 m/cell, 12.8 m span)."""
 
         occupancy_grid = ObsTerm(
             func=occupancy_grid_from_lidar,
-            params={"sensor_cfg": SceneEntityCfg("l2_lidar")},
+            params={"sensor_cfg": SceneEntityCfg("l2_lidar"), "grid_size": 32, "grid_resolution": 0.4},
         )
 
         def __post_init__(self):
@@ -410,12 +410,12 @@ class LocomotionLidarVizEnv(ManagerBasedRLEnv):
     def step(self, action: torch.Tensor):
         result = super().step(action)
         if self._occ_draw is not None:
-            grid_flat = occupancy_grid_from_lidar(self, self._occ_sensor_cfg)
+            grid_flat = occupancy_grid_from_lidar(self, self._occ_sensor_cfg, grid_size=32, grid_resolution=0.4)
             sensor_pos = self.scene["l2_lidar"].data.pos_w
-            grid_2d = grid_flat[0].reshape(64, 64).cpu().numpy()
+            grid_2d = grid_flat[0].reshape(32, 32).cpu().numpy()
             sx, sy = float(sensor_pos[0, 0].item()), float(sensor_pos[0, 1].item())
             self._occ_draw.clear_points()
-            draw_occupancy_grid_points(self._occ_draw, grid_2d, (sx, sy), grid_resolution=0.2)
+            draw_occupancy_grid_points(self._occ_draw, grid_2d, (sx, sy), grid_resolution=0.4)
         return result
 
 
