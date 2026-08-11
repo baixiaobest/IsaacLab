@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - upstream_merge_2026_6
     paths:
       - "docker/Dockerfile.runpod.io"
   workflow_dispatch:

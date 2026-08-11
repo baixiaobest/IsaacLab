@@ -50,15 +50,19 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 # ── All heavy imports come AFTER AppLauncher (Isaac Sim configures sys.path first) ──
+import importlib.metadata as metadata
+
 import torch
 import gymnasium as gym
 
 from isaaclab.envs import DirectMARLEnv, ManagerBasedRLEnv, multi_agent_to_single_agent
-from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
 from isaaclab_tasks.utils import parse_env_cfg
 from rsl_rl.runners import OnPolicyRunner
 
 import isaaclab_tasks  # noqa: F401
+
+installed_version = metadata.version("rsl-rl-lib")
 
 
 def _resolve_resume_path(checkpoint_arg: str) -> str:
@@ -112,6 +116,9 @@ def main() -> None:
 
     # Parse the RSL-RL runner config and build the runner.
     agent_cfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
+
+    # handle deprecated configurations (e.g. `policy` -> `actor`/`critic`)
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
 
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
 
