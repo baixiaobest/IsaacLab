@@ -103,6 +103,179 @@ def test_dynamic_profiles_cover_all_scenarios_and_counts():
     assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER)
 
 
+def test_speed_interaction_labels_cover_yield_assert_ambiguous_and_non_risky():
+    label, low_speed, ratio = evaluation.classify_speed_interaction(
+        "crossing", True, 0.5, 1.0, [0.2, 0.3, 0.4]
+    )
+    assert (label, low_speed, ratio) == ("yield", pytest.approx(0.22), pytest.approx(0.22))
+    assert evaluation.classify_speed_interaction("against_flow", True, 0.5, 1.0, [0.95, 1.0])[0] == "assert"
+    assert evaluation.classify_speed_interaction("crossing", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
+    assert evaluation.classify_speed_interaction("crossing", False, 0.5, 1.0, [0.1])[0] == "non_risky_close"
+    assert evaluation.classify_speed_interaction("crossing", True, 0.1, 1.0, [0.1])[0] == "unclassified"
+
+
+def test_crossing_assert_requires_pedestrian_frame_front_crossing():
+    assert evaluation.classify_speed_interaction(
+        "crossing", True, 0.5, 1.0, [0.1, 0.2], front_crossed=True
+    ) == ("assert", None, None)
+    # Maintaining speed alone is no longer assertion in a crossing scenario.
+    assert evaluation.classify_speed_interaction("crossing", True, 0.5, 1.0, [0.95, 1.0])[0] == "ambiguous"
+    assert evaluation.front_crossing_longitudinal_m(0.8, -0.4, 1.0, 0.4, 0.6) == pytest.approx(0.9)
+    assert evaluation.front_crossing_longitudinal_m(-0.8, -0.4, 0.2, 0.4, 0.6) is None
+    assert evaluation.front_crossing_longitudinal_m(1.0, -0.1, 1.0, 0.1, 0.6) is None
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_crossing_event_collector_detects_front_region_side_to_side_assertion():
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("crossing", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([-1.0, 0.0])
+
+    # The pedestrian moves in +x; the robot switches from its right to left side while
+    # remaining one metre in front, then exits the interaction.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -0.4])
+    collector.record_pre_step(env)
+    # A physical crossing takes multiple steps through the hysteresis band.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -0.1])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, 0.1])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, 0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([3.0, 0.4])
+    collector.record_pre_step(env)
+
+    event = collector._completed[0][0]
+    assert event["front_crossed"]
+    assert event["canonical_label"] == "assert"
+    assert event["front_cross_longitudinal_m"] == pytest.approx(1.0)
+
+
+def test_with_flow_interaction_overtake_and_ordering_labels():
+    assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
+    assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
+    assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], 0.1, 0.6)[0] == "unclassified"
+
+
+def test_interaction_artifacts_include_zero_categories_and_raw_events(tmp_path):
+    event = {
+        "scenario": "crossing", "pedestrian_count": 2, "environment_id": 0, "pedestrian_id": 1,
+        "canonical_label": "yield", "start_time_s": 1.0, "end_time_s": 1.5, "duration_s": 0.5,
+        "risk_seen": True, "minimum_clearance_m": 0.2, "baseline_speed_mps": 1.0,
+        "low_event_speed_mps": 0.2, "speed_ratio": 0.2, "initial_longitudinal_m": None,
+        "final_longitudinal_m": None, "yield_speed_ratio": 0.7, "assert_speed_ratio": 0.85,
+    }
+    summary = [
+        {"scenario": scenario, "label": label, "events": int(scenario == "crossing" and label == "yield")}
+        for scenario, labels in evaluation.INTERACTION_LABELS.items() for label in labels
+    ]
+    evaluation.save_interaction_event_artifacts(tmp_path, [event], summary)
+    payload = json.loads((tmp_path / "interaction_events.json").read_text(encoding="utf-8"))
+    assert payload["events"] == [event]
+    assert any(row["label"] == "unclassified" and row["events"] == 0 for row in payload["summary"])
+    assert (tmp_path / "interaction_event_histogram.png").is_file()
+
+
+def test_interaction_artifacts_encode_missing_speed_baseline_as_json_null(tmp_path):
+    event = {
+        "scenario": "crossing", "pedestrian_count": 2, "environment_id": 0, "pedestrian_id": 1,
+        "canonical_label": "unclassified", "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
+        "risk_seen": True, "minimum_clearance_m": 0.2, "baseline_speed_mps": float("nan"),
+        "low_event_speed_mps": None, "speed_ratio": None, "initial_longitudinal_m": None,
+        "final_longitudinal_m": None, "yield_speed_ratio": 0.7, "assert_speed_ratio": 0.85,
+    }
+    summary = [{"scenario": scenario, "label": label, "events": 0}
+               for scenario, labels in evaluation.INTERACTION_LABELS.items() for label in labels]
+    evaluation.save_interaction_event_artifacts(tmp_path, [event], summary)
+
+    payload = json.loads(
+        (tmp_path / "interaction_events.json").read_text(encoding="utf-8"),
+        parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+    )
+    assert payload["events"][0]["baseline_speed_mps"] is None
+
+
+def test_interaction_preset_round_trip(tmp_path):
+    failure_viewer.save_interaction_presets(
+        tmp_path, {"conservative": {"yield_speed_ratio": 0.75, "assert_speed_ratio": 0.9}}
+    )
+    assert failure_viewer.load_interaction_presets(tmp_path)["conservative"]["yield_speed_ratio"] == 0.75
+
+
+def test_interaction_collector_only_admits_counted_successes():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    collector = evaluation.InteractionEventCollector(profiles, [0], step_dt_s=0.1)
+    event = {
+        "scenario": "crossing", "pedestrian_id": 1, "start_time_s": 0.0, "end_time_s": 0.4,
+        "duration_s": 0.4, "risk_seen": True, "minimum_clearance_m": 0.2,
+        "baseline_speed_mps": 1.0, "low_event_speed_mps": 0.2, "speed_ratio": 0.2,
+        "initial_longitudinal_m": None, "final_longitudinal_m": None, "canonical_label": "yield",
+        "yield_speed_ratio": 0.7, "assert_speed_ratio": 0.85,
+    }
+    collector._completed[0] = [event]
+    collector.finalize_terminal([0])
+    assert collector.resolve_terminal([0], []) == []
+    assert not collector.events
+    collector._completed[0] = [event]
+    collector.finalize_terminal([0])
+    admitted = collector.resolve_terminal([0], [0])
+    assert len(admitted) == 1
+    assert collector.summary_rows()[0]["events"] == 1
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_interaction_replay_adds_profile_metadata_before_event_admission(tmp_path):
+    """Terminal-staged events do not yet have the collector's admission metadata."""
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    source = evaluation.CollisionReplayRecorder(profiles, [0], tmp_path, step_dt_s=0.1, history_seconds=1.0)
+    recorder = evaluation.InteractionEventReplayRecorder(tmp_path / "interaction_events", source, 1, 0.1)
+    env = _FakeEnv(num_envs=1)
+    for step in range(4):
+        env.scene["robot"].data.root_pos_w[0, 0] = float(step)
+        source.record_pre_step(env, torch.zeros(1, 3))
+    event = {
+        "scenario": "crossing", "pedestrian_id": 0, "canonical_label": "yield",
+        "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
+        "minimum_clearance_m": 0.2, "baseline_speed_mps": 1.0,
+        "low_event_speed_mps": 0.2, "speed_ratio": 0.2,
+        "yield_speed_ratio": 0.7, "assert_speed_ratio": 0.85,
+    }
+
+    recorder.stage_terminal_success(env, 0, [event])
+    recorder.resolve_terminal([0], [0])
+
+    index = json.loads((tmp_path / "interaction_events" / "interaction_event_cases.json").read_text())
+    assert index["cases"][0]["pedestrian_count"] == 2
+    assert index["cases"][0]["environment_id"] == 0
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_interaction_replay_samples_non_primary_canonical_labels(tmp_path):
+    """Every canonical label is eligible for a separately quota-limited replay."""
+    profiles = [evaluation.BenchmarkProfile("with_flow", 2)]
+    source = evaluation.CollisionReplayRecorder(profiles, [0], tmp_path, step_dt_s=0.1, history_seconds=1.0)
+    recorder = evaluation.InteractionEventReplayRecorder(tmp_path / "interaction_events", source, 1, 0.1)
+    env = _FakeEnv(num_envs=1)
+    for step in range(4):
+        env.scene["robot"].data.root_pos_w[0, 0] = float(step)
+        source.record_pre_step(env, torch.zeros(1, 3))
+    event = {
+        "scenario": "with_flow", "pedestrian_id": 0, "canonical_label": "non_overtake",
+        "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
+        "minimum_clearance_m": 0.2, "baseline_speed_mps": 1.0,
+        "low_event_speed_mps": 1.0, "speed_ratio": 1.0,
+        "yield_speed_ratio": 0.7, "assert_speed_ratio": 0.85,
+    }
+
+    recorder.stage_terminal_success(env, 0, [event])
+    recorder.resolve_terminal([0], [0])
+
+    index = json.loads((tmp_path / "interaction_events" / "interaction_event_cases.json").read_text())
+    assert index["cases"][0]["canonical_label"] == "non_overtake"
+
+
 def test_collector_applies_collision_precedence_and_profile_quota():
     profiles = [
         evaluation.BenchmarkProfile("crossing", 2),

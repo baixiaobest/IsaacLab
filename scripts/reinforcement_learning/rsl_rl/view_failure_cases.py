@@ -33,8 +33,36 @@ INDEX_FILENAME = "failure_cases.json"
 TAGS_FILENAME = "failure_case_tags.json"
 WEB_APP_FILENAME = "failure_case_viewer.html"
 RESULTS_FILENAME = "dynamic_crowd_results.json"
+INTERACTION_RESULTS_FILENAME = "interaction_events.json"
+INTERACTION_REPLAY_DIRNAME = "interaction_events"
+INTERACTION_INDEX_FILENAME = "interaction_event_cases.json"
+INTERACTION_PRESETS_FILENAME = "interaction_event_presets.json"
 REPLAY_DIRNAME = "episode_cases"
 LEGACY_REPLAY_DIRNAME = "failure_cases"
+
+
+def _json_safe(value: Any) -> Any:
+    """Keep the localhost API valid even when reading legacy non-standard JSON artifacts."""
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _write_json_atomically(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+    ) as file:
+        json.dump(_json_safe(payload), file, indent=2, allow_nan=False)
+        file.write("\n")
+        temporary_path = Path(file.name)
+    os.replace(temporary_path, path)
 
 
 @dataclass(frozen=True)
@@ -76,6 +104,42 @@ def load_evaluation_results(evaluation_dir: str | Path) -> dict[str, Any]:
     if not isinstance(payload.get("results"), list) or not isinstance(payload.get("aggregates"), list):
         raise ValueError(f"Unsupported dynamic-crowd results: {path}")
     return payload
+
+
+def load_interaction_results(evaluation_dir: str | Path) -> dict[str, Any]:
+    path = Path(evaluation_dir) / INTERACTION_RESULTS_FILENAME
+    with path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+    if payload.get("schema_version") != 1 or not isinstance(payload.get("events"), list):
+        raise ValueError(f"Unsupported interaction-event results: {path}")
+    return payload
+
+
+def load_interaction_index(replay_dir: str | Path) -> dict[str, Any]:
+    path = Path(replay_dir) / INTERACTION_REPLAY_DIRNAME / INTERACTION_INDEX_FILENAME
+    if not path.is_file():
+        return {"schema_version": 1, "cases": []}
+    with path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+    if payload.get("schema_version") != 1 or not isinstance(payload.get("cases"), list):
+        raise ValueError(f"Unsupported interaction-event replay index: {path}")
+    return payload
+
+
+def load_interaction_presets(evaluation_dir: str | Path) -> dict[str, dict[str, float]]:
+    path = Path(evaluation_dir) / INTERACTION_PRESETS_FILENAME
+    if not path.is_file():
+        return {}
+    with path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+    presets = payload.get("presets", {})
+    if payload.get("schema_version") != 1 or not isinstance(presets, dict):
+        raise ValueError(f"Unsupported interaction-event presets: {path}")
+    return presets
+
+
+def save_interaction_presets(evaluation_dir: str | Path, presets: dict[str, dict[str, float]]) -> None:
+    _write_json_atomically(Path(evaluation_dir) / INTERACTION_PRESETS_FILENAME, {"schema_version": 1, "presets": presets})
 
 
 def discover_evaluation_runs(artifact_dir: str | Path, evaluation_dir: str | Path | None = None) -> list[EvaluationRun]:
@@ -248,10 +312,16 @@ class FailureCaseWebServer(ThreadingHTTPServer):
         tags_by_case = load_case_tags(run.replay_dir)
         evaluation_results: dict[str, Any] | None = None
         evaluation_error: str | None = None
+        interaction_results: dict[str, Any] | None = None
+        interaction_error: str | None = None
         try:
             evaluation_results = load_evaluation_results(run.evaluation_dir)
         except (OSError, ValueError) as error:
             evaluation_error = str(error)
+        try:
+            interaction_results = load_interaction_results(run.evaluation_dir)
+        except (OSError, ValueError) as error:
+            interaction_error = str(error)
         return {
             "index": index,
             "tags_by_case": tags_by_case,
@@ -260,6 +330,10 @@ class FailureCaseWebServer(ThreadingHTTPServer):
             "view_radius": self.view_radius,
             "evaluation": evaluation_results,
             "evaluation_error": evaluation_error,
+            "interaction": interaction_results,
+            "interaction_error": interaction_error,
+            "interaction_index": load_interaction_index(run.replay_dir),
+            "interaction_presets": load_interaction_presets(run.evaluation_dir),
             "selected_run_id": run.run_id,
             "runs": [{"id": item.run_id, "label": item.run_id} for item in self.runs],
         }
@@ -275,6 +349,29 @@ class FailureCaseWebServer(ThreadingHTTPServer):
             raise ValueError(f"Invalid replay path for case {case_id}")
         with np.load(replay_path, allow_pickle=False) as replay:
             return {name: replay[name].tolist() for name in replay.files}
+
+    def interaction_replay_payload(self, case_id: str, run_id: str | None = None) -> dict[str, Any]:
+        run = self._run(run_id)
+        index = load_interaction_index(run.replay_dir)
+        case = next((item for item in index["cases"] if item.get("case_id") == case_id), None)
+        if case is None:
+            raise KeyError(f"Unknown interaction case ID: {case_id}")
+        root = (run.replay_dir / INTERACTION_REPLAY_DIRNAME).resolve()
+        replay_path = (root / case["replay_file"]).resolve()
+        if not replay_path.is_relative_to(root) or not replay_path.is_file():
+            raise ValueError(f"Invalid interaction replay path for case {case_id}")
+        with np.load(replay_path, allow_pickle=False) as replay:
+            return {name: replay[name].tolist() for name in replay.files}
+
+    def save_interaction_preset(self, name: str, yield_ratio: float, assert_ratio: float,
+                                run_id: str | None = None) -> dict[str, dict[str, float]]:
+        if not name.strip() or not 0.0 <= yield_ratio < assert_ratio <= 2.0:
+            raise ValueError("Preset requires a name and 0 <= yield ratio < assert ratio <= 2.")
+        run = self._run(run_id)
+        presets = load_interaction_presets(run.evaluation_dir)
+        presets[name.strip()] = {"yield_speed_ratio": float(yield_ratio), "assert_speed_ratio": float(assert_ratio)}
+        save_interaction_presets(run.evaluation_dir, presets)
+        return presets
 
     def update_tags(self, case_id: str, value: str, run_id: str | None = None) -> dict[str, list[str]]:
         run = self._run(run_id)
@@ -309,7 +406,11 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
             return
 
     def _send_json(self, status: HTTPStatus, payload: Any) -> None:
-        self._send(status, "application/json; charset=utf-8", json.dumps(payload).encode("utf-8"))
+        self._send(
+            status,
+            "application/json; charset=utf-8",
+            json.dumps(_json_safe(payload), allow_nan=False).encode("utf-8"),
+        )
 
     def _error(self, status: HTTPStatus, message: str) -> None:
         self._send_json(status, {"error": message})
@@ -327,6 +428,11 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     HTTPStatus.OK, self.server.replay_payload(unquote(path.removeprefix("/api/case/")), run_id)
                 )
+            elif path.startswith("/api/interaction-case/"):
+                self._send_json(
+                    HTTPStatus.OK,
+                    self.server.interaction_replay_payload(unquote(path.removeprefix("/api/interaction-case/")), run_id),
+                )
             else:
                 self._error(HTTPStatus.NOT_FOUND, "Not found")
         except (KeyError, ValueError) as error:
@@ -338,16 +444,22 @@ class FailureCaseRequestHandler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         run_id = parse_qs(parsed_url.query).get("run", [None])[0]
-        if not path.startswith("/api/tags/"):
-            self._error(HTTPStatus.NOT_FOUND, "Not found")
-            return
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             request = json.loads(self.rfile.read(content_length).decode("utf-8"))
-            if not isinstance(request.get("tags"), str):
-                raise ValueError("'tags' must be a comma-separated string")
-            tags = self.server.update_tags(unquote(path.removeprefix("/api/tags/")), request["tags"], run_id)
-            self._send_json(HTTPStatus.OK, {"tags_by_case": tags})
+            if path.startswith("/api/tags/"):
+                if not isinstance(request.get("tags"), str):
+                    raise ValueError("'tags' must be a comma-separated string")
+                tags = self.server.update_tags(unquote(path.removeprefix("/api/tags/")), request["tags"], run_id)
+                self._send_json(HTTPStatus.OK, {"tags_by_case": tags})
+            elif path == "/api/interaction-presets":
+                presets = self.server.save_interaction_preset(
+                    str(request.get("name", "")), float(request.get("yield_speed_ratio")),
+                    float(request.get("assert_speed_ratio")), run_id,
+                )
+                self._send_json(HTTPStatus.OK, {"presets": presets})
+            else:
+                self._error(HTTPStatus.NOT_FOUND, "Not found")
         except (json.JSONDecodeError, KeyError, ValueError) as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
         except Exception as error:  # pragma: no cover - disk failures are environment dependent

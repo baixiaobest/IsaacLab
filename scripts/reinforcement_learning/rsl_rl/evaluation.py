@@ -39,6 +39,27 @@ INTERESTING_INTERACTION_TAG = "interesting-interaction"
 SUCCESS_INTERACTION_DISTANCE_M = 1.5
 """Default robot-to-pedestrian distance required to sample a successful replay."""
 
+# Interaction-event evaluation defaults.  These are deliberately kept separate from the
+# training reward settings: they define a reproducible analysis protocol, not policy reward.
+INTERACTION_ENTER_CLEARANCE_M = 1.5
+INTERACTION_EXIT_CLEARANCE_M = 1.75
+INTERACTION_RISK_CLEARANCE_M = 0.5
+INTERACTION_RISK_HORIZON_S = 1.5
+INTERACTION_PRE_SPEED_WINDOW_S = 0.5
+INTERACTION_MIN_DURATION_S = 0.2
+INTERACTION_MIN_BASELINE_SPEED_MPS = 0.2
+INTERACTION_YIELD_SPEED_RATIO = 0.70
+INTERACTION_ASSERT_SPEED_RATIO = 0.85
+INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M = 0.5
+INTERACTION_FRONT_CROSS_CLEARANCE_MARGIN_M = 0.15
+INTERACTION_FRONT_CROSS_LATERAL_HYSTERESIS_M = 0.25
+
+INTERACTION_LABELS = {
+    "crossing": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
+    "against_flow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
+    "with_flow": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
+}
+
 
 @dataclass(frozen=True)
 class BenchmarkProfile:
@@ -48,13 +69,26 @@ class BenchmarkProfile:
     pedestrian_count: int
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert NumPy values and non-finite floats to strict JSON-compatible values."""
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _write_json_atomically(path: Path, payload: Any) -> None:
     """Replace a JSON file atomically so an interrupted evaluation leaves the old index usable."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
     ) as file:
-        json.dump(payload, file, indent=2)
+        json.dump(_json_safe(payload), file, indent=2, allow_nan=False)
         file.write("\n")
         temporary_path = Path(file.name)
     os.replace(temporary_path, path)
@@ -478,6 +512,117 @@ class CollisionReplayRecorder:
         self._minimum_agent_distances[ids] = float("inf")
 
 
+class InteractionEventReplayRecorder:
+    """Quota-limited event clips staged until their parent success is benchmark-counted."""
+
+    schema_version = 1
+
+    def __init__(self, output_dir: str | Path, source: CollisionReplayRecorder, cases_per_label: int, padding_s: float):
+        if cases_per_label < 0:
+            raise ValueError("cases_per_label must be non-negative.")
+        if padding_s <= 0.0:
+            raise ValueError("padding_s must be positive.")
+        self.output_dir = Path(output_dir)
+        self.cases_dir = self.output_dir / "cases"
+        self.index_path = self.output_dir / "interaction_event_cases.json"
+        self.source = source
+        self.cases_per_label = int(cases_per_label)
+        self.padding_s = float(padding_s)
+        self._pending: dict[int, list[tuple[dict[str, Any], dict[str, np.ndarray]]]] = {}
+        self._counts: dict[tuple[str, str], int] = {}
+        self._cases: list[dict[str, Any]] = []
+        self._next_case_number = 1
+        self._write_index()
+
+    @property
+    def case_count(self) -> int:
+        return len(self._cases)
+
+    def _write_index(self) -> None:
+        _write_json_atomically(self.index_path, {
+            "schema_version": self.schema_version,
+            "padding_s": self.padding_s,
+            "cases_per_label": self.cases_per_label,
+            "cases": self._cases,
+        })
+
+    def stage_terminal_success(self, env: Any, env_id: int, events: Iterable[dict[str, Any]]) -> None:
+        """Copy eligible clips before reset; commit only after profile-quota acceptance."""
+        if self.cases_per_label == 0:
+            return
+        # ``events`` are still in the interaction collector's terminal staging area.
+        # It adds episode-level metadata only when the episode is accepted, but clips
+        # must be copied before the environment reset.  Attach the same stable profile
+        # metadata here so the pending clip record is self-contained at commit time.
+        profile = self.source.profiles[self.source.env_profile_indices[env_id]]
+        terminal = self.source._terminal_frame(env, env_id)
+        frames = self.source._ordered_frames(env_id, None)
+        frames = {name: np.concatenate([values, terminal[name]], axis=0) for name, values in frames.items()}
+        candidates: list[tuple[dict[str, Any], dict[str, np.ndarray]]] = []
+        last_time = float(frames["time_s"][-1])
+        for raw_event in events:
+            event = {
+                **raw_event,
+                "environment_id": int(env_id),
+                "pedestrian_count": profile.pedestrian_count,
+            }
+            end_time = float(event["end_time_s"])
+            if end_time + self.padding_s > last_time + 1e-8:
+                continue
+            start_time = float(event["start_time_s"]) - self.padding_s
+            mask = (frames["time_s"] >= start_time) & (frames["time_s"] <= end_time + self.padding_s)
+            if not bool(np.any(mask)):
+                continue
+            candidates.append((event, {name: values[mask] for name, values in frames.items()}))
+        if candidates:
+            self._pending[env_id] = candidates
+
+    def resolve_terminal(self, completed_env_ids: Any, accepted_success_ids: Iterable[int]) -> None:
+        successful = {int(env_id) for env_id in accepted_success_ids}
+        wrote = False
+        for env_id in _ids(completed_env_ids):
+            candidates = self._pending.pop(env_id, [])
+            if env_id not in successful:
+                continue
+            for event, frames in candidates:
+                key = (str(event["scenario"]), str(event["canonical_label"]))
+                if self._counts.get(key, 0) >= self.cases_per_label:
+                    continue
+                case_id = f"event_{self._next_case_number:06d}"
+                self._next_case_number += 1
+                self._counts[key] = self._counts.get(key, 0) + 1
+                filename = f"{case_id}.npz"
+                self.cases_dir.mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(self.cases_dir / filename, **frames)
+                self._cases.append({
+                    "case_id": case_id,
+                    "scenario": event["scenario"],
+                    "pedestrian_count": event["pedestrian_count"],
+                    "environment_id": event["environment_id"],
+                    "pedestrian_id": event["pedestrian_id"],
+                    "canonical_label": event["canonical_label"],
+                    "start_time_s": event["start_time_s"],
+                    "end_time_s": event["end_time_s"],
+                    "duration_s": event["duration_s"],
+                    "minimum_clearance_m": event["minimum_clearance_m"],
+                    "baseline_speed_mps": event["baseline_speed_mps"],
+                    "low_event_speed_mps": event["low_event_speed_mps"],
+                    "speed_ratio": event["speed_ratio"],
+                    "front_crossed": bool(event.get("front_crossed", False)),
+                    "front_cross_time_s": event.get("front_cross_time_s"),
+                    "front_cross_longitudinal_m": event.get("front_cross_longitudinal_m"),
+                    "front_cross_margin_m": event.get("front_cross_margin_m"),
+                    "yield_speed_ratio": event["yield_speed_ratio"],
+                    "assert_speed_ratio": event["assert_speed_ratio"],
+                    "padding_s": self.padding_s,
+                    "step_dt_s": self.source.step_dt_s,
+                    "replay_file": str(Path("cases") / filename),
+                })
+                wrote = True
+        if wrote:
+            self._write_index()
+
+
 def _sample_standard_deviation(values: Iterable[float]) -> float:
     """Return the sample standard deviation, or zero for fewer than two samples."""
     samples = list(values)
@@ -494,6 +639,316 @@ def dynamic_crowd_profiles(counts: Iterable[int] = range(2, 17, 2)) -> list[Benc
         for scenario in SCENARIO_ORDER
         for count in counts
     ]
+
+
+def classify_speed_interaction(
+    scenario: str,
+    risk_seen: bool,
+    duration_s: float,
+    baseline_speed_mps: float,
+    event_speeds_mps: Iterable[float],
+    initial_longitudinal_m: float | None = None,
+    final_longitudinal_m: float | None = None,
+    front_crossed: bool = False,
+) -> tuple[str, float | None, float | None]:
+    """Return the canonical event label plus low speed and speed ratio.
+
+    This pure helper is also the canonical implementation mirrored by the viewer's live
+    reclassification.  Crossing asserts are geometric: the robot crossed through the
+    pedestrian's forward region.  Yield uses loss of total planar robot speed, independent
+    of whether the robot temporarily moves away from its goal during the maneuver.
+    """
+    if scenario not in INTERACTION_LABELS:
+        raise ValueError(f"Unsupported interaction scenario: {scenario}")
+    if not risk_seen:
+        return "non_risky_close", None, None
+    if scenario == "with_flow":
+        if initial_longitudinal_m is None or final_longitudinal_m is None:
+            return "unclassified", None, None
+        margin = INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M
+        if initial_longitudinal_m <= -margin and final_longitudinal_m >= margin:
+            return "overtake", None, None
+        if initial_longitudinal_m <= -margin:
+            return "non_overtake", None, None
+        return "unclassified", None, None
+
+    if scenario == "crossing" and front_crossed:
+        return "assert", None, None
+
+    speeds = np.asarray(list(event_speeds_mps), dtype=float)
+    if (
+        duration_s < INTERACTION_MIN_DURATION_S
+        or not np.isfinite(baseline_speed_mps)
+        or baseline_speed_mps < INTERACTION_MIN_BASELINE_SPEED_MPS
+        or speeds.size == 0
+    ):
+        return "unclassified", None, None
+    # A low percentile is robust to small locomotion oscillations while preserving deliberate
+    # short waits.  The event collector records one value per evaluation control step.
+    low_speed = float(np.percentile(speeds, 10.0))
+    ratio = low_speed / baseline_speed_mps
+    if ratio < INTERACTION_YIELD_SPEED_RATIO:
+        return "yield", low_speed, ratio
+    if scenario == "against_flow" and ratio > INTERACTION_ASSERT_SPEED_RATIO:
+        return "assert", low_speed, ratio
+    return "ambiguous", low_speed, ratio
+
+
+def front_crossing_longitudinal_m(
+    previous_longitudinal_m: float | None,
+    previous_lateral_m: float | None,
+    longitudinal_m: float | None,
+    lateral_m: float | None,
+    front_margin_m: float,
+) -> float | None:
+    """Return the front-axis position where a robust left/right crossing occurred.
+
+    Coordinates are expressed in the pedestrian heading frame fixed at event entry.  The
+    lateral hysteresis rejects side-to-side noise, while the interpolated zero crossing must
+    lie beyond the pedestrian's front clearance margin to count as assertion.
+    """
+    values = (previous_longitudinal_m, previous_lateral_m, longitudinal_m, lateral_m)
+    if any(value is None or not math.isfinite(value) for value in values):
+        return None
+    lateral_hysteresis = INTERACTION_FRONT_CROSS_LATERAL_HYSTERESIS_M
+    changed_sides = (
+        previous_lateral_m <= -lateral_hysteresis and lateral_m >= lateral_hysteresis
+    ) or (
+        previous_lateral_m >= lateral_hysteresis and lateral_m <= -lateral_hysteresis
+    )
+    if not changed_sides:
+        return None
+    crossing_fraction = -previous_lateral_m / (lateral_m - previous_lateral_m)
+    crossing_longitudinal = previous_longitudinal_m + crossing_fraction * (
+        longitudinal_m - previous_longitudinal_m
+    )
+    return crossing_longitudinal if crossing_longitudinal >= front_margin_m else None
+
+
+def front_lateral_side(lateral_m: float | None) -> int:
+    """Return the stable pedestrian-frame side, excluding the hysteresis band."""
+    if lateral_m is None or not math.isfinite(lateral_m):
+        return 0
+    if lateral_m <= -INTERACTION_FRONT_CROSS_LATERAL_HYSTERESIS_M:
+        return -1
+    if lateral_m >= INTERACTION_FRONT_CROSS_LATERAL_HYSTERESIS_M:
+        return 1
+    return 0
+
+
+class InteractionEventCollector:
+    """Collect pairwise close/risky interactions and admit only successful episodes.
+
+    Evaluation uses a modest number of vector environments, so compact Python metadata is a
+    better fit than adding large permanent GPU buffers.  Live state is sampled before every
+    policy action, while completed event records are held until the evaluator confirms the
+    episode was both successful and counted by its profile quota.
+    """
+
+    def __init__(self, profiles: list[BenchmarkProfile], env_profile_indices: Iterable[int], step_dt_s: float):
+        if step_dt_s <= 0.0:
+            raise ValueError("step_dt_s must be positive.")
+        self.profiles = profiles
+        self.env_profile_indices = [int(index) for index in env_profile_indices]
+        self.step_dt_s = float(step_dt_s)
+        self._times = [0.0] * len(self.env_profile_indices)
+        self._speed_history: list[list[tuple[float, float]]] = [[] for _ in self.env_profile_indices]
+        self._active: list[dict[int, dict[str, Any]]] = [{} for _ in self.env_profile_indices]
+        self._completed: list[list[dict[str, Any]]] = [[] for _ in self.env_profile_indices]
+        self._pending_terminal: dict[int, list[dict[str, Any]]] = {}
+        self.events: list[dict[str, Any]] = []
+
+    @staticmethod
+    def _risk(robot_pos: np.ndarray, robot_vel: np.ndarray, pedestrian_pos: np.ndarray,
+              pedestrian_vel: np.ndarray, surface_radius: float) -> tuple[float, bool]:
+        relative_position = pedestrian_pos - robot_pos
+        relative_velocity = robot_vel - pedestrian_vel
+        speed_sq = float(np.dot(relative_velocity, relative_velocity))
+        clearance = float(np.linalg.norm(relative_position) - surface_radius)
+        if speed_sq <= 1e-8:
+            return clearance, False
+        closing = float(np.dot(relative_position, relative_velocity))
+        time_to_cpa = closing / speed_sq
+        if closing <= 0.0 or time_to_cpa < 0.0 or time_to_cpa > INTERACTION_RISK_HORIZON_S:
+            return clearance, False
+        cpa_position = relative_position - relative_velocity * time_to_cpa
+        cpa_clearance = float(np.linalg.norm(cpa_position) - surface_radius)
+        return clearance, cpa_clearance <= INTERACTION_RISK_CLEARANCE_M
+
+    def record_pre_step(self, env: Any) -> None:
+        """Sample all active robot-pedestrian pairs before the next physics step."""
+        robot = env.scene["robot"]
+        crowd = env.crowd_manager
+        robot_pos = robot.data.root_pos_w[:, :2].detach().cpu().numpy()
+        robot_vel = robot.data.root_lin_vel_w[:, :2].detach().cpu().numpy()
+        pedestrian_pos = crowd.get_world_positions().detach().cpu().numpy()
+        pedestrian_vel = crowd.get_velocities().detach().cpu().numpy()
+        active_mask = crowd.get_active_mask().detach().cpu().numpy()
+        radii = crowd.radius.detach().cpu().numpy()
+        robot_radius = float(crowd.cfg.robot_radius)
+
+        for env_id, profile_index in enumerate(self.env_profile_indices):
+            time_s = self._times[env_id]
+            scenario = self.profiles[profile_index].scenario
+            # Yield measures translational accommodation, not progress toward the goal: a
+            # robot can legitimately move sideways or briefly away from its goal while
+            # passing through a crossing interaction.
+            speed = float(np.linalg.norm(robot_vel[env_id]))
+            history = self._speed_history[env_id]
+            history[:] = [(time, value) for time, value in history if time >= time_s - INTERACTION_PRE_SPEED_WINDOW_S]
+            baseline_values = [value for _, value in history]
+            baseline = float(np.mean(baseline_values)) if baseline_values else float("nan")
+            history.append((time_s, speed))
+
+            active_pairs = self._active[env_id]
+            active_slots = set(np.flatnonzero(active_mask[env_id]).tolist())
+            # A slot becoming inactive cannot form a complete event; drop it rather than
+            # inventing an exit classification at recycle/reset.
+            for slot in list(active_pairs):
+                if slot not in active_slots:
+                    del active_pairs[slot]
+
+            for pedestrian_id in active_slots:
+                clearance, risky = self._risk(
+                    robot_pos[env_id], robot_vel[env_id], pedestrian_pos[env_id, pedestrian_id],
+                    pedestrian_vel[env_id, pedestrian_id], robot_radius + radii[env_id, pedestrian_id],
+                )
+                close = clearance <= INTERACTION_ENTER_CLEARANCE_M
+                state = active_pairs.get(pedestrian_id)
+                if state is None and (close or risky):
+                    pedestrian_speed = float(np.linalg.norm(pedestrian_vel[env_id, pedestrian_id]))
+                    initial_longitudinal = None
+                    initial_lateral = None
+                    pedestrian_direction_xy = None
+                    if pedestrian_speed >= INTERACTION_MIN_BASELINE_SPEED_MPS:
+                        pedestrian_direction = pedestrian_vel[env_id, pedestrian_id] / pedestrian_speed
+                        pedestrian_direction_xy = (float(pedestrian_direction[0]), float(pedestrian_direction[1]))
+                        relative_position = robot_pos[env_id] - pedestrian_pos[env_id, pedestrian_id]
+                        initial_longitudinal = float(np.dot(relative_position, pedestrian_direction))
+                        initial_lateral = float(np.dot(
+                            relative_position, np.array([-pedestrian_direction[1], pedestrian_direction[0]])
+                        ))
+                    active_pairs[pedestrian_id] = {
+                        "scenario": scenario,
+                        "pedestrian_id": int(pedestrian_id),
+                        "start_time_s": time_s,
+                        "baseline_speed_mps": baseline,
+                        "risk_seen": bool(risky),
+                        "minimum_clearance_m": clearance,
+                        "event_speeds_mps": [speed],
+                        "initial_longitudinal_m": initial_longitudinal,
+                        "final_longitudinal_m": initial_longitudinal,
+                        "pedestrian_direction_xy": pedestrian_direction_xy,
+                        # Keep the last *stable* side rather than the immediately preceding
+                        # sample.  A physical crossing traverses the deadband over several
+                        # control steps, so adjacent samples cannot be required to straddle it.
+                        "previous_front_longitudinal_m": (
+                            initial_longitudinal if front_lateral_side(initial_lateral) else None
+                        ),
+                        "previous_front_lateral_m": initial_lateral if front_lateral_side(initial_lateral) else None,
+                        "front_crossed": False,
+                        "front_cross_time_s": None,
+                        "front_cross_longitudinal_m": None,
+                        "front_cross_margin_m": float(
+                            robot_radius + radii[env_id, pedestrian_id] + INTERACTION_FRONT_CROSS_CLEARANCE_MARGIN_M
+                        ),
+                    }
+                    continue
+                if state is None:
+                    continue
+
+                state["risk_seen"] = bool(state["risk_seen"] or risky)
+                state["minimum_clearance_m"] = min(float(state["minimum_clearance_m"]), clearance)
+                state["event_speeds_mps"].append(speed)
+                direction_xy = state["pedestrian_direction_xy"]
+                if direction_xy is not None:
+                    pedestrian_direction = np.asarray(direction_xy, dtype=float)
+                    relative_position = robot_pos[env_id] - pedestrian_pos[env_id, pedestrian_id]
+                    longitudinal = float(np.dot(relative_position, pedestrian_direction))
+                    lateral = float(np.dot(relative_position, np.array([-pedestrian_direction[1], pedestrian_direction[0]])))
+                    state["final_longitudinal_m"] = longitudinal
+                    stable_side = front_lateral_side(lateral)
+                    if not state["front_crossed"] and stable_side:
+                        front_crossing = front_crossing_longitudinal_m(
+                            state["previous_front_longitudinal_m"], state["previous_front_lateral_m"], longitudinal, lateral,
+                            float(state["front_cross_margin_m"]),
+                        )
+                        if front_crossing is not None:
+                            state["front_crossed"] = True
+                            state["front_cross_time_s"] = time_s
+                            state["front_cross_longitudinal_m"] = front_crossing
+                    if stable_side:
+                        state["previous_front_longitudinal_m"] = longitudinal
+                        state["previous_front_lateral_m"] = lateral
+                if clearance > INTERACTION_EXIT_CLEARANCE_M and not risky:
+                    self._finish_event(env_id, pedestrian_id, time_s)
+            self._times[env_id] += self.step_dt_s
+
+    def _finish_event(self, env_id: int, pedestrian_id: int, end_time_s: float) -> None:
+        state = self._active[env_id].pop(pedestrian_id)
+        duration_s = end_time_s - float(state["start_time_s"])
+        label, low_speed, speed_ratio = classify_speed_interaction(
+            state["scenario"], bool(state["risk_seen"]), duration_s, float(state["baseline_speed_mps"]),
+            state["event_speeds_mps"], state["initial_longitudinal_m"], state["final_longitudinal_m"], state["front_crossed"],
+        )
+        state.update({
+            "end_time_s": end_time_s,
+            "duration_s": duration_s,
+            "canonical_label": label,
+            "low_event_speed_mps": low_speed,
+            "speed_ratio": speed_ratio,
+            "yield_speed_ratio": INTERACTION_YIELD_SPEED_RATIO,
+            "assert_speed_ratio": INTERACTION_ASSERT_SPEED_RATIO,
+        })
+        del state["event_speeds_mps"]
+        del state["pedestrian_direction_xy"]
+        del state["previous_front_longitudinal_m"]
+        del state["previous_front_lateral_m"]
+        self._completed[env_id].append(state)
+
+    def finalize_terminal(self, env_ids: Any) -> None:
+        """Stage completed events until the outer evaluator decides which episodes counted."""
+        for env_id in _ids(env_ids):
+            # Open events are deliberately censored: they have no full post-event context.
+            self._active[env_id].clear()
+            self._pending_terminal[env_id] = self._completed[env_id]
+            self._completed[env_id] = []
+
+    def pending_events(self, env_id: int) -> list[dict[str, Any]]:
+        """Return terminal-staged events while the replay ring is still available."""
+        return self._pending_terminal.get(int(env_id), [])
+
+    def resolve_terminal(self, completed_env_ids: Any, accepted_success_ids: Iterable[int]) -> list[dict[str, Any]]:
+        """Admit staged events only from successful, quota-counted episodes."""
+        successful = {int(env_id) for env_id in accepted_success_ids}
+        admitted: list[dict[str, Any]] = []
+        for env_id in _ids(completed_env_ids):
+            candidates = self._pending_terminal.pop(env_id, [])
+            if env_id in successful:
+                profile = self.profiles[self.env_profile_indices[env_id]]
+                for event in candidates:
+                    admitted_event = {
+                        **event,
+                        "environment_id": env_id,
+                        "pedestrian_count": profile.pedestrian_count,
+                    }
+                    self.events.append(admitted_event)
+                    admitted.append(admitted_event)
+            self._times[env_id] = 0.0
+            self._speed_history[env_id].clear()
+        return admitted
+
+    def summary_rows(self) -> list[dict[str, Any]]:
+        rows = []
+        for scenario in SCENARIO_ORDER:
+            labels = INTERACTION_LABELS[scenario]
+            for label in labels:
+                rows.append({
+                    "scenario": scenario,
+                    "label": label,
+                    "events": sum(1 for event in self.events if event["scenario"] == scenario and event["canonical_label"] == label),
+                })
+        return rows
 
 
 def _flat_list(value: Any) -> list[Any]:
@@ -624,6 +1079,10 @@ class EpisodeMetricsCollector:
         self._velocity_sums = [0.0] * len(profiles)
         # Retain episode-level speed means to report their variation across episodes.
         self._velocity_values: list[list[float]] = [[] for _ in profiles]
+        # Populated by ``consume`` so side collectors can use exactly the same capped episode
+        # set as the primary benchmark metrics.
+        self.last_accepted_ids: set[int] = set()
+        self.last_accepted_success_ids: set[int] = set()
 
     @property
     def complete(self) -> bool:
@@ -648,6 +1107,8 @@ class EpisodeMetricsCollector:
         """
         log = extras.get("log", {})
         completed_ids = _ids(completed_env_ids) if completed_env_ids is not None else completed_environment_ids(extras)
+        self.last_accepted_ids = set()
+        self.last_accepted_success_ids = set()
         if not completed_ids:
             return 0
 
@@ -711,11 +1172,13 @@ class EpisodeMetricsCollector:
                     self._collisions[profile_index] += 1
             elif env_id in success_ids:
                 self._successes[profile_index] += 1
+                self.last_accepted_success_ids.add(env_id)
             if env_id in timeout_ids:
                 self._timeouts[profile_index] += 1
             if env_id in base_contact_ids:
                 self._base_contacts[profile_index] += 1
             self._velocity_values[profile_index].append(metric_by_env[env_id])
+            self.last_accepted_ids.add(env_id)
             accepted += 1
         return accepted
 
@@ -834,10 +1297,90 @@ def save_artifacts(
         writer.writeheader()
         writer.writerows(all_rows)
     with (output_path / "dynamic_crowd_results.json").open("w", encoding="utf-8") as file:
-        json.dump({"metadata": metadata, "results": rows, "aggregates": aggregate_rows}, file, indent=2)
+        json.dump(
+            _json_safe({"metadata": metadata, "results": rows, "aggregates": aggregate_rows}),
+            file,
+            indent=2,
+            allow_nan=False,
+        )
     _save_summary_plot(output_path / "dynamic_crowd_summary.png", rows)
     _save_failure_histogram(output_path / "dynamic_crowd_failure_histogram.png", aggregate_rows)
     return output_path
+
+
+def save_interaction_event_artifacts(
+    output_dir: str | Path,
+    events: list[dict[str, Any]],
+    summary_rows: list[dict[str, Any]],
+) -> Path:
+    """Write raw success-only event records, canonical totals, and scenario histograms."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    event_fields = [
+        "scenario", "pedestrian_count", "environment_id", "pedestrian_id", "canonical_label",
+        "start_time_s", "end_time_s", "duration_s", "risk_seen", "minimum_clearance_m",
+        "baseline_speed_mps", "low_event_speed_mps", "speed_ratio", "initial_longitudinal_m",
+        "final_longitudinal_m", "front_crossed", "front_cross_time_s", "front_cross_longitudinal_m",
+        "front_cross_margin_m", "yield_speed_ratio", "assert_speed_ratio",
+    ]
+    with (output_path / "interaction_events.csv").open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=event_fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(events)
+    with (output_path / "interaction_event_summary.csv").open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=["scenario", "label", "events"])
+        writer.writeheader()
+        writer.writerows(summary_rows)
+    payload = {
+        "schema_version": 1,
+        "detector": {
+            "enter_clearance_m": INTERACTION_ENTER_CLEARANCE_M,
+            "exit_clearance_m": INTERACTION_EXIT_CLEARANCE_M,
+            "risk_clearance_m": INTERACTION_RISK_CLEARANCE_M,
+            "risk_horizon_s": INTERACTION_RISK_HORIZON_S,
+            "pre_speed_window_s": INTERACTION_PRE_SPEED_WINDOW_S,
+            "minimum_duration_s": INTERACTION_MIN_DURATION_S,
+            "minimum_baseline_speed_mps": INTERACTION_MIN_BASELINE_SPEED_MPS,
+            "speed_measurement": "robot total planar speed",
+            "yield_speed_ratio": INTERACTION_YIELD_SPEED_RATIO,
+            "assert_speed_ratio": INTERACTION_ASSERT_SPEED_RATIO,
+            "crossing_assert_definition": "left/right traversal through the pedestrian forward region",
+            "front_cross_clearance_margin_m": INTERACTION_FRONT_CROSS_CLEARANCE_MARGIN_M,
+            "front_cross_lateral_hysteresis_m": INTERACTION_FRONT_CROSS_LATERAL_HYSTERESIS_M,
+            "overtake_longitudinal_margin_m": INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M,
+        },
+        "labels": {scenario: list(labels) for scenario, labels in INTERACTION_LABELS.items()},
+        "events": events,
+        "summary": summary_rows,
+    }
+    with (output_path / "interaction_events.json").open("w", encoding="utf-8") as file:
+        json.dump(_json_safe(payload), file, indent=2, allow_nan=False)
+    _save_interaction_histogram(output_path / "interaction_event_histogram.png", summary_rows)
+    return output_path
+
+
+def _save_interaction_histogram(path: Path, summary_rows: list[dict[str, Any]]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    summary = {(row["scenario"], row["label"]): int(row["events"]) for row in summary_rows}
+    figure, axes = plt.subplots(1, len(SCENARIO_ORDER), figsize=(15, 4.5))
+    for axis, scenario in zip(axes, SCENARIO_ORDER):
+        labels = INTERACTION_LABELS[scenario]
+        values = [summary.get((scenario, label), 0) for label in labels]
+        bars = axis.bar(labels, values, color=["#60a5fa", "#f87171", "#a78bfa", "#94a3b8", "#64748b"][:len(labels)])
+        axis.bar_label(bars, padding=3)
+        axis.set_title(SCENARIO_LABELS[scenario])
+        axis.set_ylim(bottom=0)
+        axis.grid(axis="y", alpha=0.3)
+        axis.tick_params(axis="x", rotation=25)
+    axes[0].set_ylabel("Successful-episode events")
+    figure.suptitle("Interaction-event categories (canonical thresholds)", fontsize=14)
+    figure.tight_layout(rect=(0, 0, 1, 0.92))
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
 
 
 def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:

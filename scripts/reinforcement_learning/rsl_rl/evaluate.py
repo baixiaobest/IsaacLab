@@ -22,9 +22,12 @@ from evaluation import (  # isort: skip
     EpisodeMetricsCollector,
     EpisodeVelocityAccumulator,
     GOAL_REGION_COLLISION_RADIUS_M,
+    InteractionEventCollector,
+    InteractionEventReplayRecorder,
     dynamic_crowd_profiles,
     print_results,
     save_artifacts,
+    save_interaction_event_artifacts,
     terminal_goal_region_collision_ids,
 )
 
@@ -61,6 +64,18 @@ parser.add_argument(
     type=float,
     default=1.5,
     help="A success replay is sampled only if the robot comes within this distance of an active pedestrian.",
+)
+parser.add_argument(
+    "--interaction_event_cases_per_label",
+    type=int,
+    default=5,
+    help="Maximum saved interaction-event clips per scenario and canonical label (0 disables event clips).",
+)
+parser.add_argument(
+    "--interaction_event_padding_seconds",
+    type=float,
+    default=1.0,
+    help="Required context before and after a saved interaction event clip.",
 )
 parser.add_argument(
     "--failure_output_dir",
@@ -219,8 +234,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     raw_env = env.unwrapped
     step_dt_s = env.unwrapped.step_dt
     episode_length_s = env.unwrapped.cfg.episode_length_s
+    interaction_collector = InteractionEventCollector(profiles, env_profile_indices, step_dt_s)
     replay_recorder = None
-    if not args_cli.disable_failure_recording or args_cli.success_cases_per_scenario:
+    if (
+        not args_cli.disable_failure_recording
+        or args_cli.success_cases_per_scenario
+        or args_cli.interaction_event_cases_per_label
+    ):
         replay_recorder = CollisionReplayRecorder(
             profiles,
             env_profile_indices,
@@ -233,6 +253,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             record_collisions=not args_cli.disable_failure_recording,
             interesting_interaction_distance_m=args_cli.interesting_interaction_distance_m,
         )
+    interaction_replay_recorder = (
+        InteractionEventReplayRecorder(
+            failure_output_dir / "interaction_events",
+            replay_recorder,
+            args_cli.interaction_event_cases_per_label,
+            args_cli.interaction_event_padding_seconds,
+        )
+        if replay_recorder is not None and args_cli.interaction_event_cases_per_label
+        else None
+    )
 
     original_reset_idx = raw_env._reset_idx
 
@@ -242,10 +272,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         goal_region_collision_ids.update(
             terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
         )
+        interaction_collector.finalize_terminal(env_ids)
+        success_env_ids = torch.nonzero(
+            raw_env.termination_manager.get_term("goal_reached"), as_tuple=False
+        ).reshape(-1)
+        if interaction_replay_recorder is not None:
+            for env_id in success_env_ids.detach().cpu().tolist():
+                if env_id in set(env_ids.detach().cpu().tolist()):
+                    interaction_replay_recorder.stage_terminal_success(
+                        raw_env, int(env_id), interaction_collector.pending_events(int(env_id))
+                    )
         if replay_recorder is not None:
-            success_env_ids = torch.nonzero(
-                raw_env.termination_manager.get_term("goal_reached"), as_tuple=False
-            ).reshape(-1)
             replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
         return original_reset_idx(env_ids)
 
@@ -262,9 +299,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             f"(robot-agent distance < {args_cli.interesting_interaction_distance_m:.2f} m)."
         )
     try:
-        while simulation_app.is_running() and not (
-            collector.complete and (replay_recorder is None or replay_recorder.success_recording_complete)
-        ):
+        while simulation_app.is_running() and not collector.complete:
             step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
             velocity_accumulator.record_step(step_speed)
             with torch.inference_mode():
@@ -276,6 +311,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
                     action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
                     replay_recorder.record_pre_step(raw_env, submitted_actions * action_scales)
+                interaction_collector.record_pre_step(raw_env)
                 obs, _, dones, extras = env.step(actions)
             if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                 policy.reset(dones)
@@ -291,6 +327,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 completed_env_ids=completed_ids,
                 goal_region_collision_env_ids=goal_region_collision_ids,
             )
+            interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+            if interaction_replay_recorder is not None:
+                interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
             velocity_accumulator.reset(completed_ids)
             goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
     finally:
@@ -298,8 +337,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     if not collector.complete:
         raise RuntimeError("Evaluation stopped before all benchmark profiles completed.")
-    if replay_recorder is not None and not replay_recorder.success_recording_complete:
-        raise RuntimeError("Evaluation stopped before all requested successful-episode replays were recorded.")
     if collector.velocity_metric_source == "direct_world_xy_speed":
         print("[INFO] Mean XY speed was measured directly from the robot world-frame velocity.")
     elif collector.velocity_metric_source != "linear_velocity_xy":
@@ -322,6 +359,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "episodes_per_profile": args_cli.episodes_per_profile,
             "success_cases_per_scenario": args_cli.success_cases_per_scenario,
             "interesting_interaction_distance_m": args_cli.interesting_interaction_distance_m,
+            "interaction_events": {
+                "success_only": True,
+                "cases_per_label": args_cli.interaction_event_cases_per_label,
+                "padding_seconds": args_cli.interaction_event_padding_seconds,
+                "canonical_yield_speed_ratio": 0.70,
+                "canonical_assert_speed_ratio": 0.85,
+                "crossing_assert": "pedestrian-frame front crossing",
+                "crossing_yield": "total planar robot speed reduction without a front crossing",
+                "speed_measurement": "robot total planar speed",
+            },
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
@@ -363,12 +410,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             },
         },
     )
+    save_interaction_event_artifacts(artifact_dir, interaction_collector.events, interaction_collector.summary_rows())
     print_results(rows, aggregates)
     print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
     if replay_recorder is not None:
         print(
             f"[INFO] Wrote {replay_recorder.collision_case_count} collision replay(s) and "
             f"{replay_recorder.success_case_count} complete success replay(s) to: {failure_output_dir}"
+        )
+    if interaction_replay_recorder is not None:
+        print(
+            f"[INFO] Wrote {interaction_replay_recorder.case_count} interaction-event replay(s) to: "
+            f"{interaction_replay_recorder.output_dir}"
         )
 
 
