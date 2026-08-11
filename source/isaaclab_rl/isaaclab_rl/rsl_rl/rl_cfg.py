@@ -210,7 +210,7 @@ class RslRlLidarModelCfg(RslRlMLPModelCfg):
 
     enable_prediction_head: bool = False
     """Whether to build the optional next-frame lidar prediction head. Default is False. Typically set on the actor
-    only; the critic shares the encoder via ``share_cnn_encoders``."""
+    only; the critic may optionally share the encoder via ``share_cnn_encoders``."""
 
     pred_cnn_dims: list[dict] | None = None
     """ConvTranspose1d layer configs that upsample the deconv input back to ``fov_bins``. The first layer must
@@ -250,6 +250,14 @@ class RslRlLidarPredictionCfg:
 
     batch_size: int = 4096
     """Number of (obs, target) pairs per auxiliary minibatch."""
+
+    validity_group: str | None = None
+    """Optional observation group containing a scalar target-valid flag.
+
+    When set, the prediction minibatcher keeps only transitions whose target step
+    has a non-zero flag. This is required for lidar sources that intentionally
+    hold the latest scan between asynchronous completion events.
+    """
 
     distance_weight_sigma: float | None = None
     """Decay factor for near-field loss weighting.

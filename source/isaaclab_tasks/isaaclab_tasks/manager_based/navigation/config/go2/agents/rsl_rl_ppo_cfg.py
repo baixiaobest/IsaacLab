@@ -649,8 +649,9 @@ TemporalLidarHorizonCNNConfig = [
 ]
 # (64, 1, 8) = 512
 
-# Dedicated algorithm config (a copy of ObstacleAvoidancePPOConfig) that shares the lidar CNN encoder between the
-# actor and critic LidarModels. Kept separate so the base task's shared config object is never mutated.
+# Dedicated algorithm config for temporal lidar.  Actor completed scans and critic
+# current scans have deliberately different timing/noise distributions, so their CNN
+# encoders must remain independent.
 ObstacleAvoidanceLidarPPOConfig = RslRlPpoAlgorithmCfg(
     value_loss_coef=1.0,
     use_clipped_value_loss=True,
@@ -664,7 +665,7 @@ ObstacleAvoidanceLidarPPOConfig = RslRlPpoAlgorithmCfg(
     lam=0.995,
     desired_kl=0.01,
     max_grad_norm=1.0,
-    share_cnn_encoders=True,
+    share_cnn_encoders=False,
 )
 
 
@@ -734,15 +735,16 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
     lam=0.995,
     desired_kl=0.01,
     max_grad_norm=1.0,
-    # Share the lidar CNN encoder between actor and critic so the auxiliary prediction phase shapes the same
-    # encoder the policy uses.
-    share_cnn_encoders=True,
+    # The actor prediction loss only shapes the actor lidar encoder. The critic
+    # observes a privileged current scan and therefore keeps an independent CNN.
+    share_cnn_encoders=False,
     lidar_prediction_cfg=RslRlLidarPredictionCfg(
         weight=0.2,
         learning_rate=1.0e-4,
         num_iterations=1,
         batch_size=4096,
         distance_weight_sigma=0.3,
+        validity_group="prediction_mask",
     ),
 )
 
@@ -756,7 +758,7 @@ class UnitreeGo2TemporalLidarPredictionPPORunnerCfg_v0(UnitreeGo2TemporalLidarPP
     """
 
     experiment_name = "go2_temporal_lidar_obstacle_avoidance_prediction"
-    # Only the actor carries the prediction head; the critic shares its CNN encoder via ``share_cnn_encoders``.
+    # Only the actor carries the prediction head; the critic has an independent lidar CNN.
     actor = _temporal_lidar_model_cfg(
         distribution_cfg=RslRlLidarModelCfg.GaussianDistributionCfg(init_std=0.6, std_type="scalar"),
         enable_prediction_head=True,

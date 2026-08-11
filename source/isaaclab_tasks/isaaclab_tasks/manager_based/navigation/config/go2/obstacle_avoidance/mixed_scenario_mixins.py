@@ -33,6 +33,8 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .obstacle_avoidance_env_cfg import (
     LIDAR_MAX_DISTANCE,
+    LIDAR_FOV_DEG,
+    NUM_LIDAR_RAYS,
     CommandsCfg,
     CurriculumCfg,
     EventCfg,
@@ -41,6 +43,7 @@ from .obstacle_avoidance_env_cfg import (
     RewardsCfg,
     TerminationsCfg,
 )
+from .two_cloud_lidar_env import TwoCloudLidarCfg
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
     PedestrianCollectionCfg,
@@ -280,6 +283,14 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
     """Mixed static/pedestrian co-training with temporal-lidar observations."""
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
+    two_cloud_lidar_enabled: bool = True
+    two_cloud_lidar: TwoCloudLidarCfg = TwoCloudLidarCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.obstacle_scanner.update_period = 0.0
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.debug_vis = False
 
 
 @configclass
@@ -287,6 +298,14 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
     """Mixed static/pedestrian co-training with temporal-lidar + next-frame prediction observations."""
 
     observations: TemporalLidarPredictionObservationsCfg = TemporalLidarPredictionObservationsCfg()
+    two_cloud_lidar_enabled: bool = True
+    two_cloud_lidar: TwoCloudLidarCfg = TwoCloudLidarCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.obstacle_scanner.update_period = 0.0
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.debug_vis = False
 
 
 @configclass
