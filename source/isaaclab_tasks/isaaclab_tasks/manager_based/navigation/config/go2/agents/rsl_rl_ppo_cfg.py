@@ -517,6 +517,18 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     logger="wandb"
 
 
+OccupancyCNNConfig = [
+    # Reshape flat 1024 → (1, 32, 32) single-channel grid
+    {"type": "reshape", "input_size": 1024, "shape": [1, 32, 32]},
+    # Conv1: (1,32,32) → (16,16,16)
+    {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
+    # Conv2: (16,16,16) → (32,8,8)
+    {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
+    # Conv3: (32,8,8) → (64,4,4) → flatten → 1024-dim latent
+    {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
+]
+
+
 @configclass
 class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
@@ -524,23 +536,24 @@ class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
     save_interval = 100
     experiment_name = "go2_obstacle_avoidance_occupancy"
     empirical_normalization = False
-    policy = RslRlPpoEncoderActorCriticCfg(
-        init_noise_std=1.0,
-        actor_hidden_dims=[256, 128],
-        critic_hidden_dims=[256, 128],
-        activation="elu",
+    # RSL-RL 4+ configures the actor and critic separately. The occupancy
+    # grid is the final 1024 entries of each flat observation, so both models
+    # split and encode it as a 32x32 image.
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
+    actor = _enc_actor(
+        hidden_dims=[256, 128],
+        init_std=1.0,
         encoder_type="cnn",
-        encoder_dims=[
-            # Reshape flat 1024 → (1, 32, 32) single-channel grid
-            {"type": "reshape", "input_size": 1024, "shape": [1, 32, 32]},
-            # Conv1: (1,32,32) → (16,16,16)
-            {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
-            # Conv2: (16,16,16) → (32,8,8)
-            {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
-            # Conv3: (32,8,8) → (64,4,4) → flatten → 1024-dim latent
-            {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
-        ],
-        share_encoder_with_critic=False,
+        encoder_dims=OccupancyCNNConfig,
+    )
+    # Do not set ``share_cnn_encoders`` on the algorithm: this constructs an
+    # independent critic encoder with the same architecture as the actor's.
+    critic = RslRlEncoderModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
+        distribution_cfg=None,
+        encoder_type="cnn",
+        encoder_dims=OccupancyCNNConfig,
     )
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
