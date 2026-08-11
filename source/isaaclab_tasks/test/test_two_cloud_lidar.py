@@ -16,6 +16,7 @@ def test_raw_cloud_clock_fires_every_thirteen_physics_steps() -> None:
     collector._physics_steps = 0
     collector._time_s = 0.0
     collector._raw_steps = 13
+    collector._use_two_cloud_assembly = True
     captures = []
     collector._capture_raw_cloud = lambda: captures.append(collector._physics_steps)
 
@@ -24,6 +25,24 @@ def test_raw_cloud_clock_fires_every_thirteen_physics_steps() -> None:
 
     assert captures == [13, 26, 39]
     assert abs(collector._time_s - 0.195) < 1.0e-12
+
+
+def test_simple_scan_clock_fires_every_twenty_six_physics_steps() -> None:
+    """The baseline captures one complete 130 ms scan, not two raw clouds."""
+    collector = object.__new__(TwoCloudLidarCollector)
+    collector.env = SimpleNamespace(physics_dt=0.005)
+    collector._physics_steps = 0
+    collector._time_s = 0.0
+    collector._completed_steps = 26
+    collector._use_two_cloud_assembly = False
+    captures = []
+    collector._capture_complete_scan = lambda: captures.append(collector._physics_steps)
+
+    for _ in range(78):
+        collector.on_physics_step()
+
+    assert captures == [26, 52, 78]
+    assert abs(collector._time_s - 0.390) < 1.0e-12
 
 
 def test_merge_prefers_younger_hit_without_world_origin_bias() -> None:
@@ -59,6 +78,20 @@ def test_raw_rebin_retains_nearest_hit_or_observed_free_ray() -> None:
     assert torch.equal(rebinned_state, torch.tensor([[2, 1]], dtype=torch.uint8))
     assert torch.equal(xy[0, 0], torch.tensor([2.0, 0.0]))
     assert torch.equal(xy[0, 1], torch.tensor([9.0, 0.0]))
+
+
+def test_simple_scan_noise_is_identity_when_both_stds_are_zero() -> None:
+    """The baseline can be made exactly ideal for staged ablation training."""
+    collector = object.__new__(TwoCloudLidarCollector)
+    collector.num_envs = 1
+    collector.device = "cpu"
+    collector.cfg = SimpleNamespace(iid_hit_position_noise_std_m=0.0, iid_yaw_noise_std_deg=0.0)
+
+    xy = torch.tensor([[[2.0, 0.0], [20.0, 0.0], [0.0, 0.0]]])
+    state = torch.tensor([[2, 1, 0]], dtype=torch.uint8)
+    result = collector._apply_simple_scan_noise(xy, state, torch.zeros(1, 2))
+
+    assert torch.equal(result, xy)
 
 
 def test_scan_age_grows_while_a_completed_scan_is_held() -> None:

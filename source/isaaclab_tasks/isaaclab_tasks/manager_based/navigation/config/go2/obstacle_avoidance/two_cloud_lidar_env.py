@@ -1,4 +1,4 @@
-"""Physics-rate collection of delayed, completed two-cloud lidar scans."""
+"""Physics-rate collection of completed actor lidar scans."""
 
 from __future__ import annotations
 
@@ -14,14 +14,27 @@ from isaaclab.utils import configclass
 
 @configclass
 class TwoCloudLidarCfg:
-    """Calibration-facing parameters for the completed two-cloud actor lidar."""
+    """Calibration-facing parameters for the completed actor lidar.
+
+    The default is the intentionally simple first-round model: one complete fan
+    captured every 130 ms, with only i.i.d. endpoint-position and scan-yaw error.
+    Set :attr:`use_two_cloud_assembly` once this baseline is solved to enable the
+    measured two-raw-cloud / partial-fan model and its additional error sources.
+    """
 
     sensor_name: str = "obstacle_scanner"
     raw_cloud_period_s: float = 0.065
     completed_scan_period_s: float = 0.130
+    use_two_cloud_assembly: bool = False
     max_distance: float = 20.0
     full_fan_ray_count: int = 256
     completed_scan_ray_count: int = 128
+
+    # Simple-model errors. Position perturbations are independent for each valid
+    # surface-hit endpoint; yaw perturbation is one independent scalar per completed
+    # scan/environment and rotates the entire scan coherently.
+    iid_hit_position_noise_std_m: float = 0.01
+    iid_yaw_noise_std_deg: float = 0.25
 
     # Each raw message contains two antipodal fans.  The 180-degree simulator fan
     # uses this azimuth lookup to retain the matching ray directions; phase moves by
@@ -50,12 +63,11 @@ class TwoCloudLidarCfg:
 
 
 class TwoCloudLidarCollector:
-    """Assemble two 65 ms ideal raycasts into one delayed actor scan.
+    """Collect complete actor scans at the configured completed-scan cadence.
 
-    The collector is deliberately coarse inside a raw cloud: it raycasts the full
-    simulated fan once at each raw-cloud boundary, then assigns ray directions to
-    the measured rotating-fan schedule.  This preserves two-cloud timing without
-    issuing a raycast at every physics tick.
+    The default path captures the full simulated fan once every 130 ms. The optional
+    two-cloud path preserves the measured 65 ms partial-fan schedule for later
+    sim-to-real calibration without requiring a separate collector implementation.
     """
 
     def __init__(
@@ -67,6 +79,7 @@ class TwoCloudLidarCollector:
         self.cfg = cfg if cfg is not None else TwoCloudLidarCfg()
         self.sensor_name = self.cfg.sensor_name
         self.max_distance = self.cfg.max_distance
+        self._use_two_cloud_assembly = self.cfg.use_two_cloud_assembly
         self.raw_sweep_rad = math.radians(self.cfg.raw_center_sweep_deg)
         self.raw_half_coverage_rad = math.radians(self.cfg.raw_fan_span_deg) * 0.5
         self._fan_azimuth_offsets = torch.tensor(
@@ -74,10 +87,18 @@ class TwoCloudLidarCollector:
         )
         self._raw_steps = max(1, round(self.cfg.raw_cloud_period_s / env.physics_dt))
         raw_period_grid = self._raw_steps * env.physics_dt
-        if not math.isclose(self.cfg.completed_scan_period_s, 2.0 * raw_period_grid, abs_tol=1e-6):
+        self._completed_steps = max(1, round(self.cfg.completed_scan_period_s / env.physics_dt))
+        completed_period_grid = self._completed_steps * env.physics_dt
+        if not math.isclose(self.cfg.completed_scan_period_s, completed_period_grid, abs_tol=1e-6):
             raise ValueError(
-                "TwoCloudLidarCfg.completed_scan_period_s must equal two raw-cloud "
-                "periods on the physics-time grid."
+                "TwoCloudLidarCfg.completed_scan_period_s must lie on the physics-time grid."
+            )
+        if self._use_two_cloud_assembly and not math.isclose(
+            self.cfg.completed_scan_period_s, 2.0 * raw_period_grid, abs_tol=1e-6
+        ):
+            raise ValueError(
+                "Two-cloud assembly requires completed_scan_period_s to equal two raw-cloud periods "
+                "on the physics-time grid."
             )
         self._physics_steps = 0
         self._time_s = 0.0
@@ -150,8 +171,10 @@ class TwoCloudLidarCollector:
     def on_physics_step(self) -> None:
         self._physics_steps += 1
         self._time_s += self.env.physics_dt
-        if self._physics_steps % self._raw_steps == 0:
+        if self._use_two_cloud_assembly and self._physics_steps % self._raw_steps == 0:
             self._capture_raw_cloud()
+        elif not self._use_two_cloud_assembly and self._physics_steps % self._completed_steps == 0:
+            self._capture_complete_scan()
 
     def scan_age_s(self) -> torch.Tensor:
         age = torch.full((self.num_envs,), 0.25, device=self.device)
@@ -264,6 +287,56 @@ class TwoCloudLidarCollector:
             + torch.randn(self.num_envs, device=self.device) * math.radians(self.cfg.phase_jitter_std_deg),
             math.pi,
         )
+
+    def _capture_complete_scan(self) -> None:
+        """Capture one full ideal fan and apply only the simple first-round errors."""
+        sensor = self.env.scene.sensors[self.sensor_name]
+        data = sensor.data
+        pos_w = data.pos_w
+        quat_w = data.quat_w
+        _, _, yaw = math_utils.euler_xyz_from_quat(quat_w)
+        hit_w = data.ray_hits_w
+        directions_w = sensor._ray_directions_w
+
+        ray_dist = torch.linalg.vector_norm(hit_w - pos_w.unsqueeze(1), dim=-1)
+        hit_valid = torch.isfinite(ray_dist) & (ray_dist < self.max_distance * 0.99)
+        free_endpoint = pos_w.unsqueeze(1) + directions_w * self.max_distance
+        hit_xy = torch.where(hit_valid.unsqueeze(-1), hit_w[..., :2], free_endpoint[..., :2])
+        ray_state = torch.where(hit_valid, 2, 1).to(torch.uint8)
+        hit_xy, ray_state = self._rebin_raw_to_policy(hit_xy, ray_state, pos_w[:, :2])
+        hit_xy = self._apply_simple_scan_noise(hit_xy, ray_state, pos_w[:, :2])
+
+        self._pending_hit_xy[:] = hit_xy
+        self._pending_state[:] = ray_state
+        self._pending_ego_xy[:] = pos_w[:, :2]
+        self._pending_ego_yaw[:] = yaw
+        self._pending_reference_time_s[:] = self._time_s
+        # The simple baseline deliberately has no completion pipeline delay.
+        self._pending_available_time_s[:] = self._time_s
+        self._pending_valid[:] = True
+
+    def _apply_simple_scan_noise(
+        self, hit_xy: torch.Tensor, ray_state: torch.Tensor, ego_xy: torch.Tensor
+    ) -> torch.Tensor:
+        """Apply i.i.d. hit-position noise and scan-wise i.i.d. yaw noise only."""
+        noisy_xy = hit_xy.clone()
+        hit_mask = ray_state == 2
+        if self.cfg.iid_hit_position_noise_std_m > 0.0:
+            position_noise = torch.randn_like(noisy_xy) * self.cfg.iid_hit_position_noise_std_m
+            noisy_xy = torch.where(hit_mask.unsqueeze(-1), noisy_xy + position_noise, noisy_xy)
+
+        if self.cfg.iid_yaw_noise_std_deg > 0.0:
+            yaw_error = torch.randn(self.num_envs, device=self.device) * math.radians(self.cfg.iid_yaw_noise_std_deg)
+            rel = noisy_xy - ego_xy.unsqueeze(1)
+            cos_yaw = torch.cos(yaw_error).unsqueeze(1)
+            sin_yaw = torch.sin(yaw_error).unsqueeze(1)
+            noisy_xy = ego_xy.unsqueeze(1) + torch.stack(
+                (cos_yaw * rel[..., 0] - sin_yaw * rel[..., 1], sin_yaw * rel[..., 0] + cos_yaw * rel[..., 1]),
+                dim=-1,
+            )
+
+        noisy_xy[ray_state == 0] = 0.0
+        return noisy_xy
 
     def _sample_selection_mask(self) -> torch.Tensor:
         # Configurable azimuth lookup for the two opposing fans in one hardware raw
