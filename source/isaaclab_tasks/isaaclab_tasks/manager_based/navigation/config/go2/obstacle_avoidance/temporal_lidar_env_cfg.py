@@ -202,9 +202,7 @@ class TemporalLidarObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
     two_cloud_lidar_enabled: bool = True
-    two_cloud_lidar: TwoCloudLidarCfg = TwoCloudLidarCfg(
-        completed_scan_period_s=0.080,
-        )
+    two_cloud_lidar: TwoCloudLidarCfg = TwoCloudLidarCfg()
 
     def __post_init__(self):
         super().__post_init__()
