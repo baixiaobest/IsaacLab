@@ -186,6 +186,19 @@ class _MixedCurriculumCfg:
 
 @configclass
 class _MixedRewardsCfg:
+    # Override the inherited gated heading penalty with a bounded alignment reward.
+    # This retains the 1 m approach region while removing the incentive to remain
+    # just outside it to avoid a negative heading cost.
+    orientation_tracking = RewTerm(
+        func=nav_mdp.heading_command_error_tanh_within_range,
+        weight=0.5,
+        params={
+            "command_name": "pose_2d_command",
+            "std": 0.5,
+            "range": 1.0,
+        },
+    )
+
     pedestrian_collision_penalty = RewTerm(
         func=nav_mdp.pedestrian_capsule_collision_penalty,
         weight=-200.0,

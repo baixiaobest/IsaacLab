@@ -59,6 +59,24 @@ def heading_command_error_within_range_abs(
     in_range = command[:, :2].norm(dim=1) < range
     return heading_b.abs() * in_range.float()
 
+
+def heading_command_error_tanh_within_range(
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        std: float,
+        range: float) -> torch.Tensor:
+    """Reward heading alignment when the robot is within the goal approach range.
+
+    The reward is one at zero heading error and smoothly approaches zero as the
+    error grows.  Unlike a gated heading penalty, crossing into the approach
+    range cannot reduce return solely because the heading is not yet aligned.
+    """
+    command = env.command_manager.get_command(command_name)
+    heading_error = command[:, 3].abs()
+    in_range = command[:, :2].norm(dim=1) < range
+    return (1.0 - torch.tanh(heading_error / std)) * in_range.float()
+
+
 def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
