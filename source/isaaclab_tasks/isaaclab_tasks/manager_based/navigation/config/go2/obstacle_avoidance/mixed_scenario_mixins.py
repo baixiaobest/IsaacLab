@@ -194,8 +194,8 @@ class _MixedRewardsCfg:
         weight=0.5,
         params={
             "command_name": "pose_2d_command",
-            "std": 0.5,
-            "range": 1.0,
+            "std": 1.0,
+            "range": 1.5,
         },
     )
 
