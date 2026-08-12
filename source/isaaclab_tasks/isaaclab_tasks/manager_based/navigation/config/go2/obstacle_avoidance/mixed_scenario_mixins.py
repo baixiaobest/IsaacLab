@@ -186,30 +186,14 @@ class _MixedCurriculumCfg:
 
 @configclass
 class _MixedRewardsCfg:
-    # Override the inherited gated heading penalty with a bounded alignment reward.
-    # This retains the 1 m approach region while removing the incentive to remain
-    # just outside it to avoid a negative heading cost.
+    # Smoothly activate the heading penalty near the goal instead of using a
+    # discontinuous 1 m gate that can be exploited by circling just outside it.
     orientation_tracking = RewTerm(
-        func=nav_mdp.heading_command_error_tanh_within_range,
-        weight=0.5,
+        func=nav_mdp.heading_command_error_distance_weighted_abs,
+        weight=-0.5,
         params={
             "command_name": "pose_2d_command",
-            "std": 1.0,
-            "range": 1.0,
-        },
-    )
-
-    # One-off +5 completion bonus at the exact pose-and-stationary success state.
-    # RewardManager scales term weights by the 80 ms high-level step duration.
-    goal_reached_once = RewTerm(
-        func=nav_mdp.pose_2d_command_goal_reached_once_with_velocity,
-        weight=5.0/0.08, # 0.08s for update interval.
-        params={
-            "command_name": "pose_2d_command",
-            "distance_threshold": 0.5,
-            "angular_threshold": 0.2,
-            "velocity_threshold": 0.1,
-            "stay_for_seconds": 0.1,
+            "distance_std": 1.0,
         },
     )
 
