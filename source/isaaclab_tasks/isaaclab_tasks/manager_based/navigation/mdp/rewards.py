@@ -6,6 +6,7 @@
 from __future__ import annotations
 import inspect
 import torch
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from isaaclab.managers import SceneEntityCfg
 import isaaclab.utils.math as math_utils
@@ -323,6 +324,63 @@ class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
         self.reward_awarded = torch.logical_or(self.reward_awarded, new_goal_reached)
 
         return new_goal_reached
+
+
+
+class pose_2d_command_goal_reached_once_with_velocity(ManagerTermBase):
+    """Return one reward when the pose goal is held under the success conditions.
+
+    This mirrors :class:`pose_2d_command_goal_reached`: the robot must be close
+    to the goal, aligned with its requested heading, and sufficiently stationary
+    for ``stay_for_seconds``.  Rewarding only the transition into this state
+    makes completion preferable to lingering in the approach region.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        self.last_time_goal_reached = torch.full((env.num_envs,), -1.0, device=env.device)
+        self.reward_awarded = torch.zeros((env.num_envs,), dtype=torch.bool, device=env.device)
+
+    def __call__(
+            self,
+            env: ManagerBasedRLEnv,
+            command_name: str = "pose_2d_command",
+            asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+            distance_threshold: float = 0.5,
+            angular_threshold: float = 0.1,
+            velocity_threshold: float = 0.1,
+            stay_for_seconds: float = 0.1,
+    ) -> torch.Tensor:
+        robot: Articulation = env.scene[asset_cfg.name]
+        command = env.command_manager.get_command(command_name)
+
+        within_distance = torch.norm(command[:, :3], dim=1) <= distance_threshold
+        within_angle = torch.abs(command[:, 3]) <= angular_threshold
+        within_velocity = torch.norm(robot.data.root_lin_vel_w[:, :2], dim=1) <= velocity_threshold
+        goal_reached = within_distance & within_angle & within_velocity
+
+        current_time = env.episode_length_buf * env.step_dt
+        newly_at_goal = goal_reached & (self.last_time_goal_reached < 0.0)
+        self.last_time_goal_reached[newly_at_goal] = current_time[newly_at_goal]
+        self.last_time_goal_reached[~goal_reached] = -1.0
+
+        time_at_goal = torch.zeros_like(self.last_time_goal_reached)
+        valid_times = self.last_time_goal_reached >= 0.0
+        time_at_goal[valid_times] = current_time[valid_times] - self.last_time_goal_reached[valid_times]
+        completed = goal_reached & (time_at_goal >= stay_for_seconds)
+
+        new_completion = completed & ~self.reward_awarded
+        self.reward_awarded |= new_completion
+        return new_completion.float()
+
+    def reset(self, env_ids: Sequence[int] | None = None):
+        if env_ids is None:
+            self.last_time_goal_reached[:] = -1.0
+            self.reward_awarded[:] = False
+        else:
+            self.last_time_goal_reached[env_ids] = -1.0
+            self.reward_awarded[env_ids] = False
+
 
 def pose_2d_command_progress_tanh_reward(
         env: ManagerBasedRLEnv,

@@ -199,6 +199,20 @@ class _MixedRewardsCfg:
         },
     )
 
+    # One-off +5 completion bonus at the exact pose-and-stationary success state.
+    # RewardManager scales term weights by the 80 ms high-level step duration.
+    goal_reached_once = RewTerm(
+        func=nav_mdp.pose_2d_command_goal_reached_once_with_velocity,
+        weight=5.0/0.08, # 0.08s for update interval.
+        params={
+            "command_name": "pose_2d_command",
+            "distance_threshold": 0.5,
+            "angular_threshold": 0.2,
+            "velocity_threshold": 0.1,
+            "stay_for_seconds": 0.1,
+        },
+    )
+
     pedestrian_collision_penalty = RewTerm(
         func=nav_mdp.pedestrian_capsule_collision_penalty,
         weight=-200.0,
