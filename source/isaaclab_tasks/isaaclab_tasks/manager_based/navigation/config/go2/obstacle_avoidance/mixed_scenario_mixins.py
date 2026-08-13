@@ -43,7 +43,7 @@ from .obstacle_avoidance_env_cfg import (
     RewardsCfg,
     TerminationsCfg,
 )
-from .two_cloud_lidar_env import TwoCloudLidarCfg
+from .held_scan_lidar_env import HeldScanLidarCfg
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
     PedestrianCollectionCfg,
@@ -294,10 +294,8 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
     """Mixed static/pedestrian co-training with temporal-lidar observations."""
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
-    two_cloud_lidar_enabled: bool = True
-    two_cloud_lidar: TwoCloudLidarCfg = TwoCloudLidarCfg(
-        completed_scan_period_s=0.080,
-    )
+    held_scan_lidar_enabled: bool = True
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg()
 
     def __post_init__(self):
         super().__post_init__()
@@ -311,8 +309,8 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
     """Mixed static/pedestrian co-training with temporal-lidar + next-frame prediction observations."""
 
     observations: TemporalLidarPredictionObservationsCfg = TemporalLidarPredictionObservationsCfg()
-    two_cloud_lidar_enabled: bool = True
-    two_cloud_lidar: TwoCloudLidarCfg = TwoCloudLidarCfg()
+    held_scan_lidar_enabled: bool = True
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg()
 
     def __post_init__(self):
         super().__post_init__()

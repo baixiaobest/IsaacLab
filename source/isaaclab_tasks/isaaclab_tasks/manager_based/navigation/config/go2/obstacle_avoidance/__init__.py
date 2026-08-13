@@ -70,7 +70,7 @@ gym.register(
 
 gym.register(
     id="Isaac-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-v0",
-    entry_point=f"{__name__}.two_cloud_lidar_env:TwoCloudTemporalLidarRLEnv",
+    entry_point=f"{__name__}.held_scan_lidar_env:HeldScanTemporalLidarRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.temporal_lidar_env_cfg:TemporalLidarObstacleAvoidanceEnvCfg",
@@ -80,7 +80,7 @@ gym.register(
 
 gym.register(
     id="Isaac-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
-    entry_point=f"{__name__}.two_cloud_lidar_env:TwoCloudTemporalLidarRLEnv",
+    entry_point=f"{__name__}.held_scan_lidar_env:HeldScanTemporalLidarRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.temporal_lidar_env_cfg:TemporalLidarObstacleAvoidanceEnvCfg_PLAY",
@@ -90,7 +90,7 @@ gym.register(
 
 gym.register(
     id="Isaac-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-v0",
-    entry_point=f"{__name__}.two_cloud_lidar_env:TwoCloudTemporalLidarRLEnv",
+    entry_point=f"{__name__}.held_scan_lidar_env:HeldScanTemporalLidarRLEnv",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.temporal_lidar_env_cfg:TemporalLidarPredictionObstacleAvoidanceEnvCfg",

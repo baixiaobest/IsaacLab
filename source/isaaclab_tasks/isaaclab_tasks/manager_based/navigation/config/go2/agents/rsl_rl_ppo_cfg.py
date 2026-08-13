@@ -649,9 +649,8 @@ TemporalLidarHorizonCNNConfig = [
 ]
 # (64, 1, 8) = 512
 
-# Dedicated algorithm config for temporal lidar.  Actor completed scans and critic
-# current scans have deliberately different timing/noise distributions, so their CNN
-# encoders must remain independent.
+# Actor and critic consume the same held full-scan geometry; sharing the lidar
+# encoder restores the representation-learning path used by the baseline task.
 ObstacleAvoidanceLidarPPOConfig = RslRlPpoAlgorithmCfg(
     value_loss_coef=1.0,
     use_clipped_value_loss=True,
@@ -665,7 +664,7 @@ ObstacleAvoidanceLidarPPOConfig = RslRlPpoAlgorithmCfg(
     lam=0.995,
     desired_kl=0.01,
     max_grad_norm=1.0,
-    share_cnn_encoders=False,
+    share_cnn_encoders=True,
 )
 
 
@@ -735,9 +734,8 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
     lam=0.995,
     desired_kl=0.01,
     max_grad_norm=1.0,
-    # The actor prediction loss only shapes the actor lidar encoder. The critic
-    # observes a privileged current scan and therefore keeps an independent CNN.
-    share_cnn_encoders=False,
+    # The prediction task and the clean critic both shape the actor lidar encoder.
+    share_cnn_encoders=True,
     lidar_prediction_cfg=RslRlLidarPredictionCfg(
         weight=0.2,
         learning_rate=1.0e-4,
@@ -758,7 +756,7 @@ class UnitreeGo2TemporalLidarPredictionPPORunnerCfg_v0(UnitreeGo2TemporalLidarPP
     """
 
     experiment_name = "go2_temporal_lidar_obstacle_avoidance_prediction"
-    # Only the actor carries the prediction head; the critic has an independent lidar CNN.
+    # Only the actor carries the prediction head; the critic shares its lidar CNN.
     actor = _temporal_lidar_model_cfg(
         distribution_cfg=RslRlLidarModelCfg.GaussianDistributionCfg(init_std=0.6, std_type="scalar"),
         enable_prediction_head=True,

@@ -22,7 +22,7 @@ from isaaclab_tasks.manager_based.navigation.mdp.social_force_crowd import Socia
 from isaaclab_tasks.manager_based.navigation.mdp.visual_utils import get_env_color
 
 from .pedestrian_scene import PED_CAPSULE_HEIGHTS, PED_RADII
-from .two_cloud_lidar_env import TwoCloudLidarCollector
+from .held_scan_lidar_env import HeldScanLidarCollector
 
 
 class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
@@ -31,7 +31,7 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
     def __init__(self, cfg, render_mode: str | None = None, **kwargs):
         # See ``load_managers`` below: observation terms need this collector while
         # the base constructor is still running.
-        self._two_cloud_lidar_collector: TwoCloudLidarCollector | None = None
+        self._held_scan_lidar_collector: HeldScanLidarCollector | None = None
         super().__init__(cfg, render_mode=render_mode, **kwargs)
 
         self.crowd_manager = SocialForceCrowdManager(cfg.social_force, self.num_envs, self.device)
@@ -85,14 +85,14 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         self._write_pedestrians_to_sim()
         self._randomize_per_env_colors()
 
-    def _ensure_two_cloud_lidar_collector(self) -> None:
+    def _ensure_held_scan_lidar_collector(self) -> None:
         """Create the optional collector once the scene is available."""
-        if self._two_cloud_lidar_collector is None and getattr(self.cfg, "two_cloud_lidar_enabled", False):
-            self._two_cloud_lidar_collector = TwoCloudLidarCollector(self, getattr(self.cfg, "two_cloud_lidar", None))
+        if self._held_scan_lidar_collector is None and getattr(self.cfg, "held_scan_lidar_enabled", False):
+            self._held_scan_lidar_collector = HeldScanLidarCollector(self, getattr(self.cfg, "held_scan_lidar", None))
 
     def load_managers(self) -> None:
         """Ensure temporal-lidar observation terms can resolve their collector."""
-        self._ensure_two_cloud_lidar_collector()
+        self._ensure_held_scan_lidar_collector()
         super().load_managers()
 
     def _randomize_per_env_colors(self):
@@ -136,13 +136,14 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
 
     def _post_physics_step(self) -> None:
         super()._post_physics_step()
-        if self._two_cloud_lidar_collector is not None:
-            self._two_cloud_lidar_collector.on_physics_step()
+        if self._held_scan_lidar_collector is not None:
+            self._held_scan_lidar_collector.on_physics_step()
 
     def _reset_idx(self, env_ids):
         # event_manager.apply(mode="reset") inside super()._reset_idx runs
         # reset_pedestrian_crowd, which (re)spawns the crowd for env_ids.
         super()._reset_idx(env_ids)
-        if self._two_cloud_lidar_collector is not None:
-            self._two_cloud_lidar_collector.reset(env_ids)
+        # The reset scan must include the new kinematic pedestrian poses.
         self._write_pedestrians_to_sim()
+        if self._held_scan_lidar_collector is not None:
+            self._held_scan_lidar_collector.reset(env_ids)
