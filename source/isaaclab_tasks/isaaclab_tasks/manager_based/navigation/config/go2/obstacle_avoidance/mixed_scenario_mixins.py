@@ -199,7 +199,7 @@ class _MixedRewardsCfg:
 
     pedestrian_collision_penalty = RewTerm(
         func=nav_mdp.pedestrian_capsule_collision_penalty,
-        weight=-200.0,
+        weight=-400.0,
     )
 
     pedestrian_closest_approach = RewTerm(
