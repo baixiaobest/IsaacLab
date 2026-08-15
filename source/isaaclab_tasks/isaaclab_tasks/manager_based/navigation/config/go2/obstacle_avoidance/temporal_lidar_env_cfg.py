@@ -36,7 +36,7 @@ TEMPORAL_LIDAR_POS_NOISE_STD = 0.05  # Matches the 640034b actor projection nois
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = True  # emit the per-bin validity channel alongside distance
 TEMPORAL_LIDAR_HISTORY_KEY = "held_full_scan"
 TEMPORAL_LIDAR_COLLECTOR_NAME = "_held_scan_lidar_collector"
-TEMPORAL_LIDAR_SCAN_AGE_MAX_S = 0.130
+TEMPORAL_LIDAR_SCAN_AGE_MAX_S = 0.25
 
 # Derived obs size: C channels × H × fov_bins, where C = 2 with validity else 1
 TEMPORAL_LIDAR_FOV_BINS = int(round(TEMPORAL_LIDAR_NUM_BINS * TEMPORAL_LIDAR_FOV_DEG / 360.0))

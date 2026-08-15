@@ -338,7 +338,7 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarObstacleA
 
     def __post_init__(self):
         super().__post_init__()
-        # self.scene.num_envs = 16
+        self.scene.num_envs = 16
         # self.scene.env_spacing = 2.5
         # self.scene.terrain.max_init_terrain_level = 0
         # self.observations.policy.enable_corruption = False
