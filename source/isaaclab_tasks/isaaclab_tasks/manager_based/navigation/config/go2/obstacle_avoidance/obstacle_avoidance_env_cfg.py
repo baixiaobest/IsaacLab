@@ -262,6 +262,16 @@ class RewardsCfg:
         params={"std": 0.5, "command_name": "pose_2d_command"},
     )
 
+    goal_reached = RewTerm(
+        func=nav_mdp.pose_2d_command_goal_reached_reward,
+        weight=2.0,
+        params={
+            "command_name": "pose_2d_command",
+            "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
+            "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD,
+        },
+    )
+
     orientation_tracking = RewTerm(
         func=nav_mdp.heading_command_error_within_range_abs,
         weight=-0.5,
@@ -273,10 +283,10 @@ class RewardsCfg:
     
     obstacle_clearance_penalty = RewTerm(
         func=nav_mdp.obstacle_clearance_penalty,
-        weight=-0.0,
+        weight=-0.7,
         params={
             "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-            "SOI": 0.6,
+            "SOI": 1.5,
             "sensor_radius": 0.2,
         },
     )

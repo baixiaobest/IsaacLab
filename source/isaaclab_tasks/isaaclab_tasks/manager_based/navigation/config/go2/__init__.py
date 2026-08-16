@@ -175,17 +175,17 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.obstacle_avoidance_env_cfg:ObstacleAvoidanceOccupancyEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.obstacle_avoidance.obstacle_avoidance_env_cfg:ObstacleAvoidanceOccupancyEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0",
     },
 )
 
 gym.register(
     id="Isaac-Obstacle-Avoidance-Occupancy-Unitree-Go2-Play-v0",
-    entry_point=f"{__name__}.obstacle_avoidance_env_cfg:ObstacleAvoidanceOccupancyVizEnv",
+    entry_point=f"{__name__}.obstacle_avoidance.obstacle_avoidance_env_cfg:ObstacleAvoidanceOccupancyVizEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.obstacle_avoidance_env_cfg:ObstacleAvoidanceOccupancyEnvCfg_PLAY",
+        "env_cfg_entry_point": f"{__name__}.obstacle_avoidance.obstacle_avoidance_env_cfg:ObstacleAvoidanceOccupancyEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0",
     },
 )

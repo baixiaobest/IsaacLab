@@ -256,13 +256,20 @@ class VisualizationTracker:
         self.ax_term.axis('on')
         keys = list(self.termination_counts.keys())
         values = list(self.termination_counts.values())
-        
+
+        # Filter out NaN/zero values that break pie chart
+        import math
+        filtered = [(k, v) for k, v in zip(keys, values) if v is not None and not (isinstance(v, float) and math.isnan(v)) and v > 0]
+        if not filtered:
+            return
+        keys, values = zip(*filtered)
+
         # Clean up labels for better readability
         clean_labels = [k.replace('Episode_Termination/', '').replace('_', ' ') for k in keys]
-        
+
         # Create labels with counts
         labels_with_counts = [f"{label}\n(n={value})" for label, value in zip(clean_labels, values)]
-        
+
         # Create pie chart
         wedges, texts, autotexts = self.ax_term.pie(
             values,
