@@ -176,9 +176,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.mixed_scenario_mixins:MixedTemporalLidarObstacleAvoidanceEnvCfg",
-        "rsl_rl_cfg_entry_point": (
-            f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2MixedTemporalLidarHalfRayPPORunnerCfg_v0"
-        ),
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
     },
 )
 
@@ -188,9 +186,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.mixed_scenario_mixins:MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": (
-            f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2MixedTemporalLidarHalfRayPPORunnerCfg_v0"
-        ),
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
     },
 )
 
