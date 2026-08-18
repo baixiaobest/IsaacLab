@@ -77,6 +77,8 @@ PED_LATERAL_HEADING_MAX_HIGH = math.radians(12.0)
 
 EPISODE_LENGTH = 15.0
 RESAMPLING_TIME_RANGE = (15.1, 15.1)
+MIXED_TEMPORAL_LIDAR_RAYS = 128
+MIXED_TEMPORAL_COLLISION_PENALTY = -600.0
 
 # ---------------------------------------------------------------------------
 # Scenario fragments
@@ -295,13 +297,23 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
     held_scan_lidar_enabled: bool = True
-    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg()
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(full_fan_ray_count=MIXED_TEMPORAL_LIDAR_RAYS)
 
     def __post_init__(self):
         super().__post_init__()
+        self.scene.num_envs = 2000
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (MIXED_TEMPORAL_LIDAR_RAYS - 1)
         self.scene.obstacle_scanner.debug_vis = False
+        self.rewards.pedestrian_collision_penalty.weight = MIXED_TEMPORAL_COLLISION_PENALTY
+
+        # The held-scan history validates the source fan size independently of the
+        # 256-bin world projection. Keep those contracts aligned while leaving the
+        # projected observation shape (and therefore the CNN latent) unchanged.
+        for group_name in ("policy", "critic"):
+            group = getattr(self.observations, group_name)
+            group.scan_age.params["history_num_rays"] = MIXED_TEMPORAL_LIDAR_RAYS
+            group.obstacle_scan.params["history_num_rays"] = MIXED_TEMPORAL_LIDAR_RAYS
 
 
 @configclass

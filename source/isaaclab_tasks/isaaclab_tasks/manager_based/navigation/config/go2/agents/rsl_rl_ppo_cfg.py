@@ -705,6 +705,14 @@ class UnitreeGo2TemporalLidarPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     logger="wandb"
 
 
+@configclass
+class UnitreeGo2MixedTemporalLidarHalfRayPPORunnerCfg_v0(UnitreeGo2TemporalLidarPPORunnerCfg_v0):
+    """Approved 128-ray mixed-scene treatment training profile."""
+
+    max_iterations = 2000
+    seed = 666
+
+
 # ---------------------------------------------------------------------------
 # Temporal-lidar with optional next-frame prediction head (world-model aux task)
 # ---------------------------------------------------------------------------
