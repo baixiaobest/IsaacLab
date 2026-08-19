@@ -575,22 +575,29 @@ from ..obstacle_avoidance.temporal_lidar_env_cfg import (
 # CNN over the (C, H, fov_bins) lidar tensor, where C is 1 or 2 channels depending
 # on the observation term's include_validity flag. The first conv omits in_channels
 # so LidarModel supplies the inferred channel count.
-# Spatial progression (width): 128 → 128 → 64 → 32 → 16 → 2 (adaptive)
+# Spatial progression (width): 256 → 256 → 128 → 64 → 32 → 2 (adaptive)
 # The first layer uses stride 1 to extract local features before any downsampling.
 TemporalLidarCNNConfig = [
-    # 128
+    # 256
     {"type": "conv",
      "out_channels": 16,
      "kernel_size": (1, 5),
      "stride": (1, 1),
      "padding": (0, 2)},
 
-    # 128 → 64
+    # 256 → 128
     {"type": "conv",
      "out_channels": 32,
      "kernel_size": (1, 5),
      "stride": (1, 2),
      "padding": (0, 2)},
+
+    # 128 → 64
+    {"type": "conv",
+     "out_channels": 32,
+     "kernel_size": (1, 3),
+     "stride": (1, 2),
+     "padding": (0, 1)},
 
     # 64 → 32
     {"type": "conv",
@@ -598,46 +605,39 @@ TemporalLidarCNNConfig = [
      "kernel_size": (1, 3),
      "stride": (1, 2),
      "padding": (0, 1)},
-
-    # 32 → 16
-    {"type": "conv",
-     "out_channels": 32,
-     "kernel_size": (1, 3),
-     "stride": (1, 2),
-     "padding": (0, 1)},
 ]
-# (32, H, 16) = 512 * H
+# Adaptive pooling is applied by consumers that require a fixed-size latent.
 
 TemporalLidarHorizonCNNConfig = [
-    # Horizon: H Lidar: 128
+    # Horizon: H Lidar: 256
     {"type": "conv",
      "out_channels": 16,
      "kernel_size": (1, 5),
      "stride": (1, 1),
      "padding": (0, 2)},
 
-    # Horizon: H Lidar: 128 → 64
+    # Horizon: H Lidar: 256 → 128
     {"type": "conv",
      "out_channels": 32,
      "kernel_size": (1, 5),
      "stride": (1, 2),
      "padding": (0, 2)},
 
-    # Horizon: H → H/2 Lidar: 64 → 32
+    # Horizon: H → H/2 Lidar: 128 → 64
     {"type": "conv",
      "out_channels": 64,
      "kernel_size": (3, 3),
      "stride": (2, 2),
      "padding": (1, 1)},
 
-    # Horizon: H/2 → H/4 Lidar: 32 → 16
+    # Horizon: H/2 → H/4 Lidar: 64 → 32
     {"type": "conv",
      "out_channels": 64,
      "kernel_size": (3, 3),
      "stride": (2, 2),
      "padding": (1, 1)},
 
-     # Horizon: H/4 Lidar: 16 → 8
+     # Horizon: H/4 Lidar: 32 → 16
     {"type": "conv",
      "out_channels": 64,
      "kernel_size": (1, 3),

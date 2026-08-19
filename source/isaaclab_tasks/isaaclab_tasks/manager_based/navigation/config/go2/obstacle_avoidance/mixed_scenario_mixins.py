@@ -34,7 +34,6 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 from .obstacle_avoidance_env_cfg import (
     LIDAR_MAX_DISTANCE,
     LIDAR_FOV_DEG,
-    NUM_LIDAR_RAYS,
     CommandsCfg,
     CurriculumCfg,
     EventCfg,
@@ -62,7 +61,11 @@ from .pedestrian_terrains import (
     PEDESTRIAN_CORRIDOR,
     build_mixed_static_pedestrian_corridor,
 )
-from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
+from .temporal_lidar_env_cfg import (
+    TEMPORAL_LIDAR_RAYS,
+    TemporalLidarObservationsCfg,
+    TemporalLidarPredictionObservationsCfg,
+)
 
 # Static-env robot reset pose/velocity ranges, copied from EventCfg.reset_base.
 _STATIC_SPAWN_POSE_RANGE = {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-math.pi, math.pi)}
@@ -300,7 +303,9 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = (
+            LIDAR_FOV_DEG / (TEMPORAL_LIDAR_RAYS - 1)
+        )
         self.scene.obstacle_scanner.debug_vis = False
 
 
@@ -315,7 +320,9 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
     def __post_init__(self):
         super().__post_init__()
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = (
+            LIDAR_FOV_DEG / (TEMPORAL_LIDAR_RAYS - 1)
+        )
         self.scene.obstacle_scanner.debug_vis = False
 
 

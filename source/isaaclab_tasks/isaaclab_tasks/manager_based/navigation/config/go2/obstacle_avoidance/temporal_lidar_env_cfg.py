@@ -17,7 +17,6 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from .obstacle_avoidance_env_cfg import (
     LIDAR_FOV_DEG,
     LIDAR_MAX_DISTANCE,
-    NUM_LIDAR_RAYS,
     ObstacleAvoidanceEnvCfg,
     ObservationsCfg,
 )
@@ -29,9 +28,9 @@ from .held_scan_lidar_env import HeldScanLidarCfg
 # ---------------------------------------------------------------------------
 
 TEMPORAL_LIDAR_HORIZON = 4       # H – number of historical timesteps
-TEMPORAL_LIDAR_NUM_BINS = 256    # B – total 360° world-aligned bins
+TEMPORAL_LIDAR_NUM_BINS = 512    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
-TEMPORAL_LIDAR_RAYS = NUM_LIDAR_RAYS
+TEMPORAL_LIDAR_RAYS = 512
 TEMPORAL_LIDAR_POS_NOISE_STD = 0.05  # Matches the 640034b actor projection noise.
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = True  # emit the per-bin validity channel alongside distance
 TEMPORAL_LIDAR_HISTORY_KEY = "held_full_scan"
@@ -233,9 +232,11 @@ class TemporalLidarObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
         super().__post_init__()
         # The held-scan collector reads sensor data only on 130 ms boundaries.
         self.scene.obstacle_scanner.update_period = 0.0
-        # lidar_pattern includes both FOV endpoints.  Use 255 intervals to obtain
-        # the planned 256 full-fan rays (rather than the base task's 257 rays).
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        # lidar_pattern includes both FOV endpoints. Use one fewer interval than
+        # rays so the full fan contains exactly TEMPORAL_LIDAR_RAYS samples.
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = (
+            LIDAR_FOV_DEG / (TEMPORAL_LIDAR_RAYS - 1)
+        )
         # With lazy sensor updates this prevents debug visualization from forcing a
         # RayCaster recompute every 5 ms.  The collector explicitly reads .data only
         # at a 130 ms boundary.

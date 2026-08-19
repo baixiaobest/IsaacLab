@@ -38,7 +38,6 @@ from .obstacle_avoidance_env_cfg import (
     COMMAND_RESAMPLING_TIME_S,
     LIDAR_FOV_DEG,
     LIDAR_MAX_DISTANCE,
-    NUM_LIDAR_RAYS,
     CommandsCfg,
     CurriculumCfg,
     EventCfg,
@@ -54,7 +53,11 @@ from .pedestrian_scene import (
     PedestrianVisualCollectionCfg,
 )
 from .pedestrian_terrains import PEDESTRIAN_CORRIDOR, PEDESTRIAN_CURRICULUM_MAX_LEVEL
-from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
+from .temporal_lidar_env_cfg import (
+    TEMPORAL_LIDAR_RAYS,
+    TemporalLidarObservationsCfg,
+    TemporalLidarPredictionObservationsCfg,
+)
 
 # ---------------------------------------------------------------------------
 # Pedestrian curriculum ranges (merged across flow + crossing scenarios)
@@ -270,7 +273,9 @@ class PedestrianTemporalLidarObstacleAvoidanceEnvCfg(PedestrianObstacleAvoidance
     def __post_init__(self):
         super().__post_init__()
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = (
+            LIDAR_FOV_DEG / (TEMPORAL_LIDAR_RAYS - 1)
+        )
         self.scene.obstacle_scanner.debug_vis = False
 
 
@@ -285,7 +290,9 @@ class PedestrianTemporalLidarPredictionObstacleAvoidanceEnvCfg(PedestrianObstacl
     def __post_init__(self):
         super().__post_init__()
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = (
+            LIDAR_FOV_DEG / (TEMPORAL_LIDAR_RAYS - 1)
+        )
         self.scene.obstacle_scanner.debug_vis = False
 
 
