@@ -54,3 +54,258 @@ class activate_event_terrain_level_reached(ManagerTermBase):
             func(env, env_ids, **callback_params)
         else:
             return
+
+
+def reset_pedestrian_scenario_robot(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    crossing_prob: float = 0.5,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Sample the per-env pedestrian scenario and reset the robot root state accordingly.
+
+    For each env in ``env_ids`` this draws a scenario mode and stores it in
+    ``env.pedestrian_scenario_mode`` (read later by :class:`CorridorPedestrianPose2dCommand` to
+    pick the matching goal):
+
+    - ``0`` = flow: spawn from ``flow_pose_range``, goal up/downstream along local-x.
+    - ``1`` = crossing south→north: spawn from ``crossing_south_pose_range`` (facing +y), goal
+      across the flow on the north side.
+    - ``2`` = crossing north→south: spawn from ``crossing_north_pose_range`` (facing -y), goal
+      across the flow on the south side.
+
+    ``crossing_prob`` is the probability of a crossing episode (vs. flow); a crossing episode is
+    then south→north or north→south with equal probability, so the robot experiences the crowd
+    sweeping across its path from both relative directions. The pedestrian crowd itself is
+    scenario-independent (it always flows along local-x), so it is (re)spawned separately by
+    :func:`reset_pedestrian_crowd`.
+
+    Must be declared as a ``mode="reset"`` event so it runs before the command manager resamples
+    the goal within the same reset, and ``env.pedestrian_scenario_mode`` must already exist (it
+    is allocated in :class:`PedestrianCrowdNavigationEnv`).
+    """
+    n = len(env_ids)
+
+    # -- sample the scenario mode (0 = flow, 1 = cross S->N, 2 = cross N->S) --
+    is_crossing = torch.rand(n, device=env.device) < crossing_prob
+    is_north_start = torch.rand(n, device=env.device) < 0.5  # only meaningful when crossing
+    mode = torch.where(
+        is_crossing,
+        torch.where(is_north_start, torch.full_like(is_crossing, 2, dtype=torch.long),
+                    torch.full_like(is_crossing, 1, dtype=torch.long)),
+        torch.zeros_like(is_crossing, dtype=torch.long),
+    )
+    _reset_robot_from_pedestrian_modes(
+        env,
+        env_ids,
+        mode,
+        flow_pose_range,
+        crossing_south_pose_range,
+        crossing_north_pose_range,
+        velocity_range,
+        asset_cfg,
+    )
+
+
+def _reset_robot_from_pedestrian_modes(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    mode: torch.Tensor,
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg,
+):
+    """Reset robots for already-selected flow/crossing modes."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    n = len(env_ids)
+    is_crossing = mode >= 1
+    is_north_start = mode == 2
+    env.pedestrian_scenario_mode[env_ids] = mode
+
+    root_states = asset.data.default_root_state[env_ids].clone()
+
+    keys = ["x", "y", "z", "roll", "pitch", "yaw"]
+
+    def _sample(pose_range: dict[str, tuple[float, float]]) -> torch.Tensor:
+        ranges = torch.tensor([pose_range.get(k, (0.0, 0.0)) for k in keys], device=asset.device)
+        return math_utils.sample_uniform(ranges[:, 0], ranges[:, 1], (n, 6), device=asset.device)
+
+    flow_samples = _sample(flow_pose_range)
+    south_samples = _sample(crossing_south_pose_range)
+    north_samples = _sample(crossing_north_pose_range)
+    crossing_samples = torch.where(is_north_start.unsqueeze(-1), north_samples, south_samples)
+    rand_samples = torch.where(is_crossing.unsqueeze(-1), crossing_samples, flow_samples)
+
+    positions = root_states[:, 0:3] + env.scene.env_origins[env_ids] + rand_samples[:, 0:3]
+    orientations_delta = math_utils.quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
+    orientations = math_utils.quat_mul(root_states[:, 3:7], orientations_delta)
+
+    vel_ranges = torch.tensor([velocity_range.get(k, (0.0, 0.0)) for k in keys], device=asset.device)
+    vel_samples = math_utils.sample_uniform(vel_ranges[:, 0], vel_ranges[:, 1], (n, 6), device=asset.device)
+    velocities = root_states[:, 7:13] + vel_samples
+
+    asset.write_root_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
+    asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+
+
+def reset_evaluation_pedestrian_scenario_robot(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    velocity_range: dict[str, tuple[float, float]],
+    speed_range: tuple[float, float] = (0.9, 1.5),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Reset a benchmark profile's robot pose.
+
+    ``env.evaluation_scenario`` contains 0 (crossing), 1 (with flow), or 2 (against flow).
+    Crossing directions remain balanced per reset; flow direction is controlled separately by
+    ``env.evaluation_flow_goal_direction`` when the command is resampled.
+    """
+    # The RSL-RL wrapper performs one reset during construction. Profiles are installed by the
+    # evaluator immediately afterward, so let that unobserved bootstrap reset use the standard
+    # random scenario instead of requiring profile buffers too early.
+    if not hasattr(env, "evaluation_scenario"):
+        reset_pedestrian_scenario_robot(
+            env,
+            env_ids,
+            flow_pose_range,
+            crossing_south_pose_range,
+            crossing_north_pose_range,
+            velocity_range,
+            asset_cfg=asset_cfg,
+        )
+        return
+
+    configure_evaluation_pedestrian_crowd(env, env_ids, speed_range)
+    scenario = env.evaluation_scenario[env_ids]
+    is_crossing = scenario == 0
+    is_north_start = torch.rand(len(env_ids), device=env.device) < 0.5
+    mode = torch.where(
+        is_crossing,
+        torch.where(
+            is_north_start,
+            torch.full_like(scenario, 2),
+            torch.full_like(scenario, 1),
+        ),
+        torch.zeros_like(scenario),
+    )
+    _reset_robot_from_pedestrian_modes(
+        env,
+        env_ids,
+        mode,
+        flow_pose_range,
+        crossing_south_pose_range,
+        crossing_north_pose_range,
+        velocity_range,
+        asset_cfg,
+    )
+
+
+def configure_evaluation_pedestrian_crowd(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    speed_range: tuple[float, float] = (0.9, 1.5),
+):
+    """Apply fixed per-environment crowd counts and speeds before a benchmark reset."""
+    if not hasattr(env, "evaluation_pedestrian_count"):
+        raise RuntimeError("Evaluation crowd buffers must be installed before resetting the environment.")
+    counts = env.evaluation_pedestrian_count[env_ids]
+    speed = torch.tensor(speed_range, device=env.device, dtype=torch.float32).expand(len(env_ids), 2)
+    env.crowd_manager.set_active_count(env_ids, counts)
+    env.crowd_manager.set_speed_range(env_ids, speed)
+
+
+def reset_robot_mixed(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    static_pose_range: dict[str, tuple[float, float]],
+    static_velocity_range: dict[str, tuple[float, float]],
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    pedestrian_velocity_range: dict[str, tuple[float, float]],
+    crossing_prob: float = 0.5,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Reset the robot root state, branching per-env on ``env.is_pedestrian_env``.
+
+    Static envs (no pedestrian crowd) are reset with the standard
+    :func:`isaaclab.envs.mdp.events.reset_root_state_uniform`. Pedestrian-corridor envs are reset
+    via :func:`reset_pedestrian_scenario_robot`, which also samples the per-env flow/crossing
+    scenario mode.
+    """
+    from isaaclab.envs.mdp.events import reset_root_state_uniform
+
+    is_ped = env.is_pedestrian_env[env_ids]
+    ped_env_ids = env_ids[is_ped]
+    static_env_ids = env_ids[~is_ped]
+
+    if len(static_env_ids) > 0:
+        reset_root_state_uniform(env, static_env_ids, static_pose_range, static_velocity_range, asset_cfg)
+
+    if len(ped_env_ids) > 0:
+        reset_pedestrian_scenario_robot(
+            env,
+            ped_env_ids,
+            flow_pose_range,
+            crossing_south_pose_range,
+            crossing_north_pose_range,
+            pedestrian_velocity_range,
+            crossing_prob,
+            asset_cfg,
+        )
+
+
+def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir: float = 1.0):
+    """(Re)spawn the social-force pedestrian crowd for ``env_ids``.
+
+    Derives the per-env corridor geometry (origin, length, width) from the env's current
+    sub-terrain (``terrain.terrain_origins[terrain.terrain_levels, terrain.terrain_types]`` plus
+    the terrain generator's ``size``), then calls ``env.crowd_manager.reset_idx`` — preserving
+    the active pedestrian count and speed range last set by :func:`pedestrian_crowd_curriculum`.
+
+    Must be declared after ``reset_base`` (mode="reset") so ``terrain_origins``/``terrain_levels``
+    reflect this episode's terrain assignment before being read here.
+
+    ``env_ids`` is filtered down to ``env.is_pedestrian_env`` envs — a no-op for envs sitting on
+    a static (non-"ped_corridor") terrain column.
+    """
+    env_ids = env_ids[env.is_pedestrian_env[env_ids]]
+    if len(env_ids) == 0:
+        return
+
+    terrain: TerrainImporter = env.scene.terrain
+
+    levels = terrain.terrain_levels[env_ids]
+    types = terrain.terrain_types[env_ids]
+    corridor_origin = terrain.terrain_origins[levels, types][:, :2]
+
+    size = terrain.cfg.terrain_generator.size
+    corridor_length = torch.full((len(env_ids),), size[0], device=env.device)
+    corridor_width = torch.full((len(env_ids),), size[1], device=env.device)
+    flow_dir_t = torch.full((len(env_ids),), flow_dir, device=env.device)
+
+    crowd_manager = env.crowd_manager
+    num_active = crowd_manager.active_mask[env_ids].sum(dim=1)
+    speed_range = crowd_manager._speed_range[env_ids]
+    robot_pos = env.scene["robot"].data.root_pos_w[env_ids, :2]
+
+    crowd_manager.reset_idx(
+        env_ids,
+        corridor_origin,
+        flow_dir_t,
+        corridor_length,
+        corridor_width,
+        num_active,
+        speed_range,
+        robot_pos=robot_pos,
+    )
