@@ -962,16 +962,18 @@ class LidarHistoryStore:
     (policy/critic :class:`TemporalLidarScan`, :class:`TemporalLidarPredictionTarget`)
     share a single copy of the raw history instead of each maintaining a private buffer.
 
-    Exactly one "owner" term calls :meth:`ensure_updated` once per environment step
-    (idempotent, keyed on ``env.common_step_counter``); all other "reader" terms call
-    :meth:`assert_fresh` and then read via :meth:`frame` / :meth:`ego`.
+    Exactly one "owner" term touches a store once per environment step (idempotent,
+    keyed on ``env.common_step_counter``).  A store can either push the current
+    RayCaster frame or consume an asynchronously completed scan from a collector.
+    The latter may deliberately hold its newest frame over several policy steps.
     """
 
     def __init__(self, num_envs: int, num_rays: int, depth: int, max_distance: float, device: str):
         self.depth = depth
         self.max_distance = max_distance
-        self._head = 0
-        self._last_update_step = -1
+        self.num_envs = num_envs
+        self._head = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._last_owner_step = -1
 
         # World-frame XY hit positions and per-ray state, identical semantics to the
         # buffers previously owned by TemporalLidarScan: state 0 = reset placeholder,
@@ -987,11 +989,13 @@ class LidarHistoryStore:
         # Number of consecutive updates since the last reset, per env. Used to know
         # whether `ego(age)` / `frame(age)` slots hold real (post-reset) data.
         self._steps_since_reset = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._scan_age_s = torch.zeros(num_envs, device=device)
+        self._scan_updated = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
     def ensure_updated(self, env: "ManagerBasedEnv", sensor: RayCaster):
-        """Push the current scan into the ring buffer, unless already done this step."""
+        """Push the current RayCaster scan, unless this store was already touched this step."""
         step = env.common_step_counter
-        if self._last_update_step == step:
+        if self._last_owner_step == step:
             return
 
         ray_hits_w = sensor.data.ray_hits_w  # (num_envs, num_rays, 3)
@@ -1001,54 +1005,122 @@ class LidarHistoryStore:
         sensor_dist = torch.norm(ray_hits_w - pos_w.unsqueeze(1), dim=-1)
         ray_hit_valid = sensor_dist < (self.max_distance * 0.99)
 
-        self._head = (self._head - 1) % self.depth
-        self._hit_pos_buffer[self._head] = ray_hits_w[..., :2]
-        self._ray_state_buffer[self._head] = torch.where(ray_hit_valid, 2, 1).to(torch.uint8)
-
         _, _, cur_yaw = math_utils.euler_xyz_from_quat(quat_w)
-        self._ego_xy[self._head] = pos_w[:, :2]
-        self._ego_yaw[self._head] = cur_yaw
+        env_ids = torch.arange(self.num_envs, device=ray_hits_w.device)
+        self._push(
+            env_ids,
+            ray_hits_w[..., :2],
+            torch.where(ray_hit_valid, 2, 1).to(torch.uint8),
+            pos_w[:, :2],
+            cur_yaw,
+            torch.zeros(self.num_envs, device=ray_hits_w.device),
+        )
+        self._last_owner_step = step
 
-        self._steps_since_reset += 1
-        self._last_update_step = step
+    def ensure_collector_updated(self, env: "ManagerBasedEnv", collector) -> None:
+        """Consume completed scans made available by a rolling-lidar collector.
+
+        The collector is advanced inside the physics loop.  This method is called by
+        an observation term at the policy rate and may therefore touch the store while
+        intentionally pushing no frame when a scan is still being assembled or delayed.
+        """
+        step = env.common_step_counter
+        if self._last_owner_step == step:
+            return
+
+        self._scan_updated.zero_()
+        completed = collector.consume_completed()
+        if completed is not None:
+            env_ids = completed["env_ids"]
+            self._push(
+                env_ids,
+                completed["hit_xy"],
+                completed["ray_state"],
+                completed["ego_xy"],
+                completed["ego_yaw"],
+                completed["scan_age_s"],
+            )
+        self._scan_age_s.copy_(collector.scan_age_s())
+        self._last_owner_step = step
+
+    def _push(
+        self,
+        env_ids: torch.Tensor,
+        hit_xy: torch.Tensor,
+        ray_state: torch.Tensor,
+        ego_xy: torch.Tensor,
+        ego_yaw: torch.Tensor,
+        scan_age_s: torch.Tensor,
+    ) -> None:
+        """Push one scan per selected environment into independent ring heads."""
+        if env_ids.numel() == 0:
+            return
+        slots = (self._head[env_ids] - 1) % self.depth
+        self._head[env_ids] = slots
+        self._hit_pos_buffer[slots, env_ids] = hit_xy
+        self._ray_state_buffer[slots, env_ids] = ray_state
+        self._ego_xy[slots, env_ids] = ego_xy
+        self._ego_yaw[slots, env_ids] = ego_yaw
+        self._steps_since_reset[env_ids] += 1
+        self._scan_age_s[env_ids] = scan_age_s
+        self._scan_updated[env_ids] = True
 
     def assert_fresh(self, env: "ManagerBasedEnv"):
         """Raise if no owner term has updated the store yet this step."""
-        if self._last_update_step != env.common_step_counter:
+        if self._last_owner_step != env.common_step_counter:
             raise RuntimeError(
-                "LidarHistoryStore has not been updated this step. Exactly one"
+                "LidarHistoryStore has not been touched this step. Exactly one"
                 " TemporalLidarScan observation term (typically the policy's) must be"
                 " configured with `owns_history=True` and must be computed before any"
                 " reader terms (policy group is computed before critic/prediction)."
             )
 
     def reset(self, env_ids: torch.Tensor | None = None):
+        # A user-initiated reset can compute observations without advancing
+        # common_step_counter.  Permit the owner to refresh its state in that case.
+        self._last_owner_step = -1
         if env_ids is None:
             self._hit_pos_buffer[:] = 0.0
             self._ray_state_buffer[:] = 0
             self._ego_xy[:] = 0.0
             self._ego_yaw[:] = 0.0
             self._steps_since_reset[:] = 0
+            self._head[:] = 0
+            self._scan_age_s[:] = 0.0
+            self._scan_updated[:] = False
         else:
             self._hit_pos_buffer[:, env_ids] = 0.0
             self._ray_state_buffer[:, env_ids] = 0
             self._ego_xy[:, env_ids] = 0.0
             self._ego_yaw[:, env_ids] = 0.0
             self._steps_since_reset[env_ids] = 0
+            self._head[env_ids] = 0
+            self._scan_age_s[env_ids] = 0.0
+            self._scan_updated[env_ids] = False
 
     def frame(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(hit_xy, ray_state)`` for the scan ``age`` steps ago (0 = newest)."""
         slot = (self._head + age) % self.depth
-        return self._hit_pos_buffer[slot], self._ray_state_buffer[slot]
+        env_ids = torch.arange(self.num_envs, device=slot.device)
+        return self._hit_pos_buffer[slot, env_ids], self._ray_state_buffer[slot, env_ids]
 
     def ego(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(xy, yaw)`` ego pose ``age`` steps ago (0 = newest)."""
         slot = (self._head + age) % self.depth
-        return self._ego_xy[slot], self._ego_yaw[slot]
+        env_ids = torch.arange(self.num_envs, device=slot.device)
+        return self._ego_xy[slot, env_ids], self._ego_yaw[slot, env_ids]
 
     def valid(self, age: int) -> torch.Tensor:
         """Per-env mask: whether the slot ``age`` steps ago holds real post-reset data."""
         return self._steps_since_reset > age
+
+    @property
+    def scan_age_s(self) -> torch.Tensor:
+        return self._scan_age_s
+
+    @property
+    def scan_updated(self) -> torch.Tensor:
+        return self._scan_updated
 
 
 def _get_lidar_history_store(
@@ -1059,18 +1131,20 @@ def _get_lidar_history_store(
     horizon: int,
     max_distance: float,
     device: str,
+    history_key: str | None = None,
 ) -> LidarHistoryStore:
     """Lazily create/look up the shared :class:`LidarHistoryStore` for a sensor on ``env``."""
     if not hasattr(env, "_lidar_history_stores"):
         env._lidar_history_stores = {}
-    store = env._lidar_history_stores.get(sensor_name)
+    store_key = history_key or sensor_name
+    store = env._lidar_history_stores.get(store_key)
     if store is None:
         depth = max(horizon, 2)
         store = LidarHistoryStore(num_envs, num_rays, depth, max_distance, device)
-        env._lidar_history_stores[sensor_name] = store
+        env._lidar_history_stores[store_key] = store
     elif horizon > store.depth:
         raise ValueError(
-            f"LidarHistoryStore for sensor '{sensor_name}' was created with depth"
+            f"LidarHistoryStore for key '{store_key}' was created with depth"
             f" {store.depth}, but a term requested horizon {horizon}. The owning term"
             " (owns_history=True) must be configured with the largest horizon required"
             " by any reader."
@@ -1100,15 +1174,19 @@ class TemporalLidarScan(ManagerTermBase):
         sensor_cfg: SceneEntityCfg = params["sensor_cfg"]
         max_distance: float = params["max_distance"]
         owns_history: bool = params.get("owns_history", False)
+        history_key: str | None = params.get("history_key")
+        history_num_rays: int | None = params.get("history_num_rays")
 
         sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
-        num_rays: int = sensor.data.ray_hits_w.shape[1]
+        num_rays: int = history_num_rays if history_num_rays is not None else sensor.data.ray_hits_w.shape[1]
         num_envs: int = env.num_envs
         device: str = env.device
 
         self._horizon = horizon
         self._owns_history = owns_history
-        self._store = _get_lidar_history_store(env, sensor_cfg.name, num_envs, num_rays, horizon, max_distance, device)
+        self._store = _get_lidar_history_store(
+            env, sensor_cfg.name, num_envs, num_rays, horizon, max_distance, device, history_key
+        )
 
     def reset(self, env_ids=None):
         # Only the owner resets the shared store; readers no-op (the owner's reset call
@@ -1127,6 +1205,9 @@ class TemporalLidarScan(ManagerTermBase):
         pos_noise_std: float = 0.0,
         include_validity: bool = True,
         owns_history: bool = False,
+        history_key: str | None = None,
+        history_num_rays: int | None = None,
+        collector_name: str | None = None,
     ) -> torch.Tensor:
         """Compute the temporal lidar observation.
 
@@ -1145,6 +1226,12 @@ class TemporalLidarScan(ManagerTermBase):
                 :class:`LidarHistoryStore` for this sensor. Exactly one term per sensor
                 (typically the policy's) must set this to True; all other terms read the
                 same store and must be computed afterwards (policy group computes first).
+            history_key: Independent history identifier. Defaults to the sensor name.
+            history_num_rays: Number of rays held by this history.  A rolling
+                collector may reduce the sensor's raw ray count before storage.
+            collector_name: Optional attribute on ``env`` that supplies asynchronously
+                completed scans. When set, the owner advances history only when that
+                collector makes a two-cloud scan available.
         """
         sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
         pos_w = sensor.data.pos_w                    # (num_envs, 3)
@@ -1155,7 +1242,10 @@ class TemporalLidarScan(ManagerTermBase):
 
         store = self._store
         if owns_history:
-            store.ensure_updated(env, sensor)
+            if collector_name is None:
+                store.ensure_updated(env, sensor)
+            else:
+                store.ensure_collector_updated(env, getattr(env, collector_name))
         else:
             store.assert_fresh(env)
 
@@ -1250,6 +1340,63 @@ class TemporalLidarScan(ManagerTermBase):
         return output.view(num_envs, -1)
 
 
+def temporal_lidar_scan_age(
+    env: "ManagerBasedEnv",
+    sensor_cfg: SceneEntityCfg,
+    max_distance: float,
+    history_key: str,
+    collector_name: str,
+    history_num_rays: int | None = None,
+    history_horizon: int = 2,
+    max_age_s: float = 0.25,
+) -> torch.Tensor:
+    """Return the latest completed actor-scan age, normalized to ``[0, 1]``.
+
+    This term is intentionally placed immediately before :class:`TemporalLidarScan`
+    in the policy group.  It owns the completed-scan store update for that group so
+    the lidar term can remain the final tensor consumed by the CNN.
+    """
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+    num_rays = history_num_rays if history_num_rays is not None else sensor.data.ray_hits_w.shape[1]
+    store = _get_lidar_history_store(
+        env,
+        sensor_cfg.name,
+        env.num_envs,
+        num_rays,
+        history_horizon,
+        max_distance,
+        env.device,
+        history_key,
+    )
+    store.ensure_collector_updated(env, getattr(env, collector_name))
+    return torch.clamp(store.scan_age_s / max_age_s, 0.0, 1.0).unsqueeze(-1)
+
+
+def temporal_lidar_scan_event(
+    env: "ManagerBasedEnv",
+    sensor_cfg: SceneEntityCfg,
+    max_distance: float,
+    history_key: str,
+    history_num_rays: int | None = None,
+    history_horizon: int = 2,
+) -> torch.Tensor:
+    """Return a binary flag marking policy steps with a newly completed scan."""
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+    num_rays = history_num_rays if history_num_rays is not None else sensor.data.ray_hits_w.shape[1]
+    store = _get_lidar_history_store(
+        env,
+        sensor_cfg.name,
+        env.num_envs,
+        num_rays,
+        history_horizon,
+        max_distance,
+        env.device,
+        history_key,
+    )
+    store.assert_fresh(env)
+    return store.scan_updated.float().unsqueeze(-1)
+
+
 class TemporalLidarPredictionTarget(ManagerTermBase):
     """Self-supervised prediction target for the temporal-lidar world-model head.
 
@@ -1276,14 +1423,20 @@ class TemporalLidarPredictionTarget(ManagerTermBase):
         params = cfg.params
         sensor_cfg: SceneEntityCfg = params["sensor_cfg"]
         max_distance: float = params["max_distance"]
+        history_key: str | None = params.get("history_key")
+        history_num_rays: int | None = params.get("history_num_rays")
+        history_horizon: int = params.get("history_horizon", 2)
         sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
-        num_rays: int = sensor.data.ray_hits_w.shape[1]
+        num_rays: int = history_num_rays if history_num_rays is not None else sensor.data.ray_hits_w.shape[1]
         num_envs: int = env.num_envs
         device: str = env.device
 
         # Reader: needs at least depth 2 (frame@0 = newest scan, ego@1 = previous pose).
-        # Looks up the store created by the owning TemporalLidarScan term for this sensor.
-        self._store = _get_lidar_history_store(env, sensor_cfg.name, num_envs, num_rays, 2, max_distance, device)
+        # ``history_horizon`` must match the owning term when this reader is constructed
+        # first during observation-manager setup.
+        self._store = _get_lidar_history_store(
+            env, sensor_cfg.name, num_envs, num_rays, history_horizon, max_distance, device, history_key
+        )
 
     def reset(self, env_ids=None):
         # Reader: the owning TemporalLidarScan term resets the shared store.
@@ -1296,6 +1449,9 @@ class TemporalLidarPredictionTarget(ManagerTermBase):
         num_bins: int,
         fov_degrees: float,
         max_distance: float,
+        history_key: str | None = None,
+        history_num_rays: int | None = None,
+        history_horizon: int = 2,
     ) -> torch.Tensor:
         """Compute the next-frame prediction target.
 

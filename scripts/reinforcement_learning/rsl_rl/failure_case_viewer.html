@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Collision Failure Analysis</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #111827; color: #e5e7eb; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { max-width: 1580px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 1.55rem; margin: 0; } h2 { font-size: .88rem; letter-spacing: .04em; text-transform: uppercase; color: #9ca3af; margin: 0 0 10px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; } .run-selector { display: flex; align-items: center; gap: 7px; color: #cbd5e1; font-size: .86rem; } .run-selector select { min-width: 190px; }
+    .tabs { display: flex; gap: 7px; flex-wrap: wrap; } .tab { min-height: 32px; } .tab.active { background: #1d4ed8; border-color: #2563eb; }
+    #subtitle, #message { color: #9ca3af; font-size: .9rem; } #message.error { color: #fca5a5; }
+    .workspace { display: grid; grid-template-columns: minmax(480px, 1fr) 330px; gap: 18px; align-items: start; }
+    .card { background: #1f2937; border: 1px solid #374151; border-radius: 10px; box-shadow: 0 8px 24px #0002; }
+    .plot-card { overflow: hidden; } #plot-title { padding: 13px 16px; border-bottom: 1px solid #374151; font-weight: 600; }
+    #plot { display: block; width: 100%; height: min(68vh, 760px); min-height: 470px; background: #0b1220; }
+    .timeline { display: grid; grid-template-columns: 76px 1fr 108px; gap: 10px; align-items: center; padding: 14px 16px; }
+    input[type="range"] { width: 100%; accent-color: #60a5fa; } .time-value { font-variant-numeric: tabular-nums; text-align: right; color: #cbd5e1; }
+    .controls { padding: 16px; display: grid; gap: 18px; }
+    .group { border-bottom: 1px solid #374151; padding-bottom: 16px; display: grid; gap: 9px; } .group:last-child { border: 0; padding-bottom: 0; }
+    label { display: grid; gap: 5px; color: #cbd5e1; font-size: .86rem; }
+    input, select, button { font: inherit; color: #e5e7eb; background: #111827; border: 1px solid #4b5563; border-radius: 6px; min-height: 34px; padding: 6px 9px; }
+    input:focus, select:focus, button:focus { outline: 2px solid #60a5fa; outline-offset: 1px; }
+    button { cursor: pointer; background: #26354d; } button:hover:not(:disabled) { background: #324663; } button:disabled { cursor: not-allowed; opacity: .45; }
+    .occurrence { display: grid; grid-template-columns: 42px 1fr 42px; gap: 7px; align-items: center; } #occurrence { text-align: center; }
+    .switches { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .switches label { display: flex; align-items: center; gap: 7px; font-size: .82rem; } .switches input { min-height: auto; }
+    .summary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; margin: 0; font-size: .85rem; } .summary dt { color: #9ca3af; } .summary dd { margin: 0; overflow-wrap: anywhere; }
+    .tag-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; } #save-tags { background: #1d4ed8; border-color: #2563eb; } #save-tags:hover { background: #2563eb; }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 0 16px 12px; color: #cbd5e1; font-size: .8rem; } .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; } .legend .robot { background: #60a5fa; border-radius: 1px; } .legend .pedestrian { background: #fb923c; } .legend .collider { border: 2px solid #f87171; background: transparent; } .legend .goal { background: #4ade80; }
+    #evaluation-tab { display: grid; gap: 18px; } .evaluation-controls { padding: 15px 16px; display: flex; flex-wrap: wrap; align-items: end; gap: 12px 18px; } .evaluation-controls label { display: flex; align-items: center; gap: 7px; } .evaluation-controls input { min-height: auto; } .evaluation-controls .hint { color: #9ca3af; font-size: .82rem; flex: 1 1 240px; } .scenario-chart-group { display: grid; gap: 10px; } .scenario-chart-group > h2 { margin: 0; color: #e5e7eb; font-size: 1.15rem; } .evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; } .chart-card { padding: 14px; } .chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; } .chart-heading h3 { margin: 0; font-size: 1rem; } .chart-canvas { display: block; width: 100%; height: 410px; background: #0b1220; border: 1px solid #374151; border-radius: 7px; } #evaluation-empty { padding: 20px; color: #fbbf24; }
+    @media (max-width: 950px) { body { padding: 14px; } .workspace, .evaluation-grid { grid-template-columns: 1fr; } .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .group:last-child { border-bottom: 1px solid #374151; padding-bottom: 16px; } }
+    @media (max-width: 620px) { header { align-items: flex-start; flex-direction: column; } .controls, .switches { grid-template-columns: 1fr; } #plot { min-height: 360px; height: 58vh; } .chart-canvas { height: 340px; } .timeline { grid-template-columns: 62px 1fr; } .time-value { grid-column: 2; text-align: left; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>Dynamic Crowd Evaluation</h1><div id="subtitle">Loading episode replays…</div></div><label class="run-selector">Evaluation run <select id="evaluation-run" aria-label="Evaluation run"></select></label><nav class="tabs" aria-label="Viewer sections"><button id="collision-tab-button" class="tab active" type="button">Collision Replays</button><button id="success-tab-button" class="tab" type="button">Sampled Successes</button><button id="interaction-tab-button" class="tab" type="button">Interaction Events</button><button id="evaluation-tab-button" class="tab" type="button">Evaluation plots</button></nav><div id="message" role="status"></div></header>
+  <main id="replay-tab" class="workspace">
+    <section class="card plot-card">
+      <div id="plot-title">No case selected</div>
+      <canvas id="plot" aria-label="Robot-centered bird's-eye episode replay"></canvas>
+      <div class="legend"><span><i class="robot"></i>Robot heading</span><span><i class="pedestrian"></i>Pedestrian</span><span><i class="collider"></i>Colliding pedestrian</span><span><i class="goal"></i>Goal</span><span>Blue: actual velocity</span><span>Purple: command</span></div>
+      <div class="timeline"><label for="time">Time</label><input id="time" type="range" min="0" max="0" value="0" step="1"><output id="time-value" class="time-value">—</output></div>
+    </section>
+    <aside class="card controls">
+      <section class="group"><h2>Filter replays</h2>
+        <label>Scenario <select id="scenario"></select></label>
+        <label>Crowd count <select id="crowd-count"><option value="">All counts</option></select></label>
+        <label id="interaction-label-filter" hidden>Event label <select id="interaction-label"><option value="">All event labels</option></select></label>
+        <label>Include tags <input id="include-tags" list="tag-options" placeholder="Any comma-separated tag"></label>
+        <label>Exclude tag <select id="exclude-tag"><option value="">No excluded tag</option></select></label><datalist id="tag-options"></datalist>
+      </section>
+      <section class="group"><h2>Occurrence</h2>
+        <div class="occurrence"><button id="previous-case" title="Previous matching occurrence">◀</button><input id="occurrence" type="number" min="1" value="1"><button id="next-case" title="Next matching occurrence">▶</button></div>
+        <div id="occurrence-count" class="time-value">0 matching cases</div>
+      </section>
+      <section class="group"><h2>View</h2>
+        <label>Camera <select id="view-mode"><option value="robot">Robot-centered</option><option value="world">World fixed (pan and zoom)</option></select></label>
+        <button id="reset-view" type="button">Center world view on robot</button>
+        <div class="time-value">World view: drag to pan · scroll to zoom</div>
+      </section>
+      <section class="group"><h2>Display</h2>
+        <div class="switches"><label><input id="pedestrian-velocity" type="checkbox" checked>Pedestrian velocity</label><label><input id="robot-velocity" type="checkbox" checked>Robot actual velocity</label><label><input id="robot-command" type="checkbox" checked>Robot command</label><label><input id="trails" type="checkbox" checked>One-second trails</label></div>
+      </section>
+      <section class="group"><h2>Selected occurrence</h2>
+        <dl id="summary" class="summary"><dt>Status</dt><dd>No matching case</dd></dl>
+      </section>
+      <section class="group"><h2>Tags for selected case</h2>
+        <div class="tag-row"><input id="case-tags" placeholder="comma-separated free-text tags"><button id="save-tags">Save</button></div>
+        <div id="automatic-tags" class="time-value"></div>
+      </section>
+    </aside>
+  </main>
+  <main id="evaluation-tab" hidden>
+    <section id="evaluation-empty" class="card" hidden></section>
+    <section id="evaluation-dashboard" hidden>
+      <section class="card evaluation-controls">
+        <label><input id="exclude-goal-success" type="checkbox" checked>Exclude goal-region collisions from the success-rate denominator</label>
+        <label><input id="exclude-goal-collision" type="checkbox" checked>Exclude goal-region collisions from collision rate and histogram</label>
+        <span class="hint">Plots use all completed episodes from each crowd-count cell.</span>
+        <label>Yield ratio ≤ <input id="yield-ratio" type="number" min="0" max="2" step="0.01" value="0.70"></label>
+        <label>Against-flow assert ratio ≥ <input id="assert-ratio" type="number" min="0" max="2" step="0.01" value="0.85"></label>
+        <button id="reset-interaction-thresholds" type="button">Reset interaction thresholds</button>
+        <label>Preset <input id="interaction-preset-name" placeholder="name"></label><button id="save-interaction-preset" type="button">Save preset</button>
+        <select id="interaction-presets"><option value="">Load preset…</option></select>
+        <button id="export-interaction-json" type="button">Export event JSON</button><button id="export-interaction-csv" type="button">Export event CSV</button>
+      </section>
+      <section class="scenario-chart-group" data-scenario-group="crossing"><h2>Crossing</h2><section class="evaluation-grid">
+        <section class="card chart-card"><div class="chart-heading"><h3>Success and collision rates</h3><button class="export-rate" data-scenario="crossing" type="button">Export PNG</button></div><canvas id="rate-plot-crossing" class="chart-canvas" aria-label="Success and collision rates for crossing"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Failure histogram</h3><button class="export-failure" data-scenario="crossing" type="button">Export PNG</button></div><canvas id="failure-plot-crossing" class="chart-canvas" aria-label="Failure counts for crossing"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Interaction events</h3><button class="export-interaction" data-scenario="crossing" type="button">Export PNG</button></div><canvas id="interaction-plot-crossing" class="chart-canvas" aria-label="Interaction event categories for crossing"></canvas></section>
+      </section></section>
+      <section class="scenario-chart-group" data-scenario-group="with_flow"><h2>With flow</h2><section class="evaluation-grid">
+        <section class="card chart-card"><div class="chart-heading"><h3>Success and collision rates</h3><button class="export-rate" data-scenario="with_flow" type="button">Export PNG</button></div><canvas id="rate-plot-with-flow" class="chart-canvas" aria-label="Success and collision rates with pedestrian flow"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Failure histogram</h3><button class="export-failure" data-scenario="with_flow" type="button">Export PNG</button></div><canvas id="failure-plot-with-flow" class="chart-canvas" aria-label="Failure counts with pedestrian flow"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Interaction events</h3><button class="export-interaction" data-scenario="with_flow" type="button">Export PNG</button></div><canvas id="interaction-plot-with-flow" class="chart-canvas" aria-label="Interaction event categories with pedestrian flow"></canvas></section>
+      </section></section>
+      <section class="scenario-chart-group" data-scenario-group="against_flow"><h2>Against flow</h2><section class="evaluation-grid">
+        <section class="card chart-card"><div class="chart-heading"><h3>Success and collision rates</h3><button class="export-rate" data-scenario="against_flow" type="button">Export PNG</button></div><canvas id="rate-plot-against-flow" class="chart-canvas" aria-label="Success and collision rates against pedestrian flow"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Failure histogram</h3><button class="export-failure" data-scenario="against_flow" type="button">Export PNG</button></div><canvas id="failure-plot-against-flow" class="chart-canvas" aria-label="Failure counts against pedestrian flow"></canvas></section>
+        <section class="card chart-card"><div class="chart-heading"><h3>Interaction events</h3><button class="export-interaction" data-scenario="against_flow" type="button">Export PNG</button></div><canvas id="interaction-plot-against-flow" class="chart-canvas" aria-label="Interaction event categories against pedestrian flow"></canvas></section>
+      </section>
+    </section>
+    </section>
+  </main>
+  <script>
+  (() => {
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const controls = { run: $("evaluation-run"), scenario: $("scenario"), count: $("crowd-count"), interactionLabel: $("interaction-label"), include: $("include-tags"), exclude: $("exclude-tag"), occurrence: $("occurrence"), previous: $("previous-case"), next: $("next-case"), time: $("time"), viewMode: $("view-mode"), resetView: $("reset-view"), pedestrianVelocity: $("pedestrian-velocity"), robotVelocity: $("robot-velocity"), robotCommand: $("robot-command"), trails: $("trails") };
+    const state = { data: null, runId: null, mode: "collision", tags: {}, matches: [], case: null, frames: null, request: 0, worldCenter: null, worldZoom: 1, pan: null, lastScale: 1 };
+    const canvas = $("plot"), context = canvas.getContext("2d");
+    const tagSet = (caseItem) => {
+      const all = [...(Array.isArray(caseItem.automatic_tags) ? caseItem.automatic_tags : []), ...(state.tags[caseItem.case_id] || [])];
+      const seen = new Set(); return all.filter((tag) => { const key = String(tag).trim().toLocaleLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+    };
+    const parseTags = (value) => { const seen = new Set(); return value.split(",").map((tag) => tag.trim()).filter((tag) => { const key = tag.toLocaleLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; }); };
+    const setMessage = (message, error = false) => { const element = $("message"); element.textContent = message; element.className = error ? "error" : ""; };
+    async function api(url, options) { const runParameter = state.runId && url.startsWith("/api/") ? `${url.includes("?") ? "&" : "?"}run=${encodeURIComponent(state.runId)}` : ""; const response = await fetch(`${url}${runParameter}`, options); const data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText); return data; }
+    function populateRunSelector() { const runs = state.data.runs || []; controls.run.replaceChildren(...runs.map((run) => new Option(run.label, run.id))); controls.run.value = state.runId || state.data.selected_run_id; controls.run.disabled = runs.length <= 1; }
+    const caseIndex = () => state.mode === "interaction" ? (state.data.interaction_index || { cases: [] }) : state.data.index;
+    function populateFilters() {
+      const { scenario_labels: labels, scenario_order: order } = state.data, index = caseIndex();
+      controls.scenario.replaceChildren(new Option("All scenarios", ""), ...order.map((scenario) => new Option(labels[scenario], scenario)));
+      const counts = [...new Set(index.cases.map((item) => item.pedestrian_count))].sort((a, b) => a - b);
+      controls.count.replaceChildren(new Option("All counts", ""), ...counts.map((count) => new Option(String(count), String(count))));
+      const interactionLabelFilter = $("interaction-label-filter");
+      interactionLabelFilter.hidden = state.mode !== "interaction";
+      if (state.mode === "interaction") {
+        const selected = controls.interactionLabel.value;
+        const eventLabels = [...new Set(state.data.interaction?.labels ? state.data.scenario_order.flatMap((scenario) => state.data.interaction.labels[scenario] || []) : [])];
+        controls.interactionLabel.replaceChildren(new Option("All event labels", ""), ...eventLabels.map((label) => new Option(label, label)));
+        if (eventLabels.includes(selected)) controls.interactionLabel.value = selected;
+      } else {
+        controls.interactionLabel.value = "";
+      }
+      updateTagOptions();
+    }
+    function updateTagOptions() {
+      const selected = controls.exclude.value;
+      const tags = [...new Set(caseIndex().cases.flatMap(tagSet))].sort((a, b) => a.localeCompare(b));
+      $("tag-options").replaceChildren(...tags.map((tag) => { const option = document.createElement("option"); option.value = tag; return option; }));
+      controls.exclude.replaceChildren(new Option("No excluded tag", ""), ...tags.map((tag) => new Option(tag, tag)));
+      if (tags.some((tag) => tag.toLocaleLowerCase() === selected.toLocaleLowerCase())) controls.exclude.value = selected;
+    }
+    function matchingCases() {
+      const scenario = controls.scenario.value, count = controls.count.value, interactionLabel = controls.interactionLabel.value, wanted = new Set(parseTags(controls.include.value).map((tag) => tag.toLocaleLowerCase())), excluded = controls.exclude.value.toLocaleLowerCase();
+      return caseIndex().cases.filter((item) => {
+        if (state.mode === "collision" && (item.outcome || "collision") !== "collision") return false;
+        if (state.mode === "success" && item.outcome !== "success") return false;
+        if (state.mode === "interaction" && interactionLabel && displayedEventLabel(item) !== interactionLabel) return false;
+        if (scenario && item.scenario !== scenario) return false;
+        if (count && String(item.pedestrian_count) !== count) return false;
+        const tags = tagSet(item).map((tag) => tag.toLocaleLowerCase());
+        return (!wanted.size || tags.some((tag) => wanted.has(tag))) && (!excluded || !tags.includes(excluded));
+      });
+    }
+    async function refreshCases(selectedId = state.case?.case_id, frameIndex = null) {
+      state.matches = matchingCases();
+      if (!state.matches.some((item) => item.case_id === selectedId)) selectedId = state.matches[0]?.case_id || null;
+      controls.occurrence.max = Math.max(1, state.matches.length); controls.occurrence.disabled = !selectedId; controls.previous.disabled = !selectedId; controls.next.disabled = !selectedId;
+      $("occurrence-count").textContent = `${state.matches.length} matching replay${state.matches.length === 1 ? "" : "s"}`;
+      if (!selectedId) { state.case = null; state.frames = null; controls.occurrence.value = 1; draw(); return; }
+      controls.occurrence.value = state.matches.findIndex((item) => item.case_id === selectedId) + 1;
+      await loadCase(selectedId, frameIndex);
+    }
+    async function loadCase(caseId, frameIndex = null) {
+      const request = ++state.request; const caseItem = state.matches.find((item) => item.case_id === caseId); if (!caseItem) return;
+      const changingCase = state.case?.case_id !== caseId;
+      setMessage("Loading replay…");
+      try {
+        const endpoint = state.mode === "interaction" ? "/api/interaction-case/" : "/api/case/";
+        const frames = await api(`${endpoint}${encodeURIComponent(caseId)}`); if (request !== state.request) return;
+        state.case = caseItem; state.frames = frames; if (changingCase) { state.worldCenter = null; state.worldZoom = 1; } const finalFrame = frames.time_s.length - 1; controls.time.max = Math.max(0, finalFrame); controls.time.value = Math.min(Math.max(0, frameIndex ?? finalFrame), finalFrame);
+        $("case-tags").value = (state.tags[caseId] || []).join(", "); updateCaseDetails(); draw(); setMessage("");
+      } catch (error) { setMessage(error.message, true); }
+    }
+    function updateCaseDetails() {
+      if (!state.case || !state.frames) { $("plot-title").textContent = "No episode replay matches the current filters"; $("summary").innerHTML = "<dt>Status</dt><dd>No matching replay</dd>"; $("automatic-tags").textContent = ""; return; }
+      const item = state.case, frame = Number(controls.time.value), relative = state.frames.time_s[frame] - state.frames.time_s.at(-1), labels = state.data.scenario_labels, eventCase = state.mode === "interaction", success = item.outcome === "success", terminalLabel = eventCase ? (displayedEventLabel(item) || "event") : (success ? "goal reached" : "collision");
+      $("plot-title").textContent = `${labels[item.scenario] || item.scenario} · ${item.case_id} · ${relative.toFixed(2)} s to ${terminalLabel}`;
+      $("time-value").textContent = `${relative.toFixed(2)} s (${frame + 1}/${state.frames.time_s.length})`;
+      const terminalTime = item.terminal_time_s ?? item.collision_time_s ?? item.end_time_s;
+      const interactionDetails = success && Number.isFinite(Number(item.minimum_agent_distance_m)) ? [["Min agent distance", `${Number(item.minimum_agent_distance_m).toFixed(2)} m`], ["Interaction range", `< ${Number(item.interesting_interaction_distance_m).toFixed(2)} m`]] : [];
+      const eventDetails = eventCase ? [["Event label", displayedEventLabel(item) || "—"], ["Canonical label", item.canonical_label || "—"], ["Pedestrian slot", String(item.pedestrian_id)], ...(item.scenario === "crossing" ? [["Front crossing", item.front_crossed ? "yes" : "no"]] : []), ["Speed ratio", Number.isFinite(Number(item.speed_ratio)) ? Number(item.speed_ratio).toFixed(3) : "—"], ["Min clearance", `${Number(item.minimum_clearance_m).toFixed(2)} m`]] : [];
+      $("summary").replaceChildren(...[["Outcome", eventCase ? "Interaction event" : (success ? "Success" : "Collision")], ["Scenario", labels[item.scenario] || item.scenario], ["Crowd", String(item.pedestrian_count)], ...interactionDetails, ...eventDetails, ...(eventCase || success ? [] : [["Collider slots", (item.colliding_agent_ids || []).join(", ") || "—"]]), [eventCase ? "Event end" : (success ? "Goal reached" : "Collision time"), `${Number(terminalTime).toFixed(2)} s`]].flatMap(([name, value]) => { const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = name; description.textContent = value; return [term, description]; }));
+      const automatic = Array.isArray(item.automatic_tags) ? item.automatic_tags : []; $("automatic-tags").textContent = `Automatic tags: ${automatic.join(", ") || "none"}`;
+    }
+    function resizeCanvas() { const rect = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height)); if (canvas.width !== width * ratio || canvas.height !== height * ratio) { canvas.width = width * ratio; canvas.height = height * ratio; } context.setTransform(ratio, 0, 0, ratio, 0, 0); return { width, height }; }
+    function draw() {
+      const { width, height } = resizeCanvas(); context.clearRect(0, 0, width, height); context.fillStyle = "#0b1220"; context.fillRect(0, 0, width, height);
+      if (!state.case || !state.frames) { context.fillStyle = "#9ca3af"; context.font = "16px system-ui"; context.textAlign = "center"; context.fillText("No episode replay matches the current filters.", width / 2, height / 2); updateCaseDetails(); return; }
+      const frames = state.frames, index = Number(controls.time.value), robot = frames.robot_position_xy[index], radius = Number(state.data.view_radius), robotCentered = controls.viewMode.value === "robot";
+      if (!robotCentered && state.worldCenter === null) state.worldCenter = [...robot];
+      const viewCenter = robotCentered ? robot : state.worldCenter, scale = Math.min(width, height) / (2 * radius) * (robotCentered ? 1 : state.worldZoom), toScreen = (point) => [width / 2 + (point[0] - viewCenter[0]) * scale, height / 2 - (point[1] - viewCenter[1]) * scale]; state.lastScale = scale; canvas.style.cursor = robotCentered ? "default" : (state.pan ? "grabbing" : "grab");
+      const minX = viewCenter[0] - width / (2 * scale), maxX = viewCenter[0] + width / (2 * scale), minY = viewCenter[1] - height / (2 * scale), maxY = viewCenter[1] + height / (2 * scale);
+      context.strokeStyle = "#223047"; context.lineWidth = 1; for (let worldX = Math.ceil(minX); worldX <= Math.floor(maxX); worldX += 1) { const [x] = toScreen([worldX, viewCenter[1]]); context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke(); } for (let worldY = Math.ceil(minY); worldY <= Math.floor(maxY); worldY += 1) { const [, y] = toScreen([viewCenter[0], worldY]); context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
+      if (minX <= 0 && maxX >= 0) { const [x] = toScreen([0, viewCenter[1]]); context.strokeStyle = "#475569"; context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke(); } if (minY <= 0 && maxY >= 0) { const [, y] = toScreen([viewCenter[0], 0]); context.strokeStyle = "#475569"; context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
+      const drawPath = (points, color, lineWidth, alpha = 1) => { context.save(); context.globalAlpha = alpha; context.strokeStyle = color; context.lineWidth = lineWidth; context.beginPath(); let started = false; for (const point of points) { if (!point) { started = false; continue; } const [x, y] = toScreen(point); if (!started) { context.moveTo(x, y); started = true; } else context.lineTo(x, y); } context.stroke(); context.restore(); };
+      // Pedestrian slots are reused after a despawn.  There is no lifecycle field in
+      // replay artifacts, so detect a respawn as a displacement far larger than the
+      // velocity recorded for one simulation step and start a fresh trail segment.
+      const trailBreak = (previousPosition, position, previousVelocity, velocity) => {
+        const displacement = Math.hypot(position[0] - previousPosition[0], position[1] - previousPosition[1]);
+        const expectedTravel = state.case.step_dt_s * Math.max(Math.hypot(...previousVelocity), Math.hypot(...velocity));
+        return displacement > Math.max(.75, 3 * expectedTravel + .25);
+      };
+      if (controls.trails.checked) { const start = Math.max(0, index - Math.max(1, Math.round(1 / state.case.step_dt_s))); drawPath(frames.robot_position_xy.slice(start, index + 1), "#60a5fa", 2.5, .65); for (let agent = 0; agent < frames.pedestrian_position_xy[0].length; agent += 1) { const points = []; let previousPosition = null, previousVelocity = null; for (let frame = start; frame <= index; frame += 1) { if (!frames.pedestrian_active_mask[frame][agent]) { points.push(null); previousPosition = null; previousVelocity = null; continue; } const position = frames.pedestrian_position_xy[frame][agent], velocity = frames.pedestrian_velocity_xy_world[frame][agent]; if (previousPosition && trailBreak(previousPosition, position, previousVelocity, velocity)) points.push(null); points.push(position); previousPosition = position; previousVelocity = velocity; } drawPath(points, "#fb923c", 1.25, .35); } }
+      const vector = (position, velocity, color, width = 2) => { const magnitude = Math.hypot(velocity[0], velocity[1]); if (magnitude < 1e-5) return; const [x1, y1] = toScreen(position), [x2, y2] = toScreen([position[0] + velocity[0], position[1] + velocity[1]]), angle = Math.atan2(y2 - y1, x2 - x1); context.strokeStyle = context.fillStyle = color; context.lineWidth = width; context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke(); context.beginPath(); context.moveTo(x2, y2); context.lineTo(x2 - 8 * Math.cos(angle - .45), y2 - 8 * Math.sin(angle - .45)); context.lineTo(x2 - 8 * Math.cos(angle + .45), y2 - 8 * Math.sin(angle + .45)); context.closePath(); context.fill(); };
+      const pedestrianPositions = frames.pedestrian_position_xy[index], active = frames.pedestrian_active_mask[index], velocities = frames.pedestrian_velocity_xy_world[index], colliders = new Set(state.case.colliding_agent_ids || []);
+      if (controls.pedestrianVelocity.checked) pedestrianPositions.forEach((position, agent) => { if (active[agent]) vector(position, velocities[agent], "#fb923c", 1.5); });
+      const goal = toScreen(frames.goal_position_xy[index]); context.fillStyle = "#4ade80"; context.beginPath(); for (let point = 0; point < 10; point += 1) { const angle = -Math.PI / 2 + point * Math.PI / 5, distance = point % 2 ? 5 : 10, x = goal[0] + Math.cos(angle) * distance, y = goal[1] + Math.sin(angle) * distance; point ? context.lineTo(x, y) : context.moveTo(x, y); } context.closePath(); context.fill();
+      pedestrianPositions.forEach((position, agent) => { if (!active[agent]) return; const [x, y] = toScreen(position); context.fillStyle = "#fb923c"; context.beginPath(); context.arc(x, y, 5, 0, Math.PI * 2); context.fill(); if (colliders.has(agent)) { context.strokeStyle = "#f87171"; context.lineWidth = 3; context.beginPath(); context.arc(x, y, 10, 0, Math.PI * 2); context.stroke(); } });
+      const yaw = frames.robot_yaw[index], local = [[.348, 0], [-.252, .225], [-.252, -.225]], triangle = local.map(([x, y]) => [robot[0] + Math.cos(yaw) * x - Math.sin(yaw) * y, robot[1] + Math.sin(yaw) * x + Math.cos(yaw) * y]); context.fillStyle = "#60a5fa"; context.strokeStyle = "#1d4ed8"; context.lineWidth = 2; context.beginPath(); triangle.forEach((point, pointIndex) => { const [x, y] = toScreen(point); pointIndex ? context.lineTo(x, y) : context.moveTo(x, y); }); context.closePath(); context.fill(); context.stroke();
+      if (controls.robotVelocity.checked) vector(robot, frames.robot_velocity_xy_world[index], "#60a5fa", 2.5); if (controls.robotCommand.checked) { const command = frames.robot_command_velocity_body[index], worldCommand = [Math.cos(yaw) * command[0] - Math.sin(yaw) * command[1], Math.sin(yaw) * command[0] + Math.cos(yaw) * command[1]]; vector(robot, worldCommand, "#c084fc", 2.5); }
+      context.fillStyle = "#94a3b8"; context.font = "12px system-ui"; context.textAlign = "left"; context.fillText(`${robotCentered ? "Robot-centered" : "World fixed · drag to pan, scroll to zoom"} · grid: 1 m`, 10, 20); updateCaseDetails();
+    }
+    const dashboard = { charts: { crossing: { rates: $("rate-plot-crossing"), failures: $("failure-plot-crossing"), interactions: $("interaction-plot-crossing") }, with_flow: { rates: $("rate-plot-with-flow"), failures: $("failure-plot-with-flow"), interactions: $("interaction-plot-with-flow") }, against_flow: { rates: $("rate-plot-against-flow"), failures: $("failure-plot-against-flow"), interactions: $("interaction-plot-against-flow") } }, excludeGoalSuccess: $("exclude-goal-success"), excludeGoalCollision: $("exclude-goal-collision"), yieldRatio: $("yield-ratio"), assertRatio: $("assert-ratio") };
+    function resizeChartCanvas(chart) {
+      const rect = chart.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(1, Math.round(rect.width)), height = Math.max(1, Math.round(rect.height));
+      if (chart.width !== width * ratio || chart.height !== height * ratio) { chart.width = width * ratio; chart.height = height * ratio; }
+      const chartContext = chart.getContext("2d"); chartContext.setTransform(ratio, 0, 0, ratio, 0, 0); return { chartContext, width, height };
+    }
+    function dashboardRows() { return state.data?.evaluation?.results || []; }
+    function dashboardAggregate(scenario) {
+      const aggregate = (state.data.evaluation.aggregates || []).find((row) => row.scenario === scenario);
+      if (aggregate) return aggregate;
+      return dashboardRows().filter((row) => row.scenario === scenario).reduce((total, row) => Object.fromEntries(["episodes", "successes", "collisions", "goal_region_collisions", "all_collisions", "timeouts", "base_contacts"].map((key) => [key, (total[key] || 0) + (Number(row[key]) || 0)])), {});
+    }
+    function metricRate(row, metric) {
+      if (Number.isFinite(Number(row[metric]))) return 100 * Number(row[metric]);
+      const episodes = Number(row.episodes) || 0, goal = Number(row.goal_region_collisions) || 0, collisions = Number(row.collisions) || 0;
+      if (metric === "navigation_success_rate") return 100 * (Number(row.successes) || 0) / Math.max(1, episodes - goal);
+      if (metric === "success_rate") return 100 * (Number(row.successes) || 0) / Math.max(1, episodes);
+      if (metric === "collision_rate") return 100 * collisions / Math.max(1, episodes);
+      return 100 * (Number(row.all_collisions) || collisions + goal) / Math.max(1, episodes);
+    }
+    function chartBackground(chartContext, width, height) { chartContext.clearRect(0, 0, width, height); chartContext.fillStyle = "#0b1220"; chartContext.fillRect(0, 0, width, height); }
+    function drawRatePlot(scenario, chart) {
+      if (!chart) return; const { chartContext, width, height } = resizeChartCanvas(chart); chartBackground(chartContext, width, height);
+      const successMetric = dashboard.excludeGoalSuccess.checked ? "navigation_success_rate" : "success_rate", collisionMetric = dashboard.excludeGoalCollision.checked ? "collision_rate" : "all_collision_rate", scenarioRows = dashboardRows().filter((row) => row.scenario === scenario).sort((a, b) => Number(a.pedestrian_count) - Number(b.pedestrian_count));
+      const margin = { left: 45, right: 14, top: 48, bottom: 42 }, plotWidth = width - margin.left - margin.right, plotHeight = height - margin.top - margin.bottom;
+      chartContext.font = "12px system-ui"; chartContext.textAlign = "left"; chartContext.fillStyle = "#e5e7eb"; chartContext.fillText("Success rate", margin.left, 18); chartContext.fillStyle = "#60a5fa"; chartContext.fillRect(margin.left + 79, 10, 11, 3); chartContext.fillStyle = "#e5e7eb"; chartContext.fillText("Collision rate", margin.left + 97, 18); chartContext.fillStyle = "#f87171"; chartContext.fillRect(margin.left + 190, 10, 11, 3);
+      [0, 25, 50, 75, 100].forEach((value) => { const y = margin.top + plotHeight * (1 - value / 100); chartContext.strokeStyle = "#223047"; chartContext.beginPath(); chartContext.moveTo(margin.left, y); chartContext.lineTo(width - margin.right, y); chartContext.stroke(); chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "right"; chartContext.fillText(`${value}%`, margin.left - 7, y + 4); });
+      if (!scenarioRows.length) { chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "center"; chartContext.fillText("No results", margin.left + plotWidth / 2, margin.top + plotHeight / 2); return; }
+      const counts = scenarioRows.map((row) => Number(row.pedestrian_count)), minCount = Math.min(...counts), maxCount = Math.max(...counts), x = (count) => margin.left + (maxCount === minCount ? plotWidth / 2 : (count - minCount) / (maxCount - minCount) * plotWidth), y = (value) => margin.top + plotHeight * (1 - Math.max(0, Math.min(100, value)) / 100);
+      [[successMetric, "#60a5fa"], [collisionMetric, "#f87171"]].forEach(([metric, color]) => { chartContext.strokeStyle = color; chartContext.lineWidth = 2.5; chartContext.beginPath(); scenarioRows.forEach((row, index) => { const pointX = x(Number(row.pedestrian_count)), pointY = y(metricRate(row, metric)); index ? chartContext.lineTo(pointX, pointY) : chartContext.moveTo(pointX, pointY); }); chartContext.stroke(); chartContext.fillStyle = color; scenarioRows.forEach((row) => { chartContext.beginPath(); chartContext.arc(x(Number(row.pedestrian_count)), y(metricRate(row, metric)), 3.5, 0, Math.PI * 2); chartContext.fill(); }); });
+      chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "center"; counts.forEach((count) => chartContext.fillText(String(count), x(count), height - 22)); chartContext.fillText("Pedestrians", margin.left + plotWidth / 2, height - 6);
+    }
+    function drawFailurePlot(scenario, chart) {
+      if (!chart) return; const { chartContext, width, height } = resizeChartCanvas(chart); chartBackground(chartContext, width, height);
+      const specs = [["timeouts", "Timeout", "#4C78A8"], [dashboard.excludeGoalCollision.checked ? "collisions" : "all_collisions", "Agent collision", "#E45756"], ["base_contacts", "Base contact", "#F2A541"]], values = specs.map(([metric]) => Number(dashboardAggregate(scenario)[metric]) || 0), maxValue = Math.max(1, ...values);
+      const margin = { left: 39, right: 14, top: 43, bottom: 49 }, plotWidth = width - margin.left - margin.right, plotHeight = height - margin.top - margin.bottom, barGap = Math.min(28, plotWidth * .08), barWidth = (plotWidth - barGap * (specs.length - 1)) / specs.length;
+      chartContext.font = "12px system-ui"; [0, .25, .5, .75, 1].forEach((fraction) => { const value = Math.round(maxValue * fraction), y = margin.top + plotHeight * (1 - fraction); chartContext.strokeStyle = "#223047"; chartContext.beginPath(); chartContext.moveTo(margin.left, y); chartContext.lineTo(width - margin.right, y); chartContext.stroke(); chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "right"; chartContext.fillText(String(value), margin.left - 7, y + 4); });
+      chartContext.font = "11px system-ui"; values.forEach((value, index) => { const barHeight = plotHeight * value / maxValue, x = margin.left + index * (barWidth + barGap), y = margin.top + plotHeight - barHeight; chartContext.fillStyle = specs[index][2]; chartContext.fillRect(x, y, barWidth, barHeight); chartContext.fillStyle = "#e5e7eb"; chartContext.textAlign = "center"; chartContext.fillText(String(value), x + barWidth / 2, y - 6); chartContext.fillStyle = "#94a3b8"; const words = specs[index][1].split(" "); words.forEach((word, wordIndex) => chartContext.fillText(word, x + barWidth / 2, height - 22 + wordIndex * 11)); });
+      chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "left"; chartContext.font = "11px system-ui"; chartContext.fillText(`Goal-region collisions ${dashboard.excludeGoalCollision.checked ? "excluded" : "included"} in agent-collision bars`, margin.left, 16);
+    }
+    function displayedEventLabel(event) { if (event.scenario === "with_flow" || event.canonical_label === "non_risky_close" || event.canonical_label === "unclassified") return event.canonical_label; const ratio = Number(event.speed_ratio), yieldRatio = Number(dashboard.yieldRatio.value), assertRatio = Number(dashboard.assertRatio.value); if (event.scenario === "crossing" && event.front_crossed) return "assert"; if (!Number.isFinite(ratio)) return "unclassified"; if (ratio < yieldRatio) return "yield"; if (event.scenario === "against_flow" && ratio > assertRatio) return "assert"; return "ambiguous"; }
+    function drawInteractionPlot(scenario, chart) { if (!chart) return; const { chartContext, width, height } = resizeChartCanvas(chart); chartBackground(chartContext, width, height); const interaction = state.data?.interaction, labels = interaction?.labels?.[scenario] || [], events = interaction?.events || []; const counts = labels.map((label) => events.filter((event) => event.scenario === scenario && displayedEventLabel(event) === label).length), max = Math.max(1, ...counts), margin = { left: 38, right: 12, top: 30, bottom: 82 }, plotWidth = width - margin.left - margin.right, plotHeight = height - margin.top - margin.bottom, gap = Math.min(15, plotWidth * .03), barWidth = (plotWidth - gap * Math.max(0, labels.length - 1)) / Math.max(1, labels.length); labels.forEach((label, index) => { const value = counts[index], barHeight = plotHeight * value / max, x = margin.left + index * (barWidth + gap), y = margin.top + plotHeight - barHeight; chartContext.fillStyle = ["#60a5fa", "#f87171", "#a78bfa", "#94a3b8", "#64748b"][index % 5]; chartContext.fillRect(x, y, barWidth, barHeight); chartContext.fillStyle = "#e5e7eb"; chartContext.textAlign = "center"; chartContext.fillText(String(value), x + barWidth / 2, y - 5); chartContext.fillStyle = "#94a3b8"; chartContext.save(); chartContext.translate(x + barWidth / 2, height - 42); chartContext.rotate(-.45); chartContext.fillText(label, 0, 0); chartContext.restore(); }); chartContext.fillStyle = "#94a3b8"; chartContext.textAlign = "left"; chartContext.fillText(`Live thresholds: yield < ${Number(dashboard.yieldRatio.value).toFixed(2)}, assert > ${Number(dashboard.assertRatio.value).toFixed(2)}`, margin.left, 16); }
+    function drawDashboard() { if (!state.data?.evaluation || $("evaluation-tab").hidden) return; state.data.scenario_order.forEach((scenario) => { const charts = dashboard.charts[scenario]; if (charts) { drawRatePlot(scenario, charts.rates); drawFailurePlot(scenario, charts.failures); drawInteractionPlot(scenario, charts.interactions); } }); }
+    function activateTab(name) { const evaluations = name === "evaluation"; $("replay-tab").hidden = evaluations; $("evaluation-tab").hidden = !evaluations; if (!evaluations) { state.mode = name; $("save-tags").disabled = name === "interaction"; $("case-tags").disabled = name === "interaction"; populateFilters(); refreshCases(); } ["collision", "success", "interaction"].forEach((mode) => $(`${mode}-tab-button`).classList.toggle("active", !evaluations && name === mode)); $("evaluation-tab-button").classList.toggle("active", evaluations); if (evaluations) drawDashboard(); }
+    function downloadCanvas(chart, filename) { const link = document.createElement("a"); link.download = filename; link.href = chart.toDataURL("image/png"); link.click(); }
+    function cycleOccurrence(direction) { if (!state.matches.length) return; const current = Number(controls.occurrence.value) - 1, next = (current + direction + state.matches.length) % state.matches.length; controls.occurrence.value = next + 1; loadCase(state.matches[next].case_id); }
+    async function saveTags() { if (!state.case) return; const frameIndex = Number(controls.time.value); try { const result = await api(`/api/tags/${encodeURIComponent(state.case.case_id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: $("case-tags").value }) }); state.tags = result.tags_by_case; updateTagOptions(); await refreshCases(state.case.case_id, frameIndex); setMessage("Tags saved."); } catch (error) { setMessage(error.message, true); } }
+    function resetWorldView() { if (!state.frames) return; state.worldCenter = [...state.frames.robot_position_xy[Number(controls.time.value)]]; state.worldZoom = 1; draw(); }
+    [controls.scenario, controls.count, controls.interactionLabel, controls.exclude].forEach((element) => element.addEventListener("change", () => refreshCases())); controls.include.addEventListener("input", () => refreshCases()); controls.occurrence.addEventListener("change", () => { const index = Math.min(Math.max(1, Number(controls.occurrence.value) || 1), state.matches.length) - 1; if (state.matches[index]) loadCase(state.matches[index].case_id); }); controls.previous.addEventListener("click", () => cycleOccurrence(-1)); controls.next.addEventListener("click", () => cycleOccurrence(1)); controls.time.addEventListener("input", draw); controls.viewMode.addEventListener("change", draw); controls.resetView.addEventListener("click", resetWorldView); [controls.pedestrianVelocity, controls.robotVelocity, controls.robotCommand, controls.trails].forEach((element) => element.addEventListener("change", draw)); $("save-tags").addEventListener("click", saveTags);
+    $("collision-tab-button").addEventListener("click", () => activateTab("collision")); $("success-tab-button").addEventListener("click", () => activateTab("success")); $("interaction-tab-button").addEventListener("click", () => activateTab("interaction")); $("evaluation-tab-button").addEventListener("click", () => activateTab("evaluation")); [dashboard.excludeGoalSuccess, dashboard.excludeGoalCollision, dashboard.yieldRatio, dashboard.assertRatio].forEach((element) => element.addEventListener("change", () => { if (Number(dashboard.yieldRatio.value) >= Number(dashboard.assertRatio.value)) { dashboard.assertRatio.value = (Number(dashboard.yieldRatio.value) + .01).toFixed(2); } drawDashboard(); })); $("reset-interaction-thresholds").addEventListener("click", () => { dashboard.yieldRatio.value = "0.70"; dashboard.assertRatio.value = "0.85"; drawDashboard(); }); $("save-interaction-preset").addEventListener("click", async () => { try { const result = await api("/api/interaction-presets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("interaction-preset-name").value, yield_speed_ratio: Number(dashboard.yieldRatio.value), assert_speed_ratio: Number(dashboard.assertRatio.value) }) }); state.data.interaction_presets = result.presets; populateInteractionPresets(); setMessage("Interaction preset saved."); } catch (error) { setMessage(error.message, true); } }); $("interaction-presets").addEventListener("change", (event) => { const preset = state.data.interaction_presets?.[event.target.value]; if (preset) { dashboard.yieldRatio.value = Number(preset.yield_speed_ratio).toFixed(2); dashboard.assertRatio.value = Number(preset.assert_speed_ratio).toFixed(2); drawDashboard(); } }); const interactionExport = () => ({ preset: { yield_speed_ratio: Number(dashboard.yieldRatio.value), assert_speed_ratio: Number(dashboard.assertRatio.value) }, events: (state.data.interaction?.events || []).map((event) => ({ ...event, displayed_label: displayedEventLabel(event) })) }); const downloadText = (text, filename, type) => { const link = document.createElement("a"); link.download = filename; link.href = URL.createObjectURL(new Blob([text], { type })); link.click(); URL.revokeObjectURL(link.href); }; $("export-interaction-json").addEventListener("click", () => downloadText(JSON.stringify(interactionExport(), null, 2), `interaction_events_yield-${dashboard.yieldRatio.value}_assert-${dashboard.assertRatio.value}.json`, "application/json")); $("export-interaction-csv").addEventListener("click", () => { const rows = interactionExport().events, fields = ["scenario", "pedestrian_count", "environment_id", "pedestrian_id", "canonical_label", "displayed_label", "speed_ratio", "minimum_clearance_m", "start_time_s", "end_time_s"]; const quote = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`; downloadText([fields.join(","), ...rows.map((row) => fields.map((field) => quote(row[field])).join(","))].join("\n"), `interaction_events_yield-${dashboard.yieldRatio.value}_assert-${dashboard.assertRatio.value}.csv`, "text/csv"); }); document.querySelectorAll(".export-rate").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].rates, `dynamic_crowd_${button.dataset.scenario}_rates.png`))); document.querySelectorAll(".export-failure").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].failures, `dynamic_crowd_${button.dataset.scenario}_failure_histogram.png`))); document.querySelectorAll(".export-interaction").forEach((button) => button.addEventListener("click", () => downloadCanvas(dashboard.charts[button.dataset.scenario].interactions, `interaction_events_${button.dataset.scenario}_yield-${dashboard.yieldRatio.value}_assert-${dashboard.assertRatio.value}.png`))); window.addEventListener("resize", () => { draw(); drawDashboard(); });
+    const refreshInteractionCases = () => { if (state.mode === "interaction") refreshCases(); };
+    [dashboard.yieldRatio, dashboard.assertRatio].forEach((element) => element.addEventListener("change", refreshInteractionCases));
+    $("reset-interaction-thresholds").addEventListener("click", refreshInteractionCases);
+    $("interaction-presets").addEventListener("change", refreshInteractionCases);
+    function populateInteractionPresets() { const selected = $("interaction-presets").value; const presets = state.data.interaction_presets || {}; $("interaction-presets").replaceChildren(new Option("Load preset…", ""), ...Object.keys(presets).sort().map((name) => new Option(name, name))); if (presets[selected]) $("interaction-presets").value = selected; }
+    function updateEvaluationDashboardAvailability() { if (state.data.evaluation) { $("evaluation-dashboard").hidden = false; $("evaluation-empty").hidden = true; $("evaluation-tab-button").disabled = false; } else { $("evaluation-dashboard").hidden = true; $("evaluation-empty").hidden = false; $("evaluation-empty").textContent = `Evaluation plots are unavailable: ${state.data.evaluation_error || "dynamic_crowd_results.json was not found."}`; $("evaluation-tab-button").disabled = true; activateTab("collision"); } }
+    function replaySubtitle() { const cases = state.data.index.cases, collisions = cases.filter((item) => (item.outcome || "collision") === "collision").length, successes = cases.filter((item) => item.outcome === "success").length; return `${collisions} collision replay${collisions === 1 ? "" : "s"} · ${successes} complete success replay${successes === 1 ? "" : "s"} · run ${state.runId}`; }
+    async function loadEvaluationRun(runId) { try { state.request += 1; state.runId = runId; state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; state.case = null; state.frames = null; state.worldCenter = null; state.worldZoom = 1; populateRunSelector(); populateInteractionPresets(); updateEvaluationDashboardAvailability(); populateFilters(); $("subtitle").textContent = replaySubtitle(); await refreshCases(); drawDashboard(); } catch (error) { setMessage(error.message, true); } }
+    controls.run.addEventListener("change", () => loadEvaluationRun(controls.run.value));
+    canvas.addEventListener("pointerdown", (event) => { if (controls.viewMode.value !== "world" || event.button !== 0 || !state.worldCenter) return; state.pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, center: [...state.worldCenter], scale: state.lastScale }; canvas.setPointerCapture(event.pointerId); canvas.style.cursor = "grabbing"; });
+    canvas.addEventListener("pointermove", (event) => { if (!state.pan || event.pointerId !== state.pan.pointerId) return; const deltaX = event.clientX - state.pan.x, deltaY = event.clientY - state.pan.y; state.worldCenter = [state.pan.center[0] - deltaX / state.pan.scale, state.pan.center[1] + deltaY / state.pan.scale]; draw(); });
+    const stopPan = (event) => { if (state.pan && event.pointerId === state.pan.pointerId) { state.pan = null; canvas.style.cursor = controls.viewMode.value === "world" ? "grab" : "default"; } }; canvas.addEventListener("pointerup", stopPan); canvas.addEventListener("pointercancel", stopPan);
+    canvas.addEventListener("wheel", (event) => { if (controls.viewMode.value !== "world" || !state.frames) return; event.preventDefault(); state.worldZoom = Math.min(40, Math.max(.1, state.worldZoom * Math.exp(-event.deltaY * .001))); draw(); }, { passive: false });
+    (async () => { try { state.data = await api("/api/index"); state.runId = state.data.selected_run_id; state.tags = state.data.tags_by_case || {}; populateRunSelector(); populateInteractionPresets(); updateEvaluationDashboardAvailability(); $("subtitle").textContent = replaySubtitle(); populateFilters(); await refreshCases(); } catch (error) { setMessage(error.message, true); $("subtitle").textContent = "Unable to load replay index"; } })();
+  })();
+  </script>
+</body>
+</html>

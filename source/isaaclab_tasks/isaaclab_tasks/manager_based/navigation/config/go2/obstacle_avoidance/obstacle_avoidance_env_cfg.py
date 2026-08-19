@@ -40,7 +40,7 @@ from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang
 LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
 LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_policy_jit.pt"
 
-NUM_LIDAR_RAYS = 128
+NUM_LIDAR_RAYS = 256
 LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
 COMMAND_RESAMPLING_TIME_S = 12.0
@@ -73,7 +73,7 @@ class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
     obstacle_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         max_distance=LIDAR_MAX_DISTANCE,
         pattern_cfg=patterns.LidarPatternCfg(
             channels=1,
@@ -332,21 +332,21 @@ class CurriculumCfg:
     discrete_obstacles = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "discrete_obstacles"})
     concentric_maze = CurrTerm(func=mdp.GetTerrainLevel, params={'terrain_name': "concentric_maze"})
 
-    # undesired_contacts_weight = CurrTerm(
-    #     func=nav_mdp.terrain_level_contact_penalty_curriculum,
-    #     params={
-    #         "max_level": CONTACT_PENALTY_MAX_LEVEL,
-    #         "reward_term_name": "undesired_contacts",
-    #         "weight_initial": -200.0,
-    #         "weight_final": -1000.0,
-    #     },
-    # )
-
 @configclass
 class TerminationsCfg:
     """Termination terms for the obstacle-avoidance task."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    goal_reached = DoneTerm(
+        func=nav_mdp.pose_2d_command_goal_reached,
+        params={
+            "command_name": "pose_2d_command",
+            "distance_threshold": GOAL_REACHED_DISTANCE_THRESHOLD,
+            "angular_threshold": GOAL_REACHED_ANGULAR_THRESHOLD,
+            "velocity_threshold": 0.1,
+            "stay_for_seconds": 0.1,
+        },
+    )
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={

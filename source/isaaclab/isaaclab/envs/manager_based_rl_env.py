@@ -195,6 +195,9 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
                 self.sim.render()
             # update buffers at sim dt
             self.scene.update(dt=self.physics_dt)
+            # task-specific physics-rate sensor collectors may sample the freshly
+            # updated scene here.  The default hook is intentionally a no-op.
+            self._post_physics_step()
 
         # post-step:
         # -- update env counters (used for curriculum generation)
@@ -243,6 +246,10 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
 
         # return observations, rewards, resets and extras
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
+
+    def _post_physics_step(self) -> None:
+        """Optional hook invoked after every physics-step scene update."""
+        pass
 
     def render(self, recompute: bool = False) -> np.ndarray | None:
         """Run rendering without stepping through the physics.

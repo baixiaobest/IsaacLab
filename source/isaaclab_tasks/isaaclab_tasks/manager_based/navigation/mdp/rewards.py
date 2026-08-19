@@ -59,6 +59,24 @@ def heading_command_error_within_range_abs(
     in_range = command[:, :2].norm(dim=1) < range
     return heading_b.abs() * in_range.float()
 
+
+def heading_command_error_distance_weighted_abs(
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        distance_std: float) -> torch.Tensor:
+    """Penalize heading error with a smooth, goal-proximity-dependent weight.
+
+    The proximity weight uses the same tanh kernel as position tracking. It
+    approaches zero continuously away from the goal, avoiding the discontinuous
+    boundary that a hard distance gate creates.
+    """
+    command = env.command_manager.get_command(command_name)
+    heading_error = command[:, 3].abs()
+    distance = command[:, :3].norm(dim=1)
+    proximity = 1.0 - torch.tanh(distance / distance_std)
+    return heading_error * proximity
+
+
 def velocity_heading_error_abs(
         env: ManagerBasedRLEnv, 
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -305,6 +323,8 @@ class pose_2d_command_goal_reached_once_reward(ManagerTermBase):
         self.reward_awarded = torch.logical_or(self.reward_awarded, new_goal_reached)
 
         return new_goal_reached
+
+
 
 def pose_2d_command_progress_tanh_reward(
         env: ManagerBasedRLEnv,
@@ -856,6 +876,159 @@ def stall_penalty(
     enable_penalty = torch.logical_and(robot_stall, out_of_goal_region)
 
     return enable_penalty.float()
+
+def pedestrian_capsule_collision_penalty(
+        env: ManagerBasedRLEnv,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize the robot for overlapping an active pedestrian capsule (XY distance check).
+
+    Requires ``env.crowd_manager`` (see :class:`PedestrianCrowdNavigationEnv`).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    return env.crowd_manager.get_robot_collision(robot_pos).float()
+
+
+def pedestrian_closest_approach_penalty(
+        env: ManagerBasedRLEnv,
+        horizon: float = 1.5,
+        safe_clearance: float = 0.5,
+        time_scale: float = 0.75,
+        min_relative_speed: float = 0.05,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Return the greatest imminent pedestrian collision risk per environment.
+
+    For each active pedestrian, predict the constant-velocity closest point of approach
+    (CPA) over ``horizon`` seconds. The risk is non-zero only when the robot is closing
+    on that pedestrian and the predicted *surface clearance* at the CPA is below
+    ``safe_clearance``. It is the product of:
+
+    - a squared hinge on predicted clearance, bounded to ``[0, 1]``; and
+    - ``exp(-t_cpa / time_scale)``, making sooner conflicts more costly.
+
+    The maximum over pedestrian slots is used rather than a sum, so adding distant
+    pedestrians does not increase the penalty. Pedestrians that are behind/separating,
+    outside the prediction horizon, inactive, or nearly velocity-matched contribute zero.
+
+    This is an early-warning shaping signal. Collision termination and the collision
+    penalty should remain enabled as the hard safety objective.
+    """
+    if horizon <= 0.0:
+        raise ValueError(f"horizon must be positive, got {horizon}.")
+    if safe_clearance <= 0.0:
+        raise ValueError(f"safe_clearance must be positive, got {safe_clearance}.")
+    if time_scale <= 0.0:
+        raise ValueError(f"time_scale must be positive, got {time_scale}.")
+    if min_relative_speed < 0.0:
+        raise ValueError(f"min_relative_speed must be non-negative, got {min_relative_speed}.")
+
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    robot_vel = asset.data.root_lin_vel_w[:, :2]
+    crowd = env.crowd_manager
+
+    # ``rel_pos`` points from robot to pedestrian. ``rel_vel`` is the robot velocity
+    # relative to the pedestrian, so the future relative position is
+    # rel_pos - rel_vel * t.
+    rel_pos = crowd.pos - robot_pos.unsqueeze(1)
+    rel_vel = robot_vel.unsqueeze(1) - crowd.vel
+    rel_speed_sq = torch.sum(rel_vel.square(), dim=-1)
+    closing_dot = torch.sum(rel_pos * rel_vel, dim=-1)
+
+    # t_cpa = dot(rel_pos, rel_vel) / ||rel_vel||^2. Do not clamp before checking
+    # validity: a negative value means the pair is already separating.
+    min_speed_sq = min_relative_speed**2
+    valid_speed = rel_speed_sq > min_speed_sq
+    t_cpa = closing_dot / torch.clamp(rel_speed_sq, min=min_speed_sq + 1e-8)
+    valid = crowd.active_mask & valid_speed & (closing_dot > 0.0) & (t_cpa <= horizon)
+    t_cpa = torch.clamp(t_cpa, min=0.0, max=horizon)
+
+    cpa_offset = rel_pos - rel_vel * t_cpa.unsqueeze(-1)
+    cpa_center_distance = torch.linalg.norm(cpa_offset, dim=-1)
+    cpa_clearance = cpa_center_distance - (crowd.radius + crowd.cfg.robot_radius)
+
+    clearance_risk = torch.clamp(
+        (safe_clearance - cpa_clearance) / safe_clearance,
+        min=0.0,
+        max=1.0,
+    ).square()
+    time_risk = torch.exp(-t_cpa / time_scale)
+    risk = clearance_risk * time_risk
+    risk = torch.where(valid, risk, torch.zeros_like(risk))
+    return risk.max(dim=1).values
+
+
+def social_force_impulse(
+        env: ManagerBasedRLEnv,
+        sigma: float = 1.0,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize the robot for being close to active pedestrians.
+
+    Returns ``sum_i exp(-dist_i / sigma)`` over active pedestrian slots, where ``dist_i``
+    is the XY distance from the robot to pedestrian ``i``. Because the reward manager
+    multiplies by dt each step this accumulates as a time-integrated proximity cost.
+    ``sigma`` [m] controls the falloff distance.
+
+    Requires ``env.crowd_manager`` (see :class:`PedestrianCrowdNavigationEnv`).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]  # (N, 2)
+    crowd = env.crowd_manager
+    dist = torch.linalg.norm(robot_pos.unsqueeze(1) - crowd.pos, dim=-1)  # (N, P)
+    proximity = torch.exp(-dist / sigma)
+    proximity = torch.where(crowd.active_mask, proximity, torch.zeros_like(proximity))
+    return proximity.sum(dim=1)
+
+
+def pedestrian_proximity_speed_penalty(
+        env: ManagerBasedRLEnv,
+        sigma: float = 1.5,
+        in_front_only: bool = True,
+        min_agent_speed: float = 0.1,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize relative motion while the robot is close to moving pedestrians.
+
+    With ``in_front_only=True`` (the default), only pedestrians for which the robot is
+    currently in the pedestrian's forward half-plane contribute. The per-pedestrian
+    cost is ``||robot_vel - pedestrian_vel|| * exp(-distance / sigma)``. Since the
+    reward manager integrates this term over time, relative speed makes the accumulated
+    cost approximately independent of how quickly the robot traverses that region.
+
+    Pedestrians slower than ``min_agent_speed`` do not have a reliable forward
+    direction and are excluded in this mode. Set ``in_front_only=False`` to retain the
+    previous all-direction behavior: ``||robot_vel|| * sum_i exp(-distance / sigma)``.
+    """
+    if sigma <= 0.0:
+        raise ValueError(f"sigma must be positive, got {sigma}.")
+    if min_agent_speed < 0.0:
+        raise ValueError(f"min_agent_speed must be non-negative, got {min_agent_speed}.")
+
+    asset: Articulation = env.scene[asset_cfg.name]
+    robot_pos = asset.data.root_pos_w[:, :2]
+    robot_vel = asset.data.root_lin_vel_w[:, :2]
+    crowd = env.crowd_manager
+
+    agent_to_robot = robot_pos.unsqueeze(1) - crowd.pos  # (N, P, 2)
+    dist = torch.linalg.norm(agent_to_robot, dim=-1)  # (N, P)
+    proximity = torch.exp(-dist / sigma)
+
+    if not in_front_only:
+        # Preserve the original all-direction reward when the feature is disabled.
+        speed = torch.linalg.norm(robot_vel, dim=-1)  # (N,)
+        proximity = torch.where(crowd.active_mask, proximity, torch.zeros_like(proximity))
+        return speed * proximity.sum(dim=1)
+
+    # ``agent_to_robot . crowd.vel > 0`` means the robot lies in the direction in
+    # which the pedestrian is currently travelling. This is intentionally based on
+    # the current state, rather than a predicted future point.
+    agent_speed = torch.linalg.norm(crowd.vel, dim=-1)
+    in_front = torch.sum(agent_to_robot * crowd.vel, dim=-1) > 0.0
+    relevant_agent = crowd.active_mask & (agent_speed >= min_agent_speed) & in_front
+    proximity = torch.where(relevant_agent, proximity, torch.zeros_like(proximity))
+
+    relative_speed = torch.linalg.norm(robot_vel.unsqueeze(1) - crowd.vel, dim=-1)
+    return (relative_speed * proximity).sum(dim=1)
+
 
 def speed_limit_penalty(
         env: ManagerBasedRLEnv,

@@ -517,12 +517,17 @@ class UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     logger="wandb"
 
 
-_occ_cnn_config = [
+OccupancyCNNConfig = [
+    # Reshape flat 1024 → (1, 32, 32) single-channel grid
     {"type": "reshape", "input_size": 1024, "shape": [1, 32, 32]},
+    # Conv1: (1,32,32) → (16,16,16)
     {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
+    # Conv2: (16,16,16) → (32,8,8)
     {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
+    # Conv3: (32,8,8) → (64,4,4) → flatten → 1024-dim latent
     {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
 ]
+
 
 @configclass
 class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
@@ -531,10 +536,25 @@ class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
     save_interval = 100
     experiment_name = "go2_obstacle_avoidance_occupancy"
     empirical_normalization = False
+    # RSL-RL 4+ configures the actor and critic separately. The occupancy
+    # grid is the final 1024 entries of each flat observation, so both models
+    # split and encode it as a 32x32 image.
     obs_groups = {"actor": ["policy"], "critic": ["critic"]}
-    actor = _enc_actor([256, 128], init_std=0.8, encoder_dims=_occ_cnn_config, encoder_type="cnn",
-                       encoder_obs_normalize=False, tanh_output=False)
-    critic = _enc_critic_shared([256, 128], encoder_dims=_occ_cnn_config, encoder_type="cnn")
+    actor = _enc_actor(
+        hidden_dims=[256, 128],
+        init_std=1.0,
+        encoder_type="cnn",
+        encoder_dims=OccupancyCNNConfig,
+    )
+    # Do not set ``share_cnn_encoders`` on the algorithm: this constructs an
+    # independent critic encoder with the same architecture as the actor's.
+    critic = RslRlEncoderModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
+        distribution_cfg=None,
+        encoder_type="cnn",
+        encoder_dims=OccupancyCNNConfig,
+    )
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
@@ -623,11 +643,14 @@ TemporalLidarHorizonCNNConfig = [
      "kernel_size": (1, 3),
      "stride": (1, 2),
      "padding": (0, 1)},
-]
-# (64, H/4, 8) = 512 * H/4
 
-# Dedicated algorithm config (a copy of ObstacleAvoidancePPOConfig) that shares the lidar CNN encoder between the
-# actor and critic LidarModels. Kept separate so the base task's shared config object is never mutated.
+    # H/4 → 1 (for H=8): retain a fixed 512-D lidar latent while aggregating time.
+    {"type": "adaptive_pool", "output_size": (1, 8)},
+]
+# (64, 1, 8) = 512
+
+# Actor and critic consume the same held full-scan geometry; sharing the lidar
+# encoder restores the representation-learning path used by the baseline task.
 ObstacleAvoidanceLidarPPOConfig = RslRlPpoAlgorithmCfg(
     value_loss_coef=1.0,
     use_clipped_value_loss=True,
@@ -711,8 +734,7 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
     lam=0.995,
     desired_kl=0.01,
     max_grad_norm=1.0,
-    # Share the lidar CNN encoder between actor and critic so the auxiliary prediction phase shapes the same
-    # encoder the policy uses.
+    # The prediction task and the clean critic both shape the actor lidar encoder.
     share_cnn_encoders=True,
     lidar_prediction_cfg=RslRlLidarPredictionCfg(
         weight=0.2,
@@ -720,6 +742,7 @@ ObstacleAvoidancePredictionPPOConfig = RslRlPpoAlgorithmCfg(
         num_iterations=1,
         batch_size=4096,
         distance_weight_sigma=0.3,
+        validity_group="prediction_mask",
     ),
 )
 
@@ -733,7 +756,7 @@ class UnitreeGo2TemporalLidarPredictionPPORunnerCfg_v0(UnitreeGo2TemporalLidarPP
     """
 
     experiment_name = "go2_temporal_lidar_obstacle_avoidance_prediction"
-    # Only the actor carries the prediction head; the critic shares its CNN encoder via ``share_cnn_encoders``.
+    # Only the actor carries the prediction head; the critic shares its lidar CNN.
     actor = _temporal_lidar_model_cfg(
         distribution_cfg=RslRlLidarModelCfg.GaussianDistributionCfg(init_std=0.6, std_type="scalar"),
         enable_prediction_head=True,
