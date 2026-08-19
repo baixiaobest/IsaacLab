@@ -467,7 +467,33 @@ class UnitreeGo2NavigationEnd2End_CNN_RND_PPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
 
 @configclass
 class UnitreeGo2RVO2CrowdPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnvCfgPPORunnerCfg_v0):
+    seed = 666
+    max_iterations = 2000
     experiment_name = "unitree_go2_rvo2_crowd_v0"
+    actor = _enc_actor(
+        [128, 128, 64], init_std=0.8,
+        encoder_dims=[
+            {"type": "reshape", "input_size": 10000, "shape": [1, 100, 100]},
+            {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
+            {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
+            {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
+            {"type": "adaptive_pool", "output_size": (1, 1)},
+        ],
+        encoder_type="cnn", encoder_obs_normalize=False, tanh_output=True,
+    )
+    critic = _enc_critic_shared(
+        [128, 128, 64],
+        encoder_dims=[
+            {"type": "reshape", "input_size": 10000, "shape": [1, 100, 100]},
+            {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
+            {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
+            {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
+            {"type": "adaptive_pool", "output_size": (1, 1)},
+        ],
+        encoder_type="cnn", encoder_obs_normalize=False,
+    )
+
+
 @configclass
 class UnitreeGo2LocomotionVelPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24

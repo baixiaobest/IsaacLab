@@ -15,7 +15,9 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg, RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
+from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.utils import configclass
+from isaaclab.utils.math import quat_apply_inverse, yaw_quat
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 
 from .e2e_navigation_env_cfg import (
@@ -56,8 +58,7 @@ STATIC_ROBOT_RADIUS = 0.5   # RVO2 avoidance radius for the static robots [m]
 # Occupancy grid constants
 GRID_SIZE_M: float = 10.0                                    # total grid span [m] (±5 m from robot)
 GRID_RESOLUTION: float = 0.1                                 # meters per cell
-GRID_CELLS: int = int(GRID_SIZE_M / GRID_RESOLUTION)        # = 20 cells per axis
-GRID_MARK_RADIUS: int = max(1, round(PERSON_RADIUS / GRID_RESOLUTION))  # cells to mark around each person
+GRID_CELLS: int = int(GRID_SIZE_M / GRID_RESOLUTION)        # = 100 cells per axis
 GRID_SHOW_FREE_CELLS: bool = True                            # set False to only draw occupied cells
 
 # Distinct colours for each person (RGB 0-1)
@@ -73,6 +74,52 @@ _PERSON_COLORS = [
     (0.40, 0.80, 0.20),  # lime
     (0.80, 0.60, 0.20),  # tan
 ]
+
+
+def mixed_occupancy_grid(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Rasterize dynamic persons and static robots in each robot's yaw frame.
+
+    The flattened ``[num_envs, 10000]`` result is deliberately suitable as the
+    final term in a concatenated observation group.  Reading scene poses here
+    also keeps observation generation independent of the Python RVO2 backend.
+    """
+    robot = env.scene["robot"]
+    robot_pos = robot.data.root_pos_w
+    robot_yaw = yaw_quat(robot.data.root_quat_w)
+    occupant_pos = []
+    occupant_radius = []
+    for i in range(NUM_PERSONS):
+        occupant_pos.append(env.scene[f"person_{i}"].data.root_pos_w)
+        occupant_radius.append(PERSON_RADIUS)
+    for i in range(len(_STATIC_ROBOT_POSITIONS)):
+        occupant_pos.append(env.scene[f"static_robot_{i}"].data.root_pos_w)
+        occupant_radius.append(STATIC_ROBOT_RADIUS)
+
+    positions = torch.stack(occupant_pos, dim=1)
+    delta_w = positions - robot_pos.unsqueeze(1)
+    quat = robot_yaw.unsqueeze(1).expand(-1, positions.shape[1], -1).reshape(-1, 4)
+    delta_b = quat_apply_inverse(quat, delta_w.reshape(-1, 3)).reshape(delta_w.shape)[..., :2]
+
+    grid = torch.zeros((env.num_envs, GRID_CELLS * GRID_CELLS), device=robot_pos.device, dtype=torch.float32)
+    half = GRID_SIZE_M / 2.0
+    max_radius_cells = math.ceil(max(occupant_radius) / GRID_RESOLUTION)
+    offsets = torch.arange(-max_radius_cells, max_radius_cells + 1, device=robot_pos.device)
+    offset_y, offset_x = torch.meshgrid(offsets, offsets, indexing="ij")
+    offset_x = offset_x.flatten()
+    offset_y = offset_y.flatten()
+
+    cols = torch.floor((delta_b[..., 0] + half) / GRID_RESOLUTION).long()
+    rows = torch.floor((delta_b[..., 1] + half) / GRID_RESOLUTION).long()
+    for occupant_index, radius in enumerate(occupant_radius):
+        radius_cells = radius / GRID_RESOLUTION
+        footprint = offset_x.square() + offset_y.square() <= radius_cells**2
+        cell_cols = cols[:, occupant_index, None] + offset_x[footprint]
+        cell_rows = rows[:, occupant_index, None] + offset_y[footprint]
+        valid = (cell_cols >= 0) & (cell_cols < GRID_CELLS) & (cell_rows >= 0) & (cell_rows < GRID_CELLS)
+        cell_indices = cell_rows * GRID_CELLS + cell_cols
+        env_indices = torch.arange(env.num_envs, device=grid.device)[:, None].expand_as(cell_indices)
+        grid[env_indices[valid], cell_indices[valid]] = 1.0
+    return grid
 
 
 def _capsule_cfg(color: tuple[float, float, float]) -> sim_utils.CapsuleCfg:
@@ -188,11 +235,13 @@ class RVO2SceneCfg(MySceneCfg):
 class RVO2NavigationEnvCfg(NavigationEnd2EndNoEncoderEnvCfg):
     """Training/play config for the RVO2 crowd navigation environment."""
 
-    scene: RVO2SceneCfg = RVO2SceneCfg(num_envs=1, env_spacing=10.0)
+    scene: RVO2SceneCfg = RVO2SceneCfg(num_envs=2000, env_spacing=10.0)
 
     def __post_init__(self):
         super().__post_init__()
         self.episode_length_s = 30.0
+        # Replace the raw lidar tail while preserving all preceding policy terms.
+        self.observations.policy.osbtacles_scan = ObsTerm(func=mixed_occupancy_grid)
         # Keep terrain flat so persons walk on level ground
         self.scene.terrain.max_init_terrain_level = 0
 
@@ -227,21 +276,21 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
     cfg: RVO2NavigationEnvCfg
 
     def __init__(self, cfg: RVO2NavigationEnvCfg, **kwargs):
-        super().__init__(cfg, **kwargs)
-        self._rvo2_manager: RVO2CrowdManager | None = None
+        self._rvo2_managers: list[RVO2CrowdManager | None] = []
+        self._person_goals: list[list[tuple[float, float]]] = []
         self._person_objects: list[RigidObject] = []
-        self._person_goals: list[tuple[float, float]] = []
+        super().__init__(cfg, **kwargs)
         self._occupancy_grid: torch.Tensor = torch.zeros(
-            GRID_CELLS, GRID_CELLS, dtype=torch.float32, device=self.device
+            self.num_envs, GRID_CELLS, GRID_CELLS, dtype=torch.float32, device=self.device
         )
         self._setup_rvo2()
 
     @property
     def occupancy_grid(self) -> torch.Tensor:
-        """Current 2D occupancy grid, shape [GRID_CELLS, GRID_CELLS], float32.
+        """Current occupancy grids, shape [num_envs, GRID_CELLS, GRID_CELLS].
 
-        World-aligned (X=world-X, Y=world-Y), centred on robot XY position.
-        0.0 = free, 1.0 = occupied by a person. Updated every :meth:`step`.
+        Robot-centred and yaw-aligned. 0.0 is free and 1.0 is occupied by a
+        dynamic person or static robot.
         """
         return self._occupancy_grid
 
@@ -249,8 +298,8 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
     # RVO2 setup helpers
     # ------------------------------------------------------------------
 
-    def _setup_rvo2(self):
-        """Gather person rigid-objects from scene and initialise RVO2."""
+    def _setup_rvo2(self, env_ids=None):
+        """Initialise one independent RVO2 simulation per selected environment."""
         self._person_objects = []
         for i in range(NUM_PERSONS):
             name = f"person_{i}"
@@ -269,34 +318,38 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
             positions.append((PERSON_SPAWN_X, y))
             goals.append((PERSON_GOAL_X, y))
 
-        self._person_goals = goals
-        self._rvo2_manager = RVO2CrowdManager(
-            num_agents=len(self._person_objects),
-            sim_dt=self.cfg.sim.dt * self.cfg.decimation,
-            radius=PERSON_RADIUS,
-            max_speed=PERSON_SPEED,
-        )
-        self._rvo2_manager.reset(positions, goals)
-        # Register static Go2 robots as immobile RVO2 obstacles
-        self._rvo2_manager.add_static_obstacles(_STATIC_ROBOT_POSITIONS, STATIC_ROBOT_RADIUS)
+        if len(self._rvo2_managers) != self.num_envs:
+            self._rvo2_managers = [None] * self.num_envs
+            self._person_goals = [[] for _ in range(self.num_envs)]
+        ids = range(self.num_envs) if env_ids is None else env_ids.tolist()
+        for env_id in ids:
+            manager = RVO2CrowdManager(
+                num_agents=len(self._person_objects), sim_dt=self.cfg.sim.dt * self.cfg.decimation,
+                radius=PERSON_RADIUS, max_speed=PERSON_SPEED,
+            )
+            manager.reset(positions, goals)
+            manager.add_static_obstacles(_STATIC_ROBOT_POSITIONS, STATIC_ROBOT_RADIUS)
+            self._rvo2_managers[env_id] = manager
+            self._person_goals[env_id] = list(goals)
 
     # ------------------------------------------------------------------
     # Per-step helpers
     # ------------------------------------------------------------------
 
-    def _get_robot_xy(self) -> tuple[float, float]:
-        pos = self.scene["robot"].data.root_pos_w[0]
-        env_origin = self.scene.env_origins[0]
+    def _get_robot_xy(self, env_id: int) -> tuple[float, float]:
+        pos = self.scene["robot"].data.root_pos_w[env_id]
+        env_origin = self.scene.env_origins[env_id]
         return float(pos[0].item()) - float(env_origin[0].item()), float(pos[1].item()) - float(env_origin[1].item())
 
-    def _update_person_goals(self):
+    def _update_person_goals(self, env_id: int):
         """Assign a new goal when a person is within 0.5 m of its current goal."""
-        if self._rvo2_manager is None:
+        manager = self._rvo2_managers[env_id]
+        if manager is None:
             return
-        positions_2d = self._rvo2_manager.get_positions()
-        new_goals = list(self._person_goals)
+        positions_2d = manager.get_positions()
+        new_goals = list(self._person_goals[env_id])
         changed = False
-        for i, (gx, gy) in enumerate(self._person_goals):
+        for i, (gx, gy) in enumerate(self._person_goals[env_id]):
             px, py = float(positions_2d[i, 0]), float(positions_2d[i, 1])
             if math.sqrt((px - gx) ** 2 + (py - gy) ** 2) < 0.5:
                 # Flip between east and west ends, keep same Y lane
@@ -304,14 +357,11 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
                 new_goals[i] = (new_gx, gy)
                 changed = True
         if changed:
-            self._person_goals = new_goals
-            self._rvo2_manager.set_goals(new_goals)
+            self._person_goals[env_id] = new_goals
+            manager.set_goals(new_goals)
 
     def _reset_static_robots(self):
         """Teleport static robots to their env-local positions (accounts for env_origin)."""
-        env_origin = self.scene.env_origins[0]
-        ox = float(env_origin[0].item())
-        oy = float(env_origin[1].item())
         for i, (px, py) in enumerate(_STATIC_ROBOT_POSITIONS):
             name = f"static_robot_{i}"
             try:
@@ -319,8 +369,8 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
             except KeyError:
                 continue
             pose = robot.data.root_state_w[:, :7].clone()
-            pose[:, 0] = ox + px
-            pose[:, 1] = oy + py
+            pose[:, 0] = self.scene.env_origins[:, 0] + px
+            pose[:, 1] = self.scene.env_origins[:, 1] + py
             pose[:, 2] = 0.4   # standing height
             pose[:, 3] = 1.0   # qw
             pose[:, 4:7] = 0.0  # qx, qy, qz
@@ -328,21 +378,13 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
 
     def _write_persons_to_sim(self):
         """Teleport kinematic capsules to their RVO2 positions."""
-        if self._rvo2_manager is None or not self._person_objects:
+        if not self._rvo2_managers or not self._person_objects:
             return
-        positions_2d = self._rvo2_manager.get_positions()
-        # Account for env origin offset
-        env_origin = self.scene.env_origins[0]  # shape (3,)
-        ox, oy = float(env_origin[0].item()), float(env_origin[1].item())
+        positions_2d = np.stack([manager.get_positions() for manager in self._rvo2_managers if manager is not None])
         for i, person_obj in enumerate(self._person_objects):
-            if i >= len(positions_2d):
-                break
-            x = float(positions_2d[i, 0]) + ox
-            y = float(positions_2d[i, 1]) + oy
-            # Build pose tensor: (1, 7) = [x, y, z, qw, qx, qy, qz]
             pose = person_obj.data.root_state_w[:, :7].clone()
-            pose[:, 0] = x
-            pose[:, 1] = y
+            local_xy = torch.as_tensor(positions_2d[:, i], device=self.device, dtype=pose.dtype)
+            pose[:, :2] = local_xy + self.scene.env_origins[:, :2]
             pose[:, 2] = PERSON_Z
             pose[:, 3] = 1.0   # qw
             pose[:, 4:7] = 0.0  # qx, qy, qz
@@ -354,41 +396,11 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         Vectorised: no Python loops over cells. Scales to high resolutions.
 
         Returns:
-            Float32 tensor [GRID_CELLS, GRID_CELLS]: 0.0=free, 1.0=occupied.
-            Cell [0,0] is bottom-left (most-negative X and Y relative to robot).
+            Float32 tensor ``[num_envs, GRID_CELLS, GRID_CELLS]``. Cell
+            ``[0, 0]`` is the most-negative body-frame X/Y location.
         """
-        grid = torch.zeros(GRID_CELLS, GRID_CELLS, dtype=torch.float32, device=self.device)
-
-        if self._rvo2_manager is None:
-            self._occupancy_grid = grid
-            return grid
-
-        rx, ry = self._get_robot_xy()
-        positions_2d = self._rvo2_manager.get_positions()  # np.ndarray (N, 2)
-        half = GRID_SIZE_M / 2.0
-
-        # Vectorised: convert all person positions to grid indices at once
-        dx = positions_2d[:, 0] - rx  # (N,)
-        dy = positions_2d[:, 1] - ry  # (N,)
-        in_range = (np.abs(dx) <= half) & (np.abs(dy) <= half)
-        dx, dy = dx[in_range], dy[in_range]
-
-        if len(dx) > 0:
-            cols = np.clip((dx + half) / GRID_RESOLUTION, 0, GRID_CELLS - 1).astype(int)
-            rows = np.clip((dy + half) / GRID_RESOLUTION, 0, GRID_CELLS - 1).astype(int)
-
-            # Expand by mark radius using broadcasting
-            offsets = np.arange(-GRID_MARK_RADIUS, GRID_MARK_RADIUS + 1)
-            dr, dc = np.meshgrid(offsets, offsets, indexing="ij")  # (D,D)
-            dr, dc = dr.ravel(), dc.ravel()  # (D*D,)
-
-            all_rows = (rows[:, None] + dr[None, :]).ravel()  # (N*D*D,)
-            all_cols = (cols[:, None] + dc[None, :]).ravel()
-            mask = (all_rows >= 0) & (all_rows < GRID_CELLS) & (all_cols >= 0) & (all_cols < GRID_CELLS)
-            grid[all_rows[mask], all_cols[mask]] = 1.0
-
-        self._occupancy_grid = grid
-        return grid
+        self._occupancy_grid = mixed_occupancy_grid(self).reshape(self.num_envs, GRID_CELLS, GRID_CELLS)
+        return self._occupancy_grid
 
     def _draw_occupancy_grid(self):
         """Draw occupancy grid cells as colored points in the Isaac Sim viewport.
@@ -410,7 +422,7 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
 
         draw.clear_points()
 
-        rx, ry = self._get_robot_xy()
+        rx, ry = self._get_robot_xy(0)
         env_origin = self.scene.env_origins[0]
         ox, oy = float(env_origin[0].item()), float(env_origin[1].item())
         wx, wy = rx + ox, ry + oy
@@ -423,7 +435,7 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
         cx = wx + (cols + 0.5) * GRID_RESOLUTION - half
         cy = wy + (rows + 0.5) * GRID_RESOLUTION - half
 
-        occ_mask = self._occupancy_grid.cpu().numpy() >= 0.5  # (H, W) bool
+        occ_mask = self._occupancy_grid[0].cpu().numpy() >= 0.5  # (H, W) bool
 
         points, colors, sizes = [], [], []
 
@@ -457,18 +469,22 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
     def _reset_idx(self, env_ids):
         """Re-initialise RVO2 whenever the scene resets selected envs."""
         super()._reset_idx(env_ids)
-        self._setup_rvo2()
+        self._setup_rvo2(env_ids)
         self._write_persons_to_sim()
         self._reset_static_robots()
         self._compute_occupancy_grid()
 
     def step(self, action: torch.Tensor):
-        if self._rvo2_manager is not None:
-            rx, ry = self._get_robot_xy()
-            self._rvo2_manager.update_robot_obstacle((rx, ry), radius=0.5)
-            self._update_person_goals()
-            self._rvo2_manager.step()
-        # Call super FIRST — it handles physics + any internal env resets.
+        robot_xy = (
+            self.scene["robot"].data.root_pos_w[:, :2] - self.scene.env_origins[:, :2]
+        ).detach().cpu().numpy()
+        for env_id, manager in enumerate(self._rvo2_managers):
+            if manager is not None:
+                manager.update_robot_obstacle(tuple(robot_xy[env_id]), radius=0.5)
+                self._update_person_goals(env_id)
+                manager.step()
+        # Make the advanced crowd state visible to this step's observation.
+        self._write_persons_to_sim()
         result = super().step(action)
         # Write person positions AFTER super so they override any reset that
         # happened inside (internal resets snap persons back to init_state).
@@ -481,8 +497,5 @@ class RVO2NavigationEnv(ManagerBasedRLEnv):
 
     def reset(self, seed=None, options=None):
         result = super().reset(seed=seed, options=options)
-        self._setup_rvo2()
-        self._write_persons_to_sim()
-        self._reset_static_robots()
-        self._compute_occupancy_grid()
+        # _reset_idx performs the RVO2 reset and scene writes.
         return result
