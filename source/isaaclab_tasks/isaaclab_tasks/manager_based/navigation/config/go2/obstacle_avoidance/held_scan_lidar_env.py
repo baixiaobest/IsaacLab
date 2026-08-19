@@ -11,6 +11,8 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.utils import math as math_utils
 from isaaclab.utils import configclass
 
+from .temporal_lidar_constants import TEMPORAL_LIDAR_RAYS
+
 
 @configclass
 class HeldScanLidarCfg:
@@ -19,7 +21,7 @@ class HeldScanLidarCfg:
     sensor_name: str = "obstacle_scanner"
     scan_period_s: float = 0.130
     max_distance: float = 20.0
-    full_fan_ray_count: int = 256
+    full_fan_ray_count: int = TEMPORAL_LIDAR_RAYS
 
 
 class HeldScanLidarCollector:
@@ -111,7 +113,7 @@ class HeldScanLidarCollector:
         return env_ids.to(device=self.device, dtype=torch.long)
 
     def _capture_full_scan(self, env_ids: Sequence[int] | torch.Tensor | None = None) -> None:
-        """Queue the current ideal 256-ray fan for selected environments."""
+        """Queue the current ideal full-resolution fan for selected environments."""
         env_ids = self._resolve_env_ids(env_ids)
         if env_ids.numel() == 0:
             return

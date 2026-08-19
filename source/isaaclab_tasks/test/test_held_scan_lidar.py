@@ -5,15 +5,26 @@ from types import SimpleNamespace
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.held_scan_lidar_env import (
+    HeldScanLidarCfg,
     HeldScanLidarCollector,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.temporal_lidar_env_cfg import (
     TEMPORAL_LIDAR_COLLECTOR_NAME,
     TEMPORAL_LIDAR_HISTORY_KEY,
+    TEMPORAL_LIDAR_NUM_BINS,
+    TEMPORAL_LIDAR_OBS_SIZE,
     TEMPORAL_LIDAR_POS_NOISE_STD,
     TEMPORAL_LIDAR_RAYS,
     TemporalLidarObservationsCfg,
 )
+
+
+def test_held_scan_and_temporal_grid_share_512_resolution() -> None:
+    """Scanner, collector, and temporal observation dimensions cannot drift."""
+    assert TEMPORAL_LIDAR_RAYS == 512
+    assert HeldScanLidarCfg().full_fan_ray_count == TEMPORAL_LIDAR_RAYS
+    assert TEMPORAL_LIDAR_NUM_BINS == TEMPORAL_LIDAR_RAYS
+    assert TEMPORAL_LIDAR_OBS_SIZE == 2 * 4 * 256
 
 
 def test_full_scan_clock_fires_every_twenty_six_physics_steps() -> None:

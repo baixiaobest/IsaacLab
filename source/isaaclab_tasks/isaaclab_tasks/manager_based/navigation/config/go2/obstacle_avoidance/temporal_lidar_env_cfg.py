@@ -22,15 +22,14 @@ from .obstacle_avoidance_env_cfg import (
 )
 from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 from .held_scan_lidar_env import HeldScanLidarCfg
+from .temporal_lidar_constants import TEMPORAL_LIDAR_NUM_BINS, TEMPORAL_LIDAR_RAYS
 
 # ---------------------------------------------------------------------------
 # Temporal lidar hyper-parameters
 # ---------------------------------------------------------------------------
 
 TEMPORAL_LIDAR_HORIZON = 4       # H – number of historical timesteps
-TEMPORAL_LIDAR_NUM_BINS = 512    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
-TEMPORAL_LIDAR_RAYS = 512
 TEMPORAL_LIDAR_POS_NOISE_STD = 0.05  # Matches the 640034b actor projection noise.
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = True  # emit the per-bin validity channel alongside distance
 TEMPORAL_LIDAR_HISTORY_KEY = "held_full_scan"
