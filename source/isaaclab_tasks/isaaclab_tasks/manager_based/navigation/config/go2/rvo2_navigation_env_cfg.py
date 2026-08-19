@@ -56,9 +56,9 @@ _STATIC_ROBOT_POSITIONS: list[tuple[float, float]] = [
 STATIC_ROBOT_RADIUS = 0.5   # RVO2 avoidance radius for the static robots [m]
 
 # Occupancy grid constants
-GRID_RESOLUTION: float = 0.1                                 # meters per cell
-GRID_CELLS: int = 30                                         # review constraint: 30 cells per axis
-GRID_SIZE_M: float = GRID_CELLS * GRID_RESOLUTION           # total span = 3 m (±1.5 m)
+GRID_RESOLUTION: float = 0.2                                 # meters per cell (review constraint)
+GRID_SIZE_M: float = 10.0                                   # robot-centred span (±5 m)
+GRID_CELLS: int = int(GRID_SIZE_M / GRID_RESOLUTION)        # 50 cells per axis
 GRID_SHOW_FREE_CELLS: bool = True                            # set False to only draw occupied cells
 
 # Distinct colours for each person (RGB 0-1)
@@ -79,7 +79,7 @@ _PERSON_COLORS = [
 def mixed_occupancy_grid(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Rasterize dynamic persons and static robots in each robot's yaw frame.
 
-    The flattened ``[num_envs, 900]`` result is deliberately suitable as the
+    The flattened ``[num_envs, 2500]`` result is deliberately suitable as the
     final term in a concatenated observation group.  Reading scene poses here
     also keeps observation generation independent of the Python RVO2 backend.
     """

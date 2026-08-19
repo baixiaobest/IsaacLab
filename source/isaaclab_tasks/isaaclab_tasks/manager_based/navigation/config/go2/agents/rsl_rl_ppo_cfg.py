@@ -473,7 +473,7 @@ class UnitreeGo2RVO2CrowdPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnv
     actor = _enc_actor(
         [128, 128, 64], init_std=0.8,
         encoder_dims=[
-            {"type": "reshape", "input_size": 900, "shape": [1, 30, 30]},
+            {"type": "reshape", "input_size": 2500, "shape": [1, 50, 50]},
             {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
             {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
             {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
@@ -484,7 +484,7 @@ class UnitreeGo2RVO2CrowdPPORunnerCfg_v0(UnitreeGo2NavigationEnd2EndNoEncoderEnv
     critic = _enc_critic_shared(
         [128, 128, 64],
         encoder_dims=[
-            {"type": "reshape", "input_size": 900, "shape": [1, 30, 30]},
+            {"type": "reshape", "input_size": 2500, "shape": [1, 50, 50]},
             {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
             {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
             {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
