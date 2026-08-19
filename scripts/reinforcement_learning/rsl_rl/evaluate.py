@@ -140,6 +140,21 @@ from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 
+# The RVO2/occupancy task evaluates on its benchmark environment (social-force
+# crowd, 16 person slots, corridor terrain) registered by
+# rvo2_navigation_eval_mixins; the policy observations/architecture stay the
+# training ones.
+RVO2_CROWD_EVAL = RVO2-Crowd in args_cli.task
+if RVO2_CROWD_EVAL:
+    from isaaclab_tasks.manager_based.navigation.config.go2.rvo2_navigation_eval_mixins import (  # noqa: E402
+        EVALUATION_SCENARIO_CODES as RVO2_SCENARIO_CODES,
+        configure_rvo2_dynamic_crowd_evaluation,
+        install_rvo2_dynamic_crowd_evaluation_profiles,
+        register_rvo2_eval_task,
+    )
+    register_rvo2_eval_task()
+
+
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
 
 
@@ -186,7 +201,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-    configure_dynamic_crowd_evaluation(env_cfg)
+    if RVO2_CROWD_EVAL:
+        configure_rvo2_dynamic_crowd_evaluation(env_cfg)
+    else:
+        configure_dynamic_crowd_evaluation(env_cfg)
 
     checkpoint, log_dir = _resolve_checkpoint(agent_cfg)
     output_root = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
@@ -218,11 +236,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
 
     env_profile_indices = [index % len(profiles) for index in range(args_cli.num_envs)]
-    install_dynamic_crowd_evaluation_profiles(
-        env.unwrapped,
-        [profiles[index].pedestrian_count for index in env_profile_indices],
-        [EVALUATION_SCENARIO_CODES[profiles[index].scenario] for index in env_profile_indices],
-    )
+    if RVO2_CROWD_EVAL:
+        install_rvo2_dynamic_crowd_evaluation_profiles(
+            env.unwrapped,
+            [profiles[index].pedestrian_count for index in env_profile_indices],
+            [RVO2_SCENARIO_CODES[profiles[index].scenario] for index in env_profile_indices],
+        )
+    else:
+        install_dynamic_crowd_evaluation_profiles(
+            env.unwrapped,
+            [profiles[index].pedestrian_count for index in env_profile_indices],
+            [EVALUATION_SCENARIO_CODES[profiles[index].scenario] for index in env_profile_indices],
+        )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
     velocity_accumulator = EpisodeVelocityAccumulator(args_cli.num_envs)
@@ -370,7 +395,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "speed_measurement": "robot total planar speed",
             },
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
-            "scenarios": list(EVALUATION_SCENARIO_CODES),
+            "scenarios": list(RVO2_SCENARIO_CODES) if RVO2_CROWD_EVAL else list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
             "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
             "goal_reach_condition": {
