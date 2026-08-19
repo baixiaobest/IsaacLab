@@ -144,7 +144,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 # crowd, 16 person slots, corridor terrain) registered by
 # rvo2_navigation_eval_mixins; the policy observations/architecture stay the
 # training ones.
-RVO2_CROWD_EVAL = RVO2-Crowd in args_cli.task
+RVO2_CROWD_EVAL = "RVO2-Crowd" in args_cli.task
 if RVO2_CROWD_EVAL:
     from isaaclab_tasks.manager_based.navigation.config.go2.rvo2_navigation_eval_mixins import (  # noqa: E402
         EVALUATION_SCENARIO_CODES as RVO2_SCENARIO_CODES,
