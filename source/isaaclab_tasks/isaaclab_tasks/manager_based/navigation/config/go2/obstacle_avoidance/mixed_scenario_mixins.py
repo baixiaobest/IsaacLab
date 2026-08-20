@@ -20,13 +20,18 @@ from __future__ import annotations
 import math
 
 from isaaclab.assets.rigid_object_collection import RigidObjectCollectionCfg
+from isaaclab.envs.mdp.observations import occupancy_grid_from_lidar
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import ObservationGroupCfg as ObsGroup
+from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
@@ -40,10 +45,12 @@ from .obstacle_avoidance_env_cfg import (
     EventCfg,
     ObstacleAvoidanceEnvCfg,
     ObstacleAvoidanceSceneCfg,
+    ObservationsCfg,
     RewardsCfg,
     TerminationsCfg,
 )
 from .held_scan_lidar_env import HeldScanLidarCfg
+from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
     PedestrianCollectionCfg,
@@ -77,6 +84,12 @@ PED_LATERAL_HEADING_MAX_HIGH = math.radians(12.0)
 
 EPISODE_LENGTH = 15.0
 RESAMPLING_TIME_RANGE = (15.1, 15.1)
+
+# The 10 m x 10 m local map is intentionally the final policy/critic term.  The
+# encoder model splits its flat input at the tail, so changing this ordering
+# would silently encode a proprioceptive term as part of the image instead.
+MIXED_OCCUPANCY_GRID_SIZE = 50
+MIXED_OCCUPANCY_GRID_RESOLUTION = 0.2
 
 # ---------------------------------------------------------------------------
 # Scenario fragments
@@ -264,6 +277,74 @@ class MixedTerminationsCfg(_MixedTerminationsCfg, TerminationsCfg):
     pass
 
 
+@configclass
+class MixedOccupancyObservationsCfg(ObservationsCfg):
+    """Mixed-task observations with a binary local grid from ``obstacle_scanner``.
+
+    ``obstacle_scanner`` is the mixed scene's multi-mesh ray caster, so the
+    same rasterization includes static terrain geometry and pedestrian capsules.
+    The row-major occupancy grid remains the final term in both groups for the
+    tail-splitting CNN encoder.
+    """
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+            noise=Unoise(n_min=-0.15, n_max=0.15),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+        occupancy_grid = ObsTerm(
+            func=occupancy_grid_from_lidar,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+                "grid_size": MIXED_OCCUPANCY_GRID_SIZE,
+                "grid_resolution": MIXED_OCCUPANCY_GRID_RESOLUTION,
+            },
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class CriticCfg(ObsGroup):
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+        occupancy_grid = ObsTerm(
+            func=occupancy_grid_from_lidar,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+                "grid_size": MIXED_OCCUPANCY_GRID_SIZE,
+                "grid_resolution": MIXED_OCCUPANCY_GRID_RESOLUTION,
+            },
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
+
+
 # ---------------------------------------------------------------------------
 # Top-level environment configs
 # ---------------------------------------------------------------------------
@@ -317,6 +398,30 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
         self.scene.obstacle_scanner.update_period = 0.0
         self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
         self.scene.obstacle_scanner.debug_vis = False
+
+
+@configclass
+class MixedOccupancyObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
+    """Mixed static/pedestrian co-training with a 50x50 lidar occupancy grid."""
+
+    observations: MixedOccupancyObservationsCfg = MixedOccupancyObservationsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Keep the experiment profile self-contained; callers can still override
+        # this through the standard ``--num_envs`` configuration path.
+        self.scene.num_envs = 2000
+
+
+@configclass
+class MixedOccupancyObstacleAvoidanceEnvCfg_PLAY(MixedOccupancyObstacleAvoidanceEnvCfg):
+    """Playable mixed occupancy variant with clean high-level observations."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 16
+        self.observations.policy.enable_corruption = False
+        self.actions.pre_trained_policy_action.debug_vis = True
 
 
 @configclass

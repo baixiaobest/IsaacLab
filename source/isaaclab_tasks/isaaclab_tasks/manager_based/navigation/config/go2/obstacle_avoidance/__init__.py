@@ -191,6 +191,26 @@ gym.register(
 )
 
 gym.register(
+    id="Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-v0",
+    entry_point=_PED_CROWD_ENTRY_POINT,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.mixed_scenario_mixins:MixedOccupancyObstacleAvoidanceEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2MixedOccupancyPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
+    id="Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+    entry_point=_PED_CROWD_ENTRY_POINT,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.mixed_scenario_mixins:MixedOccupancyObstacleAvoidanceEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2MixedOccupancyPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
     id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-v0",
     entry_point=_PED_CROWD_ENTRY_POINT,
     disable_env_checker=True,
