@@ -597,7 +597,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "slow_leader": {
                 "available": SLOW_LEADER_AVAILABLE,
                 "scenario": "with_flow_slow_leader",
-                "pedestrian_count": 1,
+                "pedestrian_counts": [
+                    profile.pedestrian_count for profile in profiles
+                    if profile.scenario == "with_flow_slow_leader"
+                ],
                 "pedestrian_slot": 0,
                 "speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
                 "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,

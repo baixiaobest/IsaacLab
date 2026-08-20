@@ -637,7 +637,14 @@ def _sample_standard_deviation(values: Iterable[float]) -> float:
 def dynamic_crowd_profiles(
     counts: Iterable[int] = range(2, 17, 2), *, include_slow_leader: bool = True,
 ) -> list[BenchmarkProfile]:
-    """Return the normal crowd grid and, when supported by the task, the slow-leader profile."""
+    """Return the normal crowd grid and slow-leader grid when supported.
+
+    Every slow-leader cell uses the same total pedestrian count as its regular
+    with-flow counterpart. Slot zero is the deterministic leader and the
+    remaining slots retain the normal randomized crowd, so overtaking is
+    measured both in isolation and under increasing surrounding density.
+    """
+    counts = tuple(counts)
     ordinary_scenarios = ("crossing", "with_flow", "against_flow")
     profiles = [
         BenchmarkProfile(scenario, count)
@@ -645,7 +652,7 @@ def dynamic_crowd_profiles(
         for count in counts
     ]
     if include_slow_leader:
-        profiles.append(BenchmarkProfile("with_flow_slow_leader", 1))
+        profiles.extend(BenchmarkProfile("with_flow_slow_leader", count) for count in counts)
     return profiles
 
 

@@ -104,10 +104,13 @@ def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
 
 def test_dynamic_profiles_cover_all_scenarios_and_counts():
     profiles = evaluation.dynamic_crowd_profiles()
-    assert len(profiles) == 25
+    assert len(profiles) == 32
     assert [profile.pedestrian_count for profile in profiles[:8]] == list(range(2, 17, 2))
     assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER)
-    assert profiles[-1] == evaluation.BenchmarkProfile("with_flow_slow_leader", 1)
+    assert profiles[-8:] == [
+        evaluation.BenchmarkProfile("with_flow_slow_leader", count)
+        for count in range(2, 17, 2)
+    ]
 
 
 def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
