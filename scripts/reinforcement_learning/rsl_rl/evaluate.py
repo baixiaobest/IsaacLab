@@ -143,14 +143,25 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed
     EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS,
     EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD,
     EVALUATION_SCENARIO_CODES,
-    EVALUATION_SLOW_LEADER_SPEED_MPS,
-    EVALUATION_SLOW_LEADER_START_AHEAD_M,
     configure_dynamic_crowd_evaluation,
     install_dynamic_crowd_evaluation_profiles,
 )
 from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
+
+# Slow leader requires task-level scenario and reset support. Evaluator scripts
+# can be overlaid onto an older pinned experiment, but its task configuration
+# must remain untouched; detect that capability rather than importing it
+# unconditionally.
+try:
+    from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
+        EVALUATION_SLOW_LEADER_SPEED_MPS,
+        EVALUATION_SLOW_LEADER_START_AHEAD_M,
+    )
+except ImportError:
+    EVALUATION_SLOW_LEADER_SPEED_MPS = None
+    EVALUATION_SLOW_LEADER_START_AHEAD_M = None
 
 # The RVO2/occupancy task evaluates on its benchmark environment (social-force
 # crowd, 16 person slots, corridor terrain) registered by
@@ -165,6 +176,14 @@ if RVO2_CROWD_EVAL:
         register_rvo2_eval_task,
     )
     register_rvo2_eval_task()
+
+
+SLOW_LEADER_AVAILABLE = (
+    not RVO2_CROWD_EVAL
+    and "with_flow_slow_leader" in EVALUATION_SCENARIO_CODES
+    and EVALUATION_SLOW_LEADER_SPEED_MPS is not None
+    and EVALUATION_SLOW_LEADER_START_AHEAD_M is not None
+)
 
 
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
@@ -204,7 +223,7 @@ def _create_timestamped_run_dir(output_root: Path) -> Path:
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
-    profiles = dynamic_crowd_profiles()
+    profiles = dynamic_crowd_profiles(include_slow_leader=SLOW_LEADER_AVAILABLE)
     if args_cli.num_envs < len(profiles):
         raise ValueError(f"--num_envs must be at least {len(profiles)} for the benchmark profiles.")
 
@@ -431,6 +450,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "scenarios": list(RVO2_SCENARIO_CODES) if RVO2_CROWD_EVAL else list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
             "slow_leader": {
+                "available": SLOW_LEADER_AVAILABLE,
                 "scenario": "with_flow_slow_leader",
                 "pedestrian_count": 1,
                 "pedestrian_slot": 0,

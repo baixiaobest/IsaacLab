@@ -634,14 +634,19 @@ def _sample_standard_deviation(values: Iterable[float]) -> float:
     return math.sqrt(sum((value - mean) ** 2 for value in samples) / (len(samples) - 1))
 
 
-def dynamic_crowd_profiles(counts: Iterable[int] = range(2, 17, 2)) -> list[BenchmarkProfile]:
-    """Return the normal crowd grid plus one isolated slow-leader overtaking profile."""
+def dynamic_crowd_profiles(
+    counts: Iterable[int] = range(2, 17, 2), *, include_slow_leader: bool = True,
+) -> list[BenchmarkProfile]:
+    """Return the normal crowd grid and, when supported by the task, the slow-leader profile."""
     ordinary_scenarios = ("crossing", "with_flow", "against_flow")
-    return [
+    profiles = [
         BenchmarkProfile(scenario, count)
         for scenario in ordinary_scenarios
         for count in counts
-    ] + [BenchmarkProfile("with_flow_slow_leader", 1)]
+    ]
+    if include_slow_leader:
+        profiles.append(BenchmarkProfile("with_flow_slow_leader", 1))
+    return profiles
 
 
 def classify_speed_interaction(

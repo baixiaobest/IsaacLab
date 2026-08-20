@@ -104,6 +104,13 @@ def test_dynamic_profiles_cover_all_scenarios_and_counts():
     assert profiles[-1] == evaluation.BenchmarkProfile("with_flow_slow_leader", 1)
 
 
+def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
+    profiles = evaluation.dynamic_crowd_profiles(include_slow_leader=False)
+
+    assert len(profiles) == 24
+    assert "with_flow_slow_leader" not in {profile.scenario for profile in profiles}
+
+
 def test_speed_interaction_labels_cover_yield_assert_ambiguous_and_non_risky():
     label, low_speed, ratio = evaluation.classify_speed_interaction(
         "crossing", True, 0.5, 1.0, [0.2, 0.3, 0.4]
