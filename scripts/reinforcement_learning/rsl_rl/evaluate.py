@@ -24,6 +24,7 @@ from evaluation import (  # isort: skip
     GOAL_REGION_COLLISION_RADIUS_M,
     InteractionEventCollector,
     InteractionEventReplayRecorder,
+    _json_safe,
     dynamic_crowd_profiles,
     print_results,
     save_artifacts,
@@ -37,6 +38,13 @@ parser.add_argument("--task", type=str, required=True, help="Existing mixed obst
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
 parser.add_argument("--num_envs", type=int, default=24, help="Vector environments (must be at least 24).")
 parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.")
+parser.add_argument(
+    "--seeds", type=int, default=1,
+    help=(
+        "Number of consecutive benchmark seeds starting at --seed (each contributes an "
+        "equal share of --episodes_per_profile, so total runtime is unchanged)."
+    ),
+)
 parser.add_argument(
     "--episodes_per_profile", type=int, default=100, help="Completed episodes for every scenario/count cell."
 )
@@ -250,6 +258,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
+    seed_count = args_cli.seeds
+    if seed_count < 1:
+        raise ValueError("--seeds must be at least 1.")
+    seeds = [args_cli.seed + index for index in range(seed_count)]
+    # Each seed contributes an equal share of the per-profile episode budget; the last
+    # seed absorbs the remainder (e.g. 100 episodes / 3 seeds -> 34, 33, 33).
+    per_seed_quota = math.ceil(args_cli.episodes_per_profile / seed_count)
     velocity_accumulator = EpisodeVelocityAccumulator(args_cli.num_envs)
     goal_region_collision_ids: set[int] = set()
 
@@ -315,7 +330,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     print(
         f"[INFO] Evaluating {checkpoint} on {len(profiles)} dynamic-crowd profiles "
-        f"with {args_cli.episodes_per_profile} episodes each."
+        f"with {args_cli.episodes_per_profile} episodes each"
+        + (f" across {seed_count} consecutive seeds ({seeds[0]}..{seeds[-1]})." if seed_count > 1 else ".")
     )
     if args_cli.success_cases_per_scenario:
         print(
@@ -324,39 +340,50 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             f"(robot-agent distance < {args_cli.interesting_interaction_distance_m:.2f} m)."
         )
     try:
-        while simulation_app.is_running() and not collector.complete:
-            step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
-            velocity_accumulator.record_step(step_speed)
-            with torch.inference_mode():
-                actions = policy(obs)
-                if replay_recorder is not None:
-                    submitted_actions = actions
-                    if env.clip_actions is not None:
-                        submitted_actions = torch.clamp(submitted_actions, -env.clip_actions, env.clip_actions)
-                    action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
-                    action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
-                    replay_recorder.record_pre_step(raw_env, submitted_actions * action_scales)
-                interaction_collector.record_pre_step(raw_env)
-                obs, _, dones, extras = env.step(actions)
-            if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
-                policy.reset(dones)
-            else:
-                policy_nn.reset(dones)
-            # ``extras[\"log\"]`` is cleared to scalar zero on idle steps.  Use the RSL-RL
-            # done mask as the authoritative completion source; the log is used only for the
-            # terminal reasons of those confirmed environments.
-            completed_ids = torch.nonzero(dones, as_tuple=False).reshape(-1)
-            collector.consume(
-                extras,
-                velocity_accumulator.completed_means(completed_ids),
-                completed_env_ids=completed_ids,
-                goal_region_collision_env_ids=goal_region_collision_ids,
-            )
-            interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
-            if interaction_replay_recorder is not None:
-                interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
-            velocity_accumulator.reset(completed_ids)
-            goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
+        for seed_index, seed in enumerate(seeds):
+            if seed_index > 0:
+                # Re-seed all global RNGs so the next chunk draws a fresh episode
+                # sequence. Episodes already in flight finish under their original
+                # draws; each profile has at most one in-flight episode, which is
+                # attributed to the stage in which it completes (see
+                # EpisodeMetricsCollector.per_seed_counts).
+                env.unwrapped.seed(seed)
+                print(f"[INFO] Advancing to seed {seed} (stage {seed_index + 1} of {seed_count}).")
+            collector.set_stage_limit(min(args_cli.episodes_per_profile, per_seed_quota * (seed_index + 1)))
+            while simulation_app.is_running() and not collector.stage_complete:
+                step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
+                velocity_accumulator.record_step(step_speed)
+                with torch.inference_mode():
+                    actions = policy(obs)
+                    if replay_recorder is not None:
+                        submitted_actions = actions
+                        if env.clip_actions is not None:
+                            submitted_actions = torch.clamp(submitted_actions, -env.clip_actions, env.clip_actions)
+                        action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
+                        action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
+                        replay_recorder.record_pre_step(raw_env, submitted_actions * action_scales)
+                    interaction_collector.record_pre_step(raw_env)
+                    obs, _, dones, extras = env.step(actions)
+                if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
+                    policy.reset(dones)
+                else:
+                    policy_nn.reset(dones)
+                # ``extras[\"log\"]`` is cleared to scalar zero on idle steps.  Use the RSL-RL
+                # done mask as the authoritative completion source; the log is used only for the
+                # terminal reasons of those confirmed environments.
+                completed_ids = torch.nonzero(dones, as_tuple=False).reshape(-1)
+                collector.consume(
+                    extras,
+                    velocity_accumulator.completed_means(completed_ids),
+                    completed_env_ids=completed_ids,
+                    goal_region_collision_env_ids=goal_region_collision_ids,
+                )
+                interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+                if interaction_replay_recorder is not None:
+                    interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+                velocity_accumulator.reset(completed_ids)
+                goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
+            print(f"[INFO] Seed {seed} stage complete: {collector.total_episodes} episodes accepted.")
     finally:
         env.close()
 
@@ -379,6 +406,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "task": args_cli.task,
             "checkpoint": str(checkpoint),
             "seed": agent_cfg.seed,
+            "seeds": seeds,
+            "seed_count": seed_count,
             "run_id": output_dir.name,
             "output_root": str(output_root),
             "episodes_per_profile": args_cli.episodes_per_profile,
@@ -436,6 +465,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         },
     )
     save_interaction_event_artifacts(artifact_dir, interaction_collector.events, interaction_collector.summary_rows())
+    if seed_count > 1:
+        per_seed_breakdown = {
+            "seeds": seeds,
+            "episodes_per_profile": args_cli.episodes_per_profile,
+            "per_profile": collector.per_seed_rows(seeds),
+            "per_scenario": collector.per_seed_aggregate_rows(seeds),
+        }
+        with (artifact_dir / "per_seed_aggregates.json").open("w", encoding="utf-8") as file:
+            json.dump(_json_safe(per_seed_breakdown), file, indent=2, allow_nan=False)
+        print("[INFO] Wrote per-seed breakdown to per_seed_aggregates.json")
     print_results(rows, aggregates)
     print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
     if replay_recorder is not None:

@@ -1083,10 +1083,20 @@ class EpisodeMetricsCollector:
         # set as the primary benchmark metrics.
         self.last_accepted_ids: set[int] = set()
         self.last_accepted_success_ids: set[int] = set()
+        # Multi-seed stage bookkeeping: per-profile acceptance caps for the current seed
+        # chunk, plus cumulative-count boundaries recorded at the start of every stage so
+        # per-seed results can be reconstructed as deltas between consecutive boundaries.
+        self._stage_limit = [episodes_per_profile] * len(profiles)
+        self._stage_boundaries: list[list[dict[str, int | float]]] = []
 
     @property
     def complete(self) -> bool:
         return all(episodes >= self.episodes_per_profile for episodes in self._episodes)
+
+    @property
+    def stage_complete(self) -> bool:
+        """Whether every profile reached the current seed stage's acceptance cap."""
+        return all(episodes >= limit for episodes, limit in zip(self._episodes, self._stage_limit))
 
     @property
     def total_episodes(self) -> int:
@@ -1157,7 +1167,7 @@ class EpisodeMetricsCollector:
             if env_id < 0 or env_id >= len(self.env_profile_indices):
                 raise IndexError(f"Termination reported invalid environment ID {env_id}.")
             profile_index = self.env_profile_indices[env_id]
-            if self._episodes[profile_index] >= self.episodes_per_profile:
+            if self._episodes[profile_index] >= self._stage_limit[profile_index]:
                 continue
             if env_id not in metric_by_env:
                 raise KeyError(f"Missing velocity metric for completed environment {env_id}.")
@@ -1184,75 +1194,166 @@ class EpisodeMetricsCollector:
 
     def rows(self) -> list[dict[str, Any]]:
         """Return one normalized result row for every profile."""
-        rows = []
-        for index, profile in enumerate(self.profiles):
-            episodes = self._episodes[index]
-            navigation_episodes = episodes - self._goal_region_collisions[index]
-            rows.append(
-                {
-                    **asdict(profile),
-                    "episodes": episodes,
-                    "successes": self._successes[index],
-                    "collisions": self._collisions[index],
-                    "goal_region_collisions": self._goal_region_collisions[index],
-                    "all_collisions": self._collisions[index] + self._goal_region_collisions[index],
-                    "timeouts": self._timeouts[index],
-                    "base_contacts": self._base_contacts[index],
-                    "success_rate": self._successes[index] / episodes if episodes else 0.0,
-                    "navigation_success_rate": (
-                        self._successes[index] / navigation_episodes if navigation_episodes else 0.0
-                    ),
-                    "collision_rate": self._collisions[index] / episodes if episodes else 0.0,
-                    "goal_region_collision_rate": self._goal_region_collisions[index] / episodes if episodes else 0.0,
-                    "all_collision_rate": (
-                        (self._collisions[index] + self._goal_region_collisions[index]) / episodes if episodes else 0.0
-                    ),
-                    "timeout_rate": self._timeouts[index] / episodes if episodes else 0.0,
-                    "base_contact_rate": self._base_contacts[index] / episodes if episodes else 0.0,
-                    "mean_xy_speed_mps": self._velocity_sums[index] / episodes if episodes else 0.0,
-                    "std_xy_speed_mps": _sample_standard_deviation(self._velocity_values[index]),
-                }
-            )
-        return rows
+        return [
+            _result_row(profile, counts)
+            for profile, counts in zip(self.profiles, self.snapshot_counts())
+        ]
 
     def aggregate_rows(self) -> list[dict[str, Any]]:
         """Return pooled per-episode aggregates for every scenario."""
-        aggregates = []
-        for scenario in SCENARIO_ORDER:
-            profile_indices = [index for index, profile in enumerate(self.profiles) if profile.scenario == scenario]
-            if not profile_indices:
-                continue
-            episodes = sum(self._episodes[index] for index in profile_indices)
-            successes = sum(self._successes[index] for index in profile_indices)
-            collisions = sum(self._collisions[index] for index in profile_indices)
-            goal_region_collisions = sum(self._goal_region_collisions[index] for index in profile_indices)
-            timeouts = sum(self._timeouts[index] for index in profile_indices)
-            base_contacts = sum(self._base_contacts[index] for index in profile_indices)
-            navigation_episodes = episodes - goal_region_collisions
-            velocity_values = [value for index in profile_indices for value in self._velocity_values[index]]
-            aggregates.append(
-                {
-                    "scenario": scenario,
-                    "pedestrian_count": "all",
-                    "episodes": episodes,
-                    "successes": successes,
-                    "collisions": collisions,
-                    "goal_region_collisions": goal_region_collisions,
-                    "all_collisions": collisions + goal_region_collisions,
-                    "timeouts": timeouts,
-                    "base_contacts": base_contacts,
-                    "success_rate": successes / episodes if episodes else 0.0,
-                    "navigation_success_rate": successes / navigation_episodes if navigation_episodes else 0.0,
-                    "collision_rate": collisions / episodes if episodes else 0.0,
-                    "goal_region_collision_rate": goal_region_collisions / episodes if episodes else 0.0,
-                    "all_collision_rate": (collisions + goal_region_collisions) / episodes if episodes else 0.0,
-                    "timeout_rate": timeouts / episodes if episodes else 0.0,
-                    "base_contact_rate": base_contacts / episodes if episodes else 0.0,
-                    "mean_xy_speed_mps": sum(velocity_values) / episodes if episodes else 0.0,
-                    "std_xy_speed_mps": _sample_standard_deviation(velocity_values),
+        return _aggregate_rows_from_counts(self.profiles, self.snapshot_counts())
+
+    def snapshot_counts(self) -> list[dict[str, int | float]]:
+        """Return cumulative per-profile outcome counts (the authoritative metric source)."""
+        return [
+            {
+                "episodes": self._episodes[index],
+                "successes": self._successes[index],
+                "collisions": self._collisions[index],
+                "goal_region_collisions": self._goal_region_collisions[index],
+                "timeouts": self._timeouts[index],
+                "base_contacts": self._base_contacts[index],
+                "velocity_sum": self._velocity_sums[index],
+                "velocity_values": list(self._velocity_values[index]),
+            }
+            for index in range(len(self.profiles))
+        ]
+
+    def set_stage_limit(self, limit: int) -> None:
+        """Cap per-profile acceptance at ``limit`` for the current seed stage.
+
+        Called at the start of every stage; the recorded boundary captures the
+        cumulative counts reached at the end of the previous stage (all-zero for
+        the first stage).  Consumed by :meth:`per_seed_counts`.
+        """
+        self._stage_boundaries.append(self.snapshot_counts())
+        self._stage_limit = [min(int(limit), self.episodes_per_profile)] * len(self.profiles)
+
+    def per_seed_counts(self, seeds: list[int]) -> list[list[dict[str, int | float]]]:
+        """Return per-seed per-profile outcome counts (deltas between stage boundaries).
+
+        Requires :meth:`set_stage_limit` at the start of every stage and a final
+        :meth:`snapshot_counts` boundary recorded by the caller after the last stage.
+        Episodes already in flight when a stage boundary is crossed are attributed to
+        the stage in which they complete (at most one episode per profile).
+        """
+        boundaries = [*self._stage_boundaries, self.snapshot_counts()]
+        per_seed: list[list[dict[str, int | float]]] = []
+        for seed_index in range(len(seeds)):
+            previous = boundaries[seed_index]
+            current = boundaries[seed_index + 1]
+            seed_counts = []
+            for index in range(len(self.profiles)):
+                counts = {
+                    key: current[index][key] - previous[index][key]
+                    for key in current[index] if key != "velocity_values"
                 }
-            )
-        return aggregates
+                counts["velocity_values"] = current[index]["velocity_values"][int(previous[index]["episodes"]):]
+                seed_counts.append(counts)
+            per_seed.append(seed_counts)
+        return per_seed
+
+    def per_seed_rows(self, seeds: list[int]) -> list[list[dict[str, Any]]]:
+        """One normalized result row per profile per seed."""
+        return [
+            [_result_row(profile, counts[index], seed=seed) for index, profile in enumerate(self.profiles)]
+            for seed, counts in zip(seeds, self.per_seed_counts(seeds))
+        ]
+
+    def per_seed_aggregate_rows(self, seeds: list[int]) -> list[list[dict[str, Any]]]:
+        """Pooled per-scenario aggregate rows per seed."""
+        return [
+            _aggregate_rows_from_counts(self.profiles, counts, seed=seed)
+            for seed, counts in zip(seeds, self.per_seed_counts(seeds))
+        ]
+
+
+def _result_row(
+    profile: BenchmarkProfile,
+    counts: Mapping[str, int | float],
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """Build one normalized result row from per-profile outcome counts."""
+    episodes = int(counts["episodes"])
+    successes = int(counts["successes"])
+    collisions = int(counts["collisions"])
+    goal_region_collisions = int(counts["goal_region_collisions"])
+    timeouts = int(counts["timeouts"])
+    base_contacts = int(counts["base_contacts"])
+    navigation_episodes = episodes - goal_region_collisions
+    velocity_values = list(counts.get("velocity_values", []))
+    row = {
+        **asdict(profile),
+        "episodes": episodes,
+        "successes": successes,
+        "collisions": collisions,
+        "goal_region_collisions": goal_region_collisions,
+        "all_collisions": collisions + goal_region_collisions,
+        "timeouts": timeouts,
+        "base_contacts": base_contacts,
+        "success_rate": successes / episodes if episodes else 0.0,
+        "navigation_success_rate": successes / navigation_episodes if navigation_episodes else 0.0,
+        "collision_rate": collisions / episodes if episodes else 0.0,
+        "goal_region_collision_rate": goal_region_collisions / episodes if episodes else 0.0,
+        "all_collision_rate": (collisions + goal_region_collisions) / episodes if episodes else 0.0,
+        "timeout_rate": timeouts / episodes if episodes else 0.0,
+        "base_contact_rate": base_contacts / episodes if episodes else 0.0,
+        "mean_xy_speed_mps": float(counts["velocity_sum"]) / episodes if episodes else 0.0,
+        "std_xy_speed_mps": _sample_standard_deviation(velocity_values),
+    }
+    if seed is not None:
+        row["seed"] = seed
+    return row
+
+
+def _aggregate_rows_from_counts(
+    profiles: list[BenchmarkProfile],
+    counts: list[Mapping[str, int | float]],
+    seed: int | None = None,
+) -> list[dict[str, Any]]:
+    """Build pooled per-scenario aggregate rows from per-profile outcome counts."""
+    aggregates = []
+    for scenario in SCENARIO_ORDER:
+        profile_indices = [index for index, profile in enumerate(profiles) if profile.scenario == scenario]
+        if not profile_indices:
+            continue
+        episodes = sum(int(counts[index]["episodes"]) for index in profile_indices)
+        successes = sum(int(counts[index]["successes"]) for index in profile_indices)
+        collisions = sum(int(counts[index]["collisions"]) for index in profile_indices)
+        goal_region_collisions = sum(int(counts[index]["goal_region_collisions"]) for index in profile_indices)
+        timeouts = sum(int(counts[index]["timeouts"]) for index in profile_indices)
+        base_contacts = sum(int(counts[index]["base_contacts"]) for index in profile_indices)
+        navigation_episodes = episodes - goal_region_collisions
+        velocity_values = [
+            value for index in profile_indices for value in counts[index].get("velocity_values", [])
+        ]
+        aggregates.append(
+            {
+                "scenario": scenario,
+                "pedestrian_count": "all",
+                "episodes": episodes,
+                "successes": successes,
+                "collisions": collisions,
+                "goal_region_collisions": goal_region_collisions,
+                "all_collisions": collisions + goal_region_collisions,
+                "timeouts": timeouts,
+                "base_contacts": base_contacts,
+                "success_rate": successes / episodes if episodes else 0.0,
+                "navigation_success_rate": successes / navigation_episodes if navigation_episodes else 0.0,
+                "collision_rate": collisions / episodes if episodes else 0.0,
+                "goal_region_collision_rate": goal_region_collisions / episodes if episodes else 0.0,
+                "all_collision_rate": (collisions + goal_region_collisions) / episodes if episodes else 0.0,
+                "timeout_rate": timeouts / episodes if episodes else 0.0,
+                "base_contact_rate": base_contacts / episodes if episodes else 0.0,
+                "mean_xy_speed_mps": (
+                    sum(float(counts[index]["velocity_sum"]) for index in profile_indices) / episodes if episodes else 0.0
+                ),
+                "std_xy_speed_mps": _sample_standard_deviation(velocity_values),
+            }
+        )
+        if seed is not None:
+            aggregates[-1]["seed"] = seed
+    return aggregates
 
 
 def print_results(rows: list[dict[str, Any]], aggregate_rows: list[dict[str, Any]]) -> None:
