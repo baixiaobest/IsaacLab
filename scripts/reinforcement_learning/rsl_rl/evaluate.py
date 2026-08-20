@@ -38,7 +38,7 @@ parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help=
 parser.add_argument("--num_envs", type=int, default=24, help="Vector environments (must be at least 24).")
 parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.")
 parser.add_argument(
-    "--episodes_per_profile", type=int, default=50, help="Completed episodes for every scenario/count cell."
+    "--episodes_per_profile", type=int, default=100, help="Completed episodes for every scenario/count cell."
 )
 parser.add_argument(
     "--output_dir",
@@ -68,7 +68,7 @@ parser.add_argument(
 parser.add_argument(
     "--interaction_event_cases_per_label",
     type=int,
-    default=5,
+    default=20,
     help="Maximum saved interaction-event clips per scenario and canonical label (0 disables event clips).",
 )
 parser.add_argument(
