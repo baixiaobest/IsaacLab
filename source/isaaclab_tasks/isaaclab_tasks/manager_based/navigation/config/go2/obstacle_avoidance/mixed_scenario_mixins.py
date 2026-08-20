@@ -467,7 +467,7 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 # Dynamic-crowd evaluation overlay
 # ---------------------------------------------------------------------------
 
-EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
+EVALUATION_CROWD_SPEED_RANGE = (0.6, 1.0)
 """Pedestrian desired-speed range used by the standardized dynamic-crowd benchmark."""
 
 EVALUATION_CROWD_LATERAL_HEADING_MAX = PED_LATERAL_HEADING_MAX_HIGH
@@ -485,11 +485,14 @@ EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD = 0.3
 EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS = 0.1
 """Required continuous time satisfying the evaluation goal condition [s]."""
 
-EVALUATION_SLOW_LEADER_SPEED_MPS = 0.35
-"""Fixed desired speed [m/s] of the designated leader in the slow-leader benchmark."""
+EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS = (0.25, 0.45)
+"""Inclusive desired-speed sampling range [m/s] for the slow-leader benchmark."""
 
-EVALUATION_SLOW_LEADER_START_AHEAD_M = 2.0
-"""Initial longitudinal distance [m] from robot to leader in the slow-leader benchmark."""
+EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M = (1.5, 3.0)
+"""Inclusive initial longitudinal-distance sampling range [m] from robot to leader."""
+
+EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M = (-0.25, 0.25)
+"""Initial lateral-offset sampling range [m] from the robot's lane to the slow leader."""
 
 EVALUATION_SCENARIO_CODES = {
     "crossing": 0,
@@ -554,15 +557,16 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
         },
     )
     # Ordinary profiles keep the standard crowd reset.  The additional profile installs
-    # a fixed slow leader in slot 0 after that same reset.
+    # a bounded-random slow leader in slot 0 after that same reset.
     env_cfg.events.reset_pedestrians = EventTerm(
         func=nav_mdp.reset_evaluation_pedestrian_crowd,
         mode="reset",
         params={
             "flow_dir": 1.0,
             "slow_leader_scenario_code": EVALUATION_SCENARIO_CODES["with_flow_slow_leader"],
-            "slow_leader_speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
-            "slow_leader_start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,
+            "slow_leader_speed_range_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
+            "slow_leader_start_ahead_range_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
+            "slow_leader_lateral_offset_range_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
         },
     )
     return env_cfg
@@ -596,6 +600,18 @@ def install_dynamic_crowd_evaluation_profiles(
 
     env.evaluation_pedestrian_count = counts
     env.evaluation_scenario = scenarios
+    # Reset hooks fill these values for slow-leader episodes.  Keeping them on the
+    # environment lets the evaluator record the actual sampled conditions per accepted
+    # episode, rather than merely documenting the configured ranges.
+    env.evaluation_slow_leader_speed_mps = torch.full(
+        (env.num_envs,), float("nan"), device=env.device, dtype=torch.float32
+    )
+    env.evaluation_slow_leader_start_ahead_m = torch.full(
+        (env.num_envs,), float("nan"), device=env.device, dtype=torch.float32
+    )
+    env.evaluation_slow_leader_lateral_offset_m = torch.full(
+        (env.num_envs,), float("nan"), device=env.device, dtype=torch.float32
+    )
     env.evaluation_flow_goal_direction = torch.where(
         (scenarios == EVALUATION_SCENARIO_CODES["with_flow"])
         | (scenarios == EVALUATION_SCENARIO_CODES["with_flow_slow_leader"]),

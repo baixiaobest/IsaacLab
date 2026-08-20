@@ -317,22 +317,31 @@ def reset_evaluation_pedestrian_crowd(
     env_ids: torch.Tensor,
     flow_dir: float = 1.0,
     slow_leader_scenario_code: int = 3,
-    slow_leader_speed_mps: float = 0.35,
-    slow_leader_start_ahead_m: float = 2.0,
+    slow_leader_speed_range_mps: tuple[float, float] = (0.25, 0.45),
+    slow_leader_start_ahead_range_m: tuple[float, float] = (1.5, 3.0),
+    slow_leader_lateral_offset_range_m: tuple[float, float] = (-0.25, 0.25),
 ):
-    """Reset an evaluation crowd and install its deterministic slow leader when requested.
+    """Reset an evaluation crowd and install its bounded-random slow leader when requested.
 
     The base reset still supplies the randomized crowd used by all existing benchmark profiles.
     For the dedicated slow-leader profile, pedestrian slot 0 is placed directly ahead of the
-    robot, travels in the same ``+x`` direction, and has a fixed desired speed.  That makes
-    overtaking a deliberate, repeatable test rather than an incidental sampling outcome.
+    robot's lane, travels in the same ``+x`` direction, and samples its speed and relative
+    pose from narrow benchmark ranges.  That makes overtaking deliberate without teaching a
+    policy one fixed initial condition.
     """
     reset_pedestrian_crowd(env, env_ids, flow_dir=flow_dir)
 
     if not hasattr(env, "evaluation_scenario"):
         return
-    if slow_leader_speed_mps <= 0.0 or slow_leader_start_ahead_m <= 0.0:
-        raise ValueError("Slow-leader speed and starting distance must be positive.")
+
+    def _validate_range(name: str, value: tuple[float, float], *, strictly_positive: bool = False) -> None:
+        if len(value) != 2 or value[0] > value[1] or (strictly_positive and value[0] <= 0.0):
+            qualifier = "positive and ordered" if strictly_positive else "ordered"
+            raise ValueError(f"{name} must be a two-value {qualifier} range.")
+
+    _validate_range("Slow-leader speed", slow_leader_speed_range_mps, strictly_positive=True)
+    _validate_range("Slow-leader starting distance", slow_leader_start_ahead_range_m, strictly_positive=True)
+    _validate_range("Slow-leader lateral offset", slow_leader_lateral_offset_range_m)
 
     pedestrian_env_ids = env_ids[env.is_pedestrian_env[env_ids]]
     if len(pedestrian_env_ids) == 0:
@@ -358,13 +367,23 @@ def reset_evaluation_pedestrian_crowd(
         crowd_manager.corridor_width[leader_env_ids] / 2.0 - crowd_manager.cfg.wall_margin
     ).clamp(min=0.0)
 
-    # Keep the leader in the robot's lane, but inside the corridor and before the downstream
-    # boundary. In this evaluation profile the robot's goal and crowd both travel in +x.
-    leader_x = (local_robot_pos[:, 0] + slow_leader_start_ahead_m).clamp(
+    sample_count = len(leader_env_ids)
+    leader_speed = torch.empty(sample_count, device=env.device).uniform_(*slow_leader_speed_range_mps)
+    leader_start_ahead = torch.empty(sample_count, device=env.device).uniform_(
+        *slow_leader_start_ahead_range_m
+    )
+    leader_lateral_offset = torch.empty(sample_count, device=env.device).uniform_(
+        *slow_leader_lateral_offset_range_m
+    )
+
+    # Keep the leader approximately in the robot's lane, but inside the corridor and before
+    # the downstream boundary. In this evaluation profile the robot's goal and crowd both
+    # travel in +x.
+    leader_x = (local_robot_pos[:, 0] + leader_start_ahead).clamp(
         min=-half_length + crowd_manager.cfg.wall_margin,
         max=half_length - crowd_manager.cfg.wall_margin,
     )
-    leader_y = local_robot_pos[:, 1].clamp(min=-half_width, max=half_width)
+    leader_y = (local_robot_pos[:, 1] + leader_lateral_offset).clamp(min=-half_width, max=half_width)
     leader_local_pos = torch.stack((leader_x, leader_y), dim=-1)
     leader_pos = corridor_origin + leader_local_pos
     leader_goal_local = torch.stack((half_length - crowd_manager.cfg.wall_margin, leader_y), dim=-1)
@@ -376,5 +395,10 @@ def reset_evaluation_pedestrian_crowd(
 
     crowd_manager.pos[leader_env_ids, 0] = leader_pos
     crowd_manager.goal[leader_env_ids, 0] = leader_goal
-    crowd_manager.desired_speed[leader_env_ids, 0] = slow_leader_speed_mps
-    crowd_manager.vel[leader_env_ids, 0] = leader_direction * slow_leader_speed_mps
+    crowd_manager.desired_speed[leader_env_ids, 0] = leader_speed
+    crowd_manager.vel[leader_env_ids, 0] = leader_direction * leader_speed.unsqueeze(-1)
+    # Retain the exact reset samples for per-episode evaluation artifacts.
+    if hasattr(env, "evaluation_slow_leader_speed_mps"):
+        env.evaluation_slow_leader_speed_mps[leader_env_ids] = leader_speed
+        env.evaluation_slow_leader_start_ahead_m[leader_env_ids] = leader_start_ahead
+        env.evaluation_slow_leader_lateral_offset_m[leader_env_ids] = leader_lateral_offset

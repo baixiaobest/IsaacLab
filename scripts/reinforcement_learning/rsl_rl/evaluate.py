@@ -152,18 +152,19 @@ from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 
-# Slow leader requires task-level scenario and reset support. Evaluator scripts
-# can be overlaid onto an older pinned experiment, but its task configuration
-# must remain untouched; detect that capability rather than importing it
-# unconditionally.
+# Slow leader requires task-level scenario and reset support.  Detect that
+# capability rather than importing it unconditionally so older task branches
+# can still run the standard benchmark profiles.
 try:
     from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
-        EVALUATION_SLOW_LEADER_SPEED_MPS,
-        EVALUATION_SLOW_LEADER_START_AHEAD_M,
+        EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+        EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
+        EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
     )
 except ImportError:
-    EVALUATION_SLOW_LEADER_SPEED_MPS = None
-    EVALUATION_SLOW_LEADER_START_AHEAD_M = None
+    EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M = None
+    EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS = None
+    EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M = None
 
 # The RVO2/occupancy task evaluates on its benchmark environment (social-force
 # crowd, 16 person slots, corridor terrain) registered by
@@ -183,8 +184,9 @@ if RVO2_CROWD_EVAL:
 SLOW_LEADER_AVAILABLE = (
     not RVO2_CROWD_EVAL
     and "with_flow_slow_leader" in EVALUATION_SCENARIO_CODES
-    and EVALUATION_SLOW_LEADER_SPEED_MPS is not None
-    and EVALUATION_SLOW_LEADER_START_AHEAD_M is not None
+    and EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS is not None
+    and EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M is not None
+    and EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M is not None
 )
 
 
@@ -220,6 +222,40 @@ def _create_timestamped_run_dir(output_root: Path) -> Path:
             continue
         return run_dir
     raise RuntimeError(f"Could not create a unique evaluation run directory in {output_root}.")
+
+
+def _slow_leader_conditions_by_env(raw_env, profiles, env_profile_indices) -> dict[int, dict[str, float]]:
+    """Snapshot the current slow-leader reset samples before an evaluation step."""
+    required = (
+        "evaluation_slow_leader_speed_mps",
+        "evaluation_slow_leader_start_ahead_m",
+        "evaluation_slow_leader_lateral_offset_m",
+    )
+    if not SLOW_LEADER_AVAILABLE or not all(hasattr(raw_env, name) for name in required):
+        return {}
+    speeds = raw_env.evaluation_slow_leader_speed_mps.detach().cpu().tolist()
+    aheads = raw_env.evaluation_slow_leader_start_ahead_m.detach().cpu().tolist()
+    offsets = raw_env.evaluation_slow_leader_lateral_offset_m.detach().cpu().tolist()
+    return {
+        env_id: {
+            "speed_mps": float(speeds[env_id]),
+            "start_ahead_m": float(aheads[env_id]),
+            "lateral_offset_m": float(offsets[env_id]),
+        }
+        for env_id, profile_index in enumerate(env_profile_indices)
+        if profiles[profile_index].scenario == "with_flow_slow_leader"
+    }
+
+
+def _slow_leader_condition_summary(records: list[dict[str, float]]) -> dict[str, float | int | None]:
+    """Produce compact artifact metadata for the sampled slow-leader conditions."""
+    summary: dict[str, float | int | None] = {"episodes": len(records)}
+    for key in ("speed_mps", "start_ahead_m", "lateral_offset_m"):
+        values = [record[key] for record in records]
+        summary[f"mean_{key}"] = sum(values) / len(values) if values else None
+        summary[f"min_{key}"] = min(values) if values else None
+        summary[f"max_{key}"] = max(values) if values else None
+    return summary
 
 
 class EvaluationProgressReporter:
@@ -379,6 +415,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
+    slow_leader_records: list[dict[str, float | int]] = []
     seed_count = args_cli.seeds
     if seed_count < 1:
         raise ValueError("--seeds must be at least 1.")
@@ -493,6 +530,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             while simulation_app.is_running() and not collector.stage_complete:
                 step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
                 velocity_accumulator.record_step(step_speed)
+                slow_leader_conditions = _slow_leader_conditions_by_env(
+                    raw_env, profiles, env_profile_indices
+                )
                 with torch.inference_mode():
                     actions = policy(obs)
                     if replay_recorder is not None:
@@ -518,6 +558,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     completed_env_ids=completed_ids,
                     goal_region_collision_env_ids=goal_region_collision_ids,
                 )
+                for env_id in sorted(collector.last_accepted_ids):
+                    condition = slow_leader_conditions.get(env_id)
+                    if condition is None:
+                        continue
+                    profile = profiles[env_profile_indices[env_id]]
+                    slow_leader_records.append(
+                        {
+                            **condition,
+                            "seed": seed,
+                            "pedestrian_count": profile.pedestrian_count,
+                        }
+                    )
                 progress_reporter.report(
                     collector.total_episodes,
                     seed=seed,
@@ -566,6 +618,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     rows = collector.rows()
     aggregates = collector.aggregate_rows()
+    slow_leader_summary = _slow_leader_condition_summary(slow_leader_records)
     artifact_dir = save_artifacts(
         output_dir,
         rows,
@@ -602,8 +655,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     if profile.scenario == "with_flow_slow_leader"
                 ],
                 "pedestrian_slot": 0,
-                "speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
-                "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,
+                "speed_range_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
+                "start_ahead_range_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
+                "lateral_offset_range_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                "sampled_conditions_file": "slow_leader_conditions.json",
+                "sampled_conditions": slow_leader_summary,
             },
             "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
             "goal_reach_condition": {
@@ -643,6 +699,23 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             },
         },
     )
+    with (artifact_dir / "slow_leader_conditions.json").open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "schema_version": 1,
+                "scenario": "with_flow_slow_leader",
+                "configured_ranges": {
+                    "speed_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
+                    "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
+                    "lateral_offset_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                },
+                "summary": slow_leader_summary,
+                "episodes": slow_leader_records,
+            },
+            file,
+            indent=2,
+            allow_nan=False,
+        )
     save_interaction_event_artifacts(artifact_dir, interaction_collector.events, interaction_collector.summary_rows())
     if seed_count > 1:
         per_seed_breakdown = {
