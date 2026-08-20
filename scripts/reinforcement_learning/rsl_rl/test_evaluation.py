@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import math
+import os
 import sys
 import threading
+import time
+import types
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -748,3 +753,63 @@ def test_multi_seed_evaluator_imports_json_for_per_seed_aggregates():
     source = EVALUATE_PATH.read_text(encoding="utf-8")
     assert "import json" in source
     assert "per_seed_aggregates.json" in source
+
+
+def test_evaluator_publishes_throttled_live_progress_to_wandb():
+    """A long remote benchmark exposes progress without depending on Pod logs."""
+    tree = ast.parse(EVALUATE_PATH.read_text(encoding="utf-8"))
+    reporter_node = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EvaluationProgressReporter"
+    )
+    namespace = {"os": os, "time": time, "datetime": datetime, "timezone": timezone}
+    exec(compile(ast.Module(body=[reporter_node], type_ignores=[]), str(EVALUATE_PATH), "exec"), namespace)
+    reporter_class = namespace["EvaluationProgressReporter"]
+
+    class FakeRun:
+        def __init__(self):
+            self.summary = {}
+            self.logged = []
+            self.finished = False
+
+        def log(self, values, *, commit):
+            self.logged.append((values, commit))
+
+        def finish(self):
+            self.finished = True
+
+    run = FakeRun()
+    fake_wandb = types.SimpleNamespace(init=lambda **kwargs: run)
+    original_wandb = sys.modules.get("wandb")
+    sys.modules["wandb"] = fake_wandb
+    previous_experiment_id = os.environ.get("RESEARCH_EXPERIMENT_ID")
+    previous_project = os.environ.get("WANDB_PROJECT")
+    os.environ["RESEARCH_EXPERIMENT_ID"] = "progress-test"
+    os.environ["WANDB_PROJECT"] = "agent_obstacle_avoidance"
+    try:
+        reporter = reporter_class(profile_count=24, episodes_per_profile=100, seed_count=5)
+        reporter.report(480, seed=104, seed_index=5, status="running", force=True)
+        assert run.summary["research_agent_evaluation_accepted_episodes"] == 480
+        assert run.summary["research_agent_evaluation_total_episodes"] == 2400
+        assert run.summary["research_agent_evaluation_percent"] == 20.0
+        assert run.summary["research_agent_evaluation_estimated_remaining_seconds"] is not None
+        assert len(run.logged) == 1
+        reporter.report(481, seed=104, seed_index=5, status="running")
+        assert len(run.logged) == 1  # The normal path is rate limited to 30 seconds.
+        reporter.report(2400, seed=104, seed_index=5, status="complete", force=True)
+        assert run.summary["research_agent_evaluation_status"] == "complete"
+        assert run.summary["research_agent_evaluation_percent"] == 100.0
+        reporter.close()
+        assert run.finished
+    finally:
+        if original_wandb is None:
+            sys.modules.pop("wandb", None)
+        else:
+            sys.modules["wandb"] = original_wandb
+        if previous_experiment_id is None:
+            os.environ.pop("RESEARCH_EXPERIMENT_ID", None)
+        else:
+            os.environ["RESEARCH_EXPERIMENT_ID"] = previous_experiment_id
+        if previous_project is None:
+            os.environ.pop("WANDB_PROJECT", None)
+        else:
+            os.environ["WANDB_PROJECT"] = previous_project
