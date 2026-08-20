@@ -20,6 +20,7 @@ except ImportError:
 
 
 MODULE_PATH = Path(__file__).with_name("evaluation.py")
+EVALUATE_PATH = Path(__file__).with_name("evaluate.py")
 SPEC = importlib.util.spec_from_file_location("rsl_rl_evaluation", MODULE_PATH)
 assert SPEC and SPEC.loader
 evaluation = importlib.util.module_from_spec(SPEC)
@@ -740,3 +741,10 @@ def test_failure_viewer_web_api_serves_replay_and_persists_tags(tmp_path):
         thread.join(timeout=1.0)
 
     assert failure_viewer.load_case_tags(tmp_path) == {"collision_000001": ["late brake", "crossing"]}
+
+
+def test_multi_seed_evaluator_imports_json_for_per_seed_aggregates():
+    """The multi-seed completion path serializes ``per_seed_aggregates.json``."""
+    source = EVALUATE_PATH.read_text(encoding="utf-8")
+    assert "import json" in source
+    assert "per_seed_aggregates.json" in source
