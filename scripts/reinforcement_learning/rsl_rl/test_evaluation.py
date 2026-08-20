@@ -104,9 +104,20 @@ def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
 
 def test_dynamic_profiles_cover_all_scenarios_and_counts():
     profiles = evaluation.dynamic_crowd_profiles()
-    assert len(profiles) == 24
+    assert len(profiles) == 32
     assert [profile.pedestrian_count for profile in profiles[:8]] == list(range(2, 17, 2))
     assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER)
+    assert profiles[-8:] == [
+        evaluation.BenchmarkProfile("with_flow_slow_leader", count)
+        for count in range(2, 17, 2)
+    ]
+
+
+def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
+    profiles = evaluation.dynamic_crowd_profiles(include_slow_leader=False)
+
+    assert len(profiles) == 24
+    assert "with_flow_slow_leader" not in {profile.scenario for profile in profiles}
 
 
 def test_speed_interaction_labels_cover_yield_assert_ambiguous_and_non_risky():
@@ -163,6 +174,9 @@ def test_with_flow_interaction_overtake_and_ordering_labels():
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], 0.1, 0.6)[0] == "unclassified"
+    assert evaluation.classify_speed_interaction(
+        "with_flow_slow_leader", True, 1.0, 1.0, [], -0.6, 0.6
+    )[0] == "overtake"
 
 
 def test_interaction_artifacts_include_zero_categories_and_raw_events(tmp_path):

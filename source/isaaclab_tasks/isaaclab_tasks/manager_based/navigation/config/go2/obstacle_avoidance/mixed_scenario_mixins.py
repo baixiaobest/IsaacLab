@@ -20,13 +20,18 @@ from __future__ import annotations
 import math
 
 from isaaclab.assets.rigid_object_collection import RigidObjectCollectionCfg
+from isaaclab.envs.mdp.observations import occupancy_grid_from_lidar
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import ObservationGroupCfg as ObsGroup
+from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
@@ -40,10 +45,12 @@ from .obstacle_avoidance_env_cfg import (
     EventCfg,
     ObstacleAvoidanceEnvCfg,
     ObstacleAvoidanceSceneCfg,
+    ObservationsCfg,
     RewardsCfg,
     TerminationsCfg,
 )
 from .held_scan_lidar_env import HeldScanLidarCfg
+from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
     PedestrianCollectionCfg,
@@ -77,6 +84,12 @@ PED_LATERAL_HEADING_MAX_HIGH = math.radians(12.0)
 
 EPISODE_LENGTH = 15.0
 RESAMPLING_TIME_RANGE = (15.1, 15.1)
+
+# The 10 m x 10 m local map is intentionally the final policy/critic term.  The
+# encoder model splits its flat input at the tail, so changing this ordering
+# would silently encode a proprioceptive term as part of the image instead.
+MIXED_OCCUPANCY_GRID_SIZE = 50
+MIXED_OCCUPANCY_GRID_RESOLUTION = 0.2
 
 # ---------------------------------------------------------------------------
 # Scenario fragments
@@ -264,6 +277,74 @@ class MixedTerminationsCfg(_MixedTerminationsCfg, TerminationsCfg):
     pass
 
 
+@configclass
+class MixedOccupancyObservationsCfg(ObservationsCfg):
+    """Mixed-task observations with a binary local grid from ``obstacle_scanner``.
+
+    ``obstacle_scanner`` is the mixed scene's multi-mesh ray caster, so the
+    same rasterization includes static terrain geometry and pedestrian capsules.
+    The row-major occupancy grid remains the final term in both groups for the
+    tail-splitting CNN encoder.
+    """
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+            noise=Unoise(n_min=-0.15, n_max=0.15),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+        occupancy_grid = ObsTerm(
+            func=occupancy_grid_from_lidar,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+                "grid_size": MIXED_OCCUPANCY_GRID_SIZE,
+                "grid_resolution": MIXED_OCCUPANCY_GRID_RESOLUTION,
+            },
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class CriticCfg(ObsGroup):
+        pose_2d_command = ObsTerm(func=mdp.generated_commands, params={"command_name": "pose_2d_command"})
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel,
+            modifiers=policy_base_lin_vel_modifiers(),
+        )
+        imu_ang_vel = ObsTerm(
+            func=mdp.imu_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("imu")},
+            modifiers=policy_imu_ang_vel_modifiers(),
+        )
+        actions = ObsTerm(func=mdp.last_action)
+        occupancy_grid = ObsTerm(
+            func=occupancy_grid_from_lidar,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+                "grid_size": MIXED_OCCUPANCY_GRID_SIZE,
+                "grid_resolution": MIXED_OCCUPANCY_GRID_RESOLUTION,
+            },
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
+
+
 # ---------------------------------------------------------------------------
 # Top-level environment configs
 # ---------------------------------------------------------------------------
@@ -317,6 +398,30 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
         self.scene.obstacle_scanner.update_period = 0.0
         self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
         self.scene.obstacle_scanner.debug_vis = False
+
+
+@configclass
+class MixedOccupancyObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
+    """Mixed static/pedestrian co-training with a 50x50 lidar occupancy grid."""
+
+    observations: MixedOccupancyObservationsCfg = MixedOccupancyObservationsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Keep the experiment profile self-contained; callers can still override
+        # this through the standard ``--num_envs`` configuration path.
+        self.scene.num_envs = 2000
+
+
+@configclass
+class MixedOccupancyObstacleAvoidanceEnvCfg_PLAY(MixedOccupancyObstacleAvoidanceEnvCfg):
+    """Playable mixed occupancy variant with clean high-level observations."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 16
+        self.observations.policy.enable_corruption = False
+        self.actions.pre_trained_policy_action.debug_vis = True
 
 
 @configclass
@@ -380,7 +485,18 @@ EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD = 0.3
 EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS = 0.1
 """Required continuous time satisfying the evaluation goal condition [s]."""
 
-EVALUATION_SCENARIO_CODES = {"crossing": 0, "with_flow": 1, "against_flow": 2}
+EVALUATION_SLOW_LEADER_SPEED_MPS = 0.35
+"""Fixed desired speed [m/s] of the designated leader in the slow-leader benchmark."""
+
+EVALUATION_SLOW_LEADER_START_AHEAD_M = 2.0
+"""Initial longitudinal distance [m] from robot to leader in the slow-leader benchmark."""
+
+EVALUATION_SCENARIO_CODES = {
+    "crossing": 0,
+    "with_flow": 1,
+    "against_flow": 2,
+    "with_flow_slow_leader": 3,
+}
 """Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts."""
 
 
@@ -437,6 +553,18 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
             "speed_range": EVALUATION_CROWD_SPEED_RANGE,
         },
     )
+    # Ordinary profiles keep the standard crowd reset.  The additional profile installs
+    # a fixed slow leader in slot 0 after that same reset.
+    env_cfg.events.reset_pedestrians = EventTerm(
+        func=nav_mdp.reset_evaluation_pedestrian_crowd,
+        mode="reset",
+        params={
+            "flow_dir": 1.0,
+            "slow_leader_scenario_code": EVALUATION_SCENARIO_CODES["with_flow_slow_leader"],
+            "slow_leader_speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
+            "slow_leader_start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,
+        },
+    )
     return env_cfg
 
 
@@ -447,8 +575,9 @@ def install_dynamic_crowd_evaluation_profiles(
 ) -> None:
     """Install fixed profile tensors consumed by dynamic-crowd evaluation reset hooks.
 
-    Scenario codes are ``0=crossing``, ``1=with_flow``, and ``2=against_flow``. Inputs must
-    contain one assignment per vector environment and are copied to the environment device.
+    Scenario codes are ``0=crossing``, ``1=with_flow``, ``2=against_flow``, and
+    ``3=with_flow_slow_leader``. Inputs must contain one assignment per vector environment and
+    are copied to the environment device.
     """
     import torch
 
@@ -458,13 +587,18 @@ def install_dynamic_crowd_evaluation_profiles(
         raise ValueError("Evaluation profiles must provide exactly one count and scenario per environment.")
     if torch.any((counts < 1) | (counts > env.crowd_manager.max_pedestrians)):
         raise ValueError("Evaluation pedestrian counts must fit the configured crowd capacity.")
-    if torch.any((scenarios < 0) | (scenarios > 2)):
-        raise ValueError("Evaluation scenario codes must be 0 (crossing), 1 (with), or 2 (against).")
+    max_scenario_code = max(EVALUATION_SCENARIO_CODES.values())
+    if torch.any((scenarios < 0) | (scenarios > max_scenario_code)):
+        raise ValueError(
+            "Evaluation scenario codes must be 0 (crossing), 1 (with), 2 (against), "
+            "or 3 (with slow leader)."
+        )
 
     env.evaluation_pedestrian_count = counts
     env.evaluation_scenario = scenarios
     env.evaluation_flow_goal_direction = torch.where(
-        scenarios == 1,
+        (scenarios == EVALUATION_SCENARIO_CODES["with_flow"])
+        | (scenarios == EVALUATION_SCENARIO_CODES["with_flow_slow_leader"]),
         torch.ones_like(scenarios),
         torch.where(scenarios == 2, -torch.ones_like(scenarios), torch.zeros_like(scenarios)),
     )

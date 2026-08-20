@@ -20,11 +20,12 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 
 
-SCENARIO_ORDER = ("crossing", "with_flow", "against_flow")
+SCENARIO_ORDER = ("crossing", "with_flow", "against_flow", "with_flow_slow_leader")
 SCENARIO_LABELS = {
     "crossing": "Crossing",
     "with_flow": "With flow",
     "against_flow": "Against flow",
+    "with_flow_slow_leader": "With flow — slow leader",
 }
 
 GOAL_REGION_COLLISION_RADIUS_M = 0.75
@@ -58,6 +59,7 @@ INTERACTION_LABELS = {
     "crossing": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
     "against_flow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
     "with_flow": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
+    "with_flow_slow_leader": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
 }
 
 
@@ -632,13 +634,26 @@ def _sample_standard_deviation(values: Iterable[float]) -> float:
     return math.sqrt(sum((value - mean) ** 2 for value in samples) / (len(samples) - 1))
 
 
-def dynamic_crowd_profiles(counts: Iterable[int] = range(2, 17, 2)) -> list[BenchmarkProfile]:
-    """Return crossing, with-flow, and against-flow profiles for every crowd count."""
-    return [
+def dynamic_crowd_profiles(
+    counts: Iterable[int] = range(2, 17, 2), *, include_slow_leader: bool = True,
+) -> list[BenchmarkProfile]:
+    """Return the normal crowd grid and slow-leader grid when supported.
+
+    Every slow-leader cell uses the same total pedestrian count as its regular
+    with-flow counterpart. Slot zero is the deterministic leader and the
+    remaining slots retain the normal randomized crowd, so overtaking is
+    measured both in isolation and under increasing surrounding density.
+    """
+    counts = tuple(counts)
+    ordinary_scenarios = ("crossing", "with_flow", "against_flow")
+    profiles = [
         BenchmarkProfile(scenario, count)
-        for scenario in SCENARIO_ORDER
+        for scenario in ordinary_scenarios
         for count in counts
     ]
+    if include_slow_leader:
+        profiles.extend(BenchmarkProfile("with_flow_slow_leader", count) for count in counts)
+    return profiles
 
 
 def classify_speed_interaction(
@@ -662,7 +677,7 @@ def classify_speed_interaction(
         raise ValueError(f"Unsupported interaction scenario: {scenario}")
     if not risk_seen:
         return "non_risky_close", None, None
-    if scenario == "with_flow":
+    if scenario in {"with_flow", "with_flow_slow_leader"}:
         if initial_longitudinal_m is None or final_longitudinal_m is None:
             return "unclassified", None, None
         margin = INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M
@@ -1467,7 +1482,7 @@ def _save_interaction_histogram(path: Path, summary_rows: list[dict[str, Any]]) 
     import matplotlib.pyplot as plt
 
     summary = {(row["scenario"], row["label"]): int(row["events"]) for row in summary_rows}
-    figure, axes = plt.subplots(1, len(SCENARIO_ORDER), figsize=(15, 4.5))
+    figure, axes = plt.subplots(1, len(SCENARIO_ORDER), figsize=(4.5 * len(SCENARIO_ORDER), 4.5))
     for axis, scenario in zip(axes, SCENARIO_ORDER):
         labels = INTERACTION_LABELS[scenario]
         values = [summary.get((scenario, label), 0) for label in labels]
@@ -1497,7 +1512,9 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
         ("collision_rate", None, "Navigation collision rate (%)", 100.0, (0.0, 100.0)),
         ("mean_xy_speed_mps", "std_xy_speed_mps", "Mean XY speed (m/s)", 1.0, None),
     )
-    figure, axes = plt.subplots(len(metric_specs), 3, figsize=(14, 13), sharex="col")
+    figure, axes = plt.subplots(
+        len(metric_specs), len(SCENARIO_ORDER), figsize=(4.5 * len(SCENARIO_ORDER), 13), sharex="col"
+    )
     for col, scenario in enumerate(SCENARIO_ORDER):
         scenario_rows = sorted(
             (row for row in rows if row["scenario"] == scenario), key=lambda row: row["pedestrian_count"]
@@ -1547,7 +1564,9 @@ def _save_failure_histogram(path: Path, aggregate_rows: list[dict[str, Any]]) ->
         ("base_contacts", "Base contact", "#F2A541"),
     )
     aggregate_by_scenario = {row["scenario"]: row for row in aggregate_rows}
-    figure, axes = plt.subplots(1, len(SCENARIO_ORDER), figsize=(14, 4.5), sharey=True)
+    figure, axes = plt.subplots(
+        1, len(SCENARIO_ORDER), figsize=(4.5 * len(SCENARIO_ORDER), 4.5), sharey=True
+    )
     for axis, scenario in zip(axes, SCENARIO_ORDER):
         row = aggregate_by_scenario.get(scenario, {})
         labels = [label for _, label, _ in failure_specs]

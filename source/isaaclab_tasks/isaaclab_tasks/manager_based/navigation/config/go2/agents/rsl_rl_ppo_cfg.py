@@ -558,6 +558,54 @@ class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
+
+
+# The mixed task's occupancy grid occupies the final 2,500 entries of each
+# observation group. Keep the reshape declaration explicit so EncoderModel's
+# tail split is checked at construction rather than relying on a convention.
+MixedOccupancyCNNConfig = [
+    # (1, 50, 50) -> (16, 25, 25)
+    {"type": "reshape", "input_size": 2500, "shape": [1, 50, 50]},
+    {"type": "conv", "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
+    # (16, 25, 25) -> (32, 13, 13)
+    {"type": "conv", "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
+    # (32, 13, 13) -> (64, 7, 7)
+    {"type": "conv", "out_channels": 64, "kernel_size": 3, "stride": 2, "padding": 1},
+    # Fixed 1,024-dimensional visual latent, matching the existing occupancy reference.
+    {"type": "adaptive_pool", "output_size": (4, 4)},
+]
+
+
+@configclass
+class UnitreeGo2MixedOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
+    """PPO configuration for mixed static/pedestrian occupancy navigation."""
+
+    num_steps_per_env = 24
+    max_iterations = 2000
+    save_interval = 100
+    experiment_name = "go2_mixed_static_pedestrian_occupancy"
+    seed = 666
+    empirical_normalization = False
+    # Policy and critic use their respective noisy/clean grids. In each case
+    # the row-major 50x50 grid is the final observation term.
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
+    actor = _enc_actor(
+        hidden_dims=[256, 128],
+        init_std=1.0,
+        encoder_type="cnn",
+        encoder_dims=MixedOccupancyCNNConfig,
+    )
+    critic = RslRlEncoderModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
+        distribution_cfg=None,
+        encoder_type="cnn",
+        encoder_dims=MixedOccupancyCNNConfig,
+    )
+    algorithm = ObstacleAvoidancePPOConfig
+    wandb_project="obstacle_avoidance_navigation"
+    logger="wandb"
+
 # ---------------------------------------------------------------------------
 # Temporal-lidar obstacle avoidance (LidarModel)
 # ---------------------------------------------------------------------------

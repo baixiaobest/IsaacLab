@@ -38,7 +38,9 @@ from evaluation import (  # isort: skip
 parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy in the dynamic-crowd benchmark.")
 parser.add_argument("--task", type=str, required=True, help="Existing mixed obstacle-avoidance task ID.")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
-parser.add_argument("--num_envs", type=int, default=24, help="Vector environments (must be at least 24).")
+parser.add_argument(
+    "--num_envs", type=int, default=32, help="Vector environments (must be at least one per benchmark profile)."
+)
 parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.")
 parser.add_argument(
     "--seeds", type=int, default=1,
@@ -150,6 +152,19 @@ from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 
+# Slow leader requires task-level scenario and reset support. Evaluator scripts
+# can be overlaid onto an older pinned experiment, but its task configuration
+# must remain untouched; detect that capability rather than importing it
+# unconditionally.
+try:
+    from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
+        EVALUATION_SLOW_LEADER_SPEED_MPS,
+        EVALUATION_SLOW_LEADER_START_AHEAD_M,
+    )
+except ImportError:
+    EVALUATION_SLOW_LEADER_SPEED_MPS = None
+    EVALUATION_SLOW_LEADER_START_AHEAD_M = None
+
 # The RVO2/occupancy task evaluates on its benchmark environment (social-force
 # crowd, 16 person slots, corridor terrain) registered by
 # rvo2_navigation_eval_mixins; the policy observations/architecture stay the
@@ -163,6 +178,14 @@ if RVO2_CROWD_EVAL:
         register_rvo2_eval_task,
     )
     register_rvo2_eval_task()
+
+
+SLOW_LEADER_AVAILABLE = (
+    not RVO2_CROWD_EVAL
+    and "with_flow_slow_leader" in EVALUATION_SCENARIO_CODES
+    and EVALUATION_SLOW_LEADER_SPEED_MPS is not None
+    and EVALUATION_SLOW_LEADER_START_AHEAD_M is not None
+)
 
 
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
@@ -298,9 +321,9 @@ class EvaluationProgressReporter:
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
-    profiles = dynamic_crowd_profiles()
+    profiles = dynamic_crowd_profiles(include_slow_leader=SLOW_LEADER_AVAILABLE)
     if args_cli.num_envs < len(profiles):
-        raise ValueError(f"--num_envs must be at least {len(profiles)} for the 24 benchmark profiles.")
+        raise ValueError(f"--num_envs must be at least {len(profiles)} for the benchmark profiles.")
 
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, INSTALLED_RSL_RL_VERSION)
@@ -571,6 +594,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(RVO2_SCENARIO_CODES) if RVO2_CROWD_EVAL else list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
+            "slow_leader": {
+                "available": SLOW_LEADER_AVAILABLE,
+                "scenario": "with_flow_slow_leader",
+                "pedestrian_counts": [
+                    profile.pedestrian_count for profile in profiles
+                    if profile.scenario == "with_flow_slow_leader"
+                ],
+                "pedestrian_slot": 0,
+                "speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
+                "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,
+            },
             "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
             "goal_reach_condition": {
                 "distance_threshold_m": EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD,
