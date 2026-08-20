@@ -36,7 +36,9 @@ from evaluation import (  # isort: skip
 parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy in the dynamic-crowd benchmark.")
 parser.add_argument("--task", type=str, required=True, help="Existing mixed obstacle-avoidance task ID.")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
-parser.add_argument("--num_envs", type=int, default=24, help="Vector environments (must be at least 24).")
+parser.add_argument(
+    "--num_envs", type=int, default=32, help="Vector environments (must be at least one per benchmark profile)."
+)
 parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.")
 parser.add_argument(
     "--seeds", type=int, default=1,
@@ -141,6 +143,8 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed
     EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS,
     EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD,
     EVALUATION_SCENARIO_CODES,
+    EVALUATION_SLOW_LEADER_SPEED_MPS,
+    EVALUATION_SLOW_LEADER_START_AHEAD_M,
     configure_dynamic_crowd_evaluation,
     install_dynamic_crowd_evaluation_profiles,
 )
@@ -202,7 +206,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
     profiles = dynamic_crowd_profiles()
     if args_cli.num_envs < len(profiles):
-        raise ValueError(f"--num_envs must be at least {len(profiles)} for the 24 benchmark profiles.")
+        raise ValueError(f"--num_envs must be at least {len(profiles)} for the benchmark profiles.")
 
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, INSTALLED_RSL_RL_VERSION)
@@ -426,6 +430,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(RVO2_SCENARIO_CODES) if RVO2_CROWD_EVAL else list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
+            "slow_leader": {
+                "scenario": "with_flow_slow_leader",
+                "pedestrian_count": 1,
+                "pedestrian_slot": 0,
+                "speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
+                "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,
+            },
             "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
             "goal_reach_condition": {
                 "distance_threshold_m": EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD,

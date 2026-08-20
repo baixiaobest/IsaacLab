@@ -166,9 +166,10 @@ def reset_evaluation_pedestrian_scenario_robot(
 ):
     """Reset a benchmark profile's robot pose.
 
-    ``env.evaluation_scenario`` contains 0 (crossing), 1 (with flow), or 2 (against flow).
-    Crossing directions remain balanced per reset; flow direction is controlled separately by
-    ``env.evaluation_flow_goal_direction`` when the command is resampled.
+    ``env.evaluation_scenario`` contains 0 (crossing), 1 (with flow), 2 (against flow), or
+    3 (with flow and a slow leader). Crossing directions remain balanced per reset; flow
+    direction is controlled separately by ``env.evaluation_flow_goal_direction`` when the
+    command is resampled.
     """
     # The RSL-RL wrapper performs one reset during construction. Profiles are installed by the
     # evaluator immediately afterward, so let that unobserved bootstrap reset use the standard
@@ -309,3 +310,71 @@ def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir
         speed_range,
         robot_pos=robot_pos,
     )
+
+
+def reset_evaluation_pedestrian_crowd(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    flow_dir: float = 1.0,
+    slow_leader_scenario_code: int = 3,
+    slow_leader_speed_mps: float = 0.35,
+    slow_leader_start_ahead_m: float = 2.0,
+):
+    """Reset an evaluation crowd and install its deterministic slow leader when requested.
+
+    The base reset still supplies the randomized crowd used by all existing benchmark profiles.
+    For the dedicated slow-leader profile, pedestrian slot 0 is placed directly ahead of the
+    robot, travels in the same ``+x`` direction, and has a fixed desired speed.  That makes
+    overtaking a deliberate, repeatable test rather than an incidental sampling outcome.
+    """
+    reset_pedestrian_crowd(env, env_ids, flow_dir=flow_dir)
+
+    if not hasattr(env, "evaluation_scenario"):
+        return
+    if slow_leader_speed_mps <= 0.0 or slow_leader_start_ahead_m <= 0.0:
+        raise ValueError("Slow-leader speed and starting distance must be positive.")
+
+    pedestrian_env_ids = env_ids[env.is_pedestrian_env[env_ids]]
+    if len(pedestrian_env_ids) == 0:
+        return
+    leader_env_ids = pedestrian_env_ids[
+        env.evaluation_scenario[pedestrian_env_ids] == slow_leader_scenario_code
+    ]
+    if len(leader_env_ids) == 0:
+        return
+
+    crowd_manager = env.crowd_manager
+    # The profile contract includes one active pedestrian, but retain this guard if a caller
+    # accidentally installs an incompatible profile.
+    leader_env_ids = leader_env_ids[crowd_manager.active_mask[leader_env_ids, 0]]
+    if len(leader_env_ids) == 0:
+        return
+
+    robot_pos = env.scene["robot"].data.root_pos_w[leader_env_ids, :2]
+    corridor_origin = crowd_manager.corridor_origin[leader_env_ids]
+    local_robot_pos = robot_pos - corridor_origin
+    half_length = crowd_manager.corridor_length[leader_env_ids] / 2.0
+    half_width = (
+        crowd_manager.corridor_width[leader_env_ids] / 2.0 - crowd_manager.cfg.wall_margin
+    ).clamp(min=0.0)
+
+    # Keep the leader in the robot's lane, but inside the corridor and before the downstream
+    # boundary. In this evaluation profile the robot's goal and crowd both travel in +x.
+    leader_x = (local_robot_pos[:, 0] + slow_leader_start_ahead_m).clamp(
+        min=-half_length + crowd_manager.cfg.wall_margin,
+        max=half_length - crowd_manager.cfg.wall_margin,
+    )
+    leader_y = local_robot_pos[:, 1].clamp(min=-half_width, max=half_width)
+    leader_local_pos = torch.stack((leader_x, leader_y), dim=-1)
+    leader_pos = corridor_origin + leader_local_pos
+    leader_goal_local = torch.stack((half_length - crowd_manager.cfg.wall_margin, leader_y), dim=-1)
+    leader_goal = corridor_origin + leader_goal_local
+    leader_direction = leader_goal - leader_pos
+    leader_direction = leader_direction / torch.linalg.vector_norm(
+        leader_direction, dim=-1, keepdim=True
+    ).clamp(min=1e-6)
+
+    crowd_manager.pos[leader_env_ids, 0] = leader_pos
+    crowd_manager.goal[leader_env_ids, 0] = leader_goal
+    crowd_manager.desired_speed[leader_env_ids, 0] = slow_leader_speed_mps
+    crowd_manager.vel[leader_env_ids, 0] = leader_direction * slow_leader_speed_mps

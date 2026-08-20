@@ -380,7 +380,18 @@ EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD = 0.3
 EVALUATION_GOAL_REACHED_STAY_FOR_SECONDS = 0.1
 """Required continuous time satisfying the evaluation goal condition [s]."""
 
-EVALUATION_SCENARIO_CODES = {"crossing": 0, "with_flow": 1, "against_flow": 2}
+EVALUATION_SLOW_LEADER_SPEED_MPS = 0.35
+"""Fixed desired speed [m/s] of the designated leader in the slow-leader benchmark."""
+
+EVALUATION_SLOW_LEADER_START_AHEAD_M = 2.0
+"""Initial longitudinal distance [m] from robot to leader in the slow-leader benchmark."""
+
+EVALUATION_SCENARIO_CODES = {
+    "crossing": 0,
+    "with_flow": 1,
+    "against_flow": 2,
+    "with_flow_slow_leader": 3,
+}
 """Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts."""
 
 
@@ -437,6 +448,18 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
             "speed_range": EVALUATION_CROWD_SPEED_RANGE,
         },
     )
+    # Ordinary profiles keep the standard crowd reset.  The additional profile installs
+    # a fixed slow leader in slot 0 after that same reset.
+    env_cfg.events.reset_pedestrians = EventTerm(
+        func=nav_mdp.reset_evaluation_pedestrian_crowd,
+        mode="reset",
+        params={
+            "flow_dir": 1.0,
+            "slow_leader_scenario_code": EVALUATION_SCENARIO_CODES["with_flow_slow_leader"],
+            "slow_leader_speed_mps": EVALUATION_SLOW_LEADER_SPEED_MPS,
+            "slow_leader_start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_M,
+        },
+    )
     return env_cfg
 
 
@@ -447,8 +470,9 @@ def install_dynamic_crowd_evaluation_profiles(
 ) -> None:
     """Install fixed profile tensors consumed by dynamic-crowd evaluation reset hooks.
 
-    Scenario codes are ``0=crossing``, ``1=with_flow``, and ``2=against_flow``. Inputs must
-    contain one assignment per vector environment and are copied to the environment device.
+    Scenario codes are ``0=crossing``, ``1=with_flow``, ``2=against_flow``, and
+    ``3=with_flow_slow_leader``. Inputs must contain one assignment per vector environment and
+    are copied to the environment device.
     """
     import torch
 
@@ -458,13 +482,18 @@ def install_dynamic_crowd_evaluation_profiles(
         raise ValueError("Evaluation profiles must provide exactly one count and scenario per environment.")
     if torch.any((counts < 1) | (counts > env.crowd_manager.max_pedestrians)):
         raise ValueError("Evaluation pedestrian counts must fit the configured crowd capacity.")
-    if torch.any((scenarios < 0) | (scenarios > 2)):
-        raise ValueError("Evaluation scenario codes must be 0 (crossing), 1 (with), or 2 (against).")
+    max_scenario_code = max(EVALUATION_SCENARIO_CODES.values())
+    if torch.any((scenarios < 0) | (scenarios > max_scenario_code)):
+        raise ValueError(
+            "Evaluation scenario codes must be 0 (crossing), 1 (with), 2 (against), "
+            "or 3 (with slow leader)."
+        )
 
     env.evaluation_pedestrian_count = counts
     env.evaluation_scenario = scenarios
     env.evaluation_flow_goal_direction = torch.where(
-        scenarios == 1,
+        (scenarios == EVALUATION_SCENARIO_CODES["with_flow"])
+        | (scenarios == EVALUATION_SCENARIO_CODES["with_flow_slow_leader"]),
         torch.ones_like(scenarios),
         torch.where(scenarios == 2, -torch.ones_like(scenarios), torch.zeros_like(scenarios)),
     )
