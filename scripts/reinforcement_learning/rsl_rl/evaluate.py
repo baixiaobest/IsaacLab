@@ -11,7 +11,8 @@ import json
 import math
 import os
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
@@ -198,6 +199,102 @@ def _create_timestamped_run_dir(output_root: Path) -> Path:
     raise RuntimeError(f"Could not create a unique evaluation run directory in {output_root}.")
 
 
+class EvaluationProgressReporter:
+    """Best-effort live evaluation telemetry for the Research Agent UI.
+
+    Evaluation is deliberately independent of W&B: a telemetry outage must
+    never slow down or fail a benchmark.  The reporter writes flat summary
+    keys so the control plane can read them from the normal run summary while
+    the Pod is still executing.
+    """
+
+    _INTERVAL_SECONDS = 30.0
+    _PREFIX = "research_agent_evaluation_"
+
+    def __init__(self, *, profile_count: int, episodes_per_profile: int, seed_count: int):
+        self.total_episodes = profile_count * episodes_per_profile
+        self.profile_count = profile_count
+        self.episodes_per_profile = episodes_per_profile
+        self.seed_count = seed_count
+        self.started_at = time.monotonic()
+        self.last_report_at = 0.0
+        self.run = None
+        experiment_id = os.environ.get("RESEARCH_EXPERIMENT_ID")
+        project = os.environ.get("WANDB_PROJECT")
+        if not experiment_id or not project:
+            return
+        try:
+            import wandb
+
+            self.run = wandb.init(
+                project=project,
+                entity=os.environ.get("WANDB_ENTITY") or None,
+                id=experiment_id,
+                resume="allow",
+            )
+        except Exception as error:
+            print(f"[WARN] Research Agent evaluation telemetry disabled: {error}", flush=True)
+
+    def report(
+        self,
+        accepted_episodes: int,
+        *,
+        seed: int | None,
+        seed_index: int | None,
+        status: str,
+        force: bool = False,
+    ) -> None:
+        """Publish a throttled progress snapshot without affecting evaluation."""
+        if self.run is None:
+            return
+        now = time.monotonic()
+        if not force and now - self.last_report_at < self._INTERVAL_SECONDS:
+            return
+        self.last_report_at = now
+        elapsed_seconds = max(0.0, now - self.started_at)
+        rate = accepted_episodes / elapsed_seconds if elapsed_seconds else 0.0
+        remaining_episodes = max(0, self.total_episodes - accepted_episodes)
+        remaining_seconds = remaining_episodes / rate if rate > 0.0 else None
+        snapshot = {
+            f"{self._PREFIX}status": status,
+            f"{self._PREFIX}accepted_episodes": int(accepted_episodes),
+            f"{self._PREFIX}total_episodes": int(self.total_episodes),
+            f"{self._PREFIX}percent": round(100.0 * accepted_episodes / self.total_episodes, 1)
+            if self.total_episodes
+            else 100.0,
+            f"{self._PREFIX}current_seed": seed,
+            f"{self._PREFIX}seed_index": seed_index,
+            f"{self._PREFIX}seed_count": self.seed_count,
+            f"{self._PREFIX}profile_count": self.profile_count,
+            f"{self._PREFIX}episodes_per_profile": self.episodes_per_profile,
+            f"{self._PREFIX}elapsed_seconds": round(elapsed_seconds, 1),
+            f"{self._PREFIX}estimated_remaining_seconds": round(remaining_seconds, 1)
+            if remaining_seconds is not None
+            else None,
+            f"{self._PREFIX}updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            self.run.summary.update(snapshot)
+            # ``log`` causes W&B to sync the just-updated summary during a
+            # long-running evaluation, rather than only when the process exits.
+            self.run.log(snapshot, commit=True)
+        except Exception as error:
+            # Do not repeatedly add expensive failed network calls to a live
+            # evaluation. A later W&B reconnect is handled by its own client.
+            print(f"[WARN] Research Agent evaluation telemetry update skipped: {error}", flush=True)
+            self.run = None
+
+    def close(self) -> None:
+        if self.run is None:
+            return
+        try:
+            self.run.finish()
+        except Exception as error:
+            print(f"[WARN] Research Agent evaluation telemetry shutdown skipped: {error}", flush=True)
+        finally:
+            self.run = None
+
+
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
@@ -266,6 +363,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # Each seed contributes an equal share of the per-profile episode budget; the last
     # seed absorbs the remainder (e.g. 100 episodes / 3 seeds -> 34, 33, 33).
     per_seed_quota = math.ceil(args_cli.episodes_per_profile / seed_count)
+    progress_reporter = EvaluationProgressReporter(
+        profile_count=len(profiles),
+        episodes_per_profile=args_cli.episodes_per_profile,
+        seed_count=seed_count,
+    )
     velocity_accumulator = EpisodeVelocityAccumulator(args_cli.num_envs)
     goal_region_collision_ids: set[int] = set()
 
@@ -334,6 +436,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         f"with {args_cli.episodes_per_profile} episodes each"
         + (f" across {seed_count} consecutive seeds ({seeds[0]}..{seeds[-1]})." if seed_count > 1 else ".")
     )
+    progress_reporter.report(
+        collector.total_episodes,
+        seed=seeds[0],
+        seed_index=1,
+        status="running",
+        force=True,
+    )
     if args_cli.success_cases_per_scenario:
         print(
             "[INFO] Recording "
@@ -351,6 +460,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 env.unwrapped.seed(seed)
                 print(f"[INFO] Advancing to seed {seed} (stage {seed_index + 1} of {seed_count}).")
             collector.set_stage_limit(min(args_cli.episodes_per_profile, per_seed_quota * (seed_index + 1)))
+            progress_reporter.report(
+                collector.total_episodes,
+                seed=seed,
+                seed_index=seed_index + 1,
+                status="running",
+                force=True,
+            )
             while simulation_app.is_running() and not collector.stage_complete:
                 step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
                 velocity_accumulator.record_step(step_speed)
@@ -379,17 +495,45 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     completed_env_ids=completed_ids,
                     goal_region_collision_env_ids=goal_region_collision_ids,
                 )
+                progress_reporter.report(
+                    collector.total_episodes,
+                    seed=seed,
+                    seed_index=seed_index + 1,
+                    status="running",
+                )
                 interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
                 if interaction_replay_recorder is not None:
                     interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
                 velocity_accumulator.reset(completed_ids)
                 goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
             print(f"[INFO] Seed {seed} stage complete: {collector.total_episodes} episodes accepted.")
+            progress_reporter.report(
+                collector.total_episodes,
+                seed=seed,
+                seed_index=seed_index + 1,
+                status="running",
+                force=True,
+            )
     finally:
         env.close()
 
     if not collector.complete:
+        progress_reporter.report(
+            collector.total_episodes,
+            seed=None,
+            seed_index=None,
+            status="stopped",
+            force=True,
+        )
+        progress_reporter.close()
         raise RuntimeError("Evaluation stopped before all benchmark profiles completed.")
+    progress_reporter.report(
+        collector.total_episodes,
+        seed=seeds[-1],
+        seed_index=seed_count,
+        status="writing_artifacts",
+        force=True,
+    )
     if collector.velocity_metric_source == "direct_world_xy_speed":
         print("[INFO] Mean XY speed was measured directly from the robot world-frame velocity.")
     elif collector.velocity_metric_source != "linear_velocity_xy":
@@ -488,6 +632,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             f"[INFO] Wrote {interaction_replay_recorder.case_count} interaction-event replay(s) to: "
             f"{interaction_replay_recorder.output_dir}"
         )
+    progress_reporter.report(
+        collector.total_episodes,
+        seed=seeds[-1],
+        seed_index=seed_count,
+        status="complete",
+        force=True,
+    )
+    progress_reporter.close()
 
 
 if __name__ == "__main__":
