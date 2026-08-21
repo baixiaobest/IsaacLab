@@ -467,7 +467,7 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 # Dynamic-crowd evaluation overlay
 # ---------------------------------------------------------------------------
 
-EVALUATION_CROWD_SPEED_RANGE = (0.6, 1.0)
+EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
 """Pedestrian desired-speed range used by the standardized dynamic-crowd benchmark."""
 
 EVALUATION_CROWD_LATERAL_HEADING_MAX = PED_LATERAL_HEADING_MAX_HIGH
