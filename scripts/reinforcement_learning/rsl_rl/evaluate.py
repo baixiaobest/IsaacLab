@@ -280,6 +280,11 @@ class EvaluationProgressReporter:
         self.run = None
         experiment_id = os.environ.get("RESEARCH_EXPERIMENT_ID")
         project = os.environ.get("WANDB_PROJECT")
+        # W&B runs are shared by training and every evaluation rerun.  Keep
+        # the durable remote-attempt identity in every update so a control
+        # plane never mistakes an earlier attempt's telemetry for this one.
+        self.evaluation_attempt_id = os.environ.get("RESEARCH_AGENT_EVALUATION_ATTEMPT_ID")
+        self.bootstrap_id = os.environ.get("RESEARCH_AGENT_BOOTSTRAP_ID")
         if not experiment_id or not project:
             return
         try:
@@ -332,6 +337,10 @@ class EvaluationProgressReporter:
             else None,
             f"{self._PREFIX}updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        if self.evaluation_attempt_id:
+            snapshot["research_agent_evaluation_attempt_id"] = self.evaluation_attempt_id
+        if self.bootstrap_id:
+            snapshot["research_agent_bootstrap_id"] = self.bootstrap_id
         try:
             self.run.summary.update(snapshot)
             # ``log`` causes W&B to sync the just-updated summary during a

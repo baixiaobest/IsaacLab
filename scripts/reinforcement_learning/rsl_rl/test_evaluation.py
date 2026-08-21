@@ -786,8 +786,12 @@ def test_evaluator_publishes_throttled_live_progress_to_wandb():
     sys.modules["wandb"] = fake_wandb
     previous_experiment_id = os.environ.get("RESEARCH_EXPERIMENT_ID")
     previous_project = os.environ.get("WANDB_PROJECT")
+    previous_attempt_id = os.environ.get("RESEARCH_AGENT_EVALUATION_ATTEMPT_ID")
+    previous_bootstrap_id = os.environ.get("RESEARCH_AGENT_BOOTSTRAP_ID")
     os.environ["RESEARCH_EXPERIMENT_ID"] = "progress-test"
     os.environ["WANDB_PROJECT"] = "agent_obstacle_avoidance"
+    os.environ["RESEARCH_AGENT_EVALUATION_ATTEMPT_ID"] = "attempt-current"
+    os.environ["RESEARCH_AGENT_BOOTSTRAP_ID"] = "bootstrap-current"
     try:
         reporter = reporter_class(profile_count=24, episodes_per_profile=100, seed_count=5)
         reporter.report(480, seed=104, seed_index=5, status="running", force=True)
@@ -795,6 +799,9 @@ def test_evaluator_publishes_throttled_live_progress_to_wandb():
         assert run.summary["research_agent_evaluation_total_episodes"] == 2400
         assert run.summary["research_agent_evaluation_percent"] == 20.0
         assert run.summary["research_agent_evaluation_estimated_remaining_seconds"] is not None
+        assert run.summary["research_agent_evaluation_attempt_id"] == "attempt-current"
+        assert run.summary["research_agent_bootstrap_id"] == "bootstrap-current"
+        assert run.logged[-1][0]["research_agent_evaluation_attempt_id"] == "attempt-current"
         assert len(run.logged) == 1
         reporter.report(481, seed=104, seed_index=5, status="running")
         assert len(run.logged) == 1  # The normal path is rate limited to 30 seconds.
@@ -816,3 +823,11 @@ def test_evaluator_publishes_throttled_live_progress_to_wandb():
             os.environ.pop("WANDB_PROJECT", None)
         else:
             os.environ["WANDB_PROJECT"] = previous_project
+        if previous_attempt_id is None:
+            os.environ.pop("RESEARCH_AGENT_EVALUATION_ATTEMPT_ID", None)
+        else:
+            os.environ["RESEARCH_AGENT_EVALUATION_ATTEMPT_ID"] = previous_attempt_id
+        if previous_bootstrap_id is None:
+            os.environ.pop("RESEARCH_AGENT_BOOTSTRAP_ID", None)
+        else:
+            os.environ["RESEARCH_AGENT_BOOTSTRAP_ID"] = previous_bootstrap_id
