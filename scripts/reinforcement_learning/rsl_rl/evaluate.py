@@ -39,7 +39,12 @@ parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy in the d
 parser.add_argument("--task", type=str, required=True, help="Existing mixed obstacle-avoidance task ID.")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
 parser.add_argument(
-    "--num_envs", type=int, default=32, help="Vector environments (must be at least one per benchmark profile)."
+    "--num_envs", type=int, default=48,
+    help=(
+        "Vector environments (must be at least one per benchmark profile). "
+        "Defaults to the full 48-cell grid (3 ordinary + slow-leader + 2 slow-crowd "
+        "scenarios x 8 pedestrian counts)."
+    ),
 )
 parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.")
 parser.add_argument(
@@ -152,16 +157,19 @@ from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 
-# Slow leader requires task-level scenario and reset support.  Detect that
-# capability rather than importing it unconditionally so older task branches
-# can still run the standard benchmark profiles.
+# The slow-agent benchmark variants (single slow leader; whole-crowd slow cells)
+# require task-level scenario and reset support.  Detect that capability rather
+# than importing it unconditionally so older task branches can still run the
+# standard benchmark profiles.
 try:
     from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (  # noqa: E402
+        EVALUATION_CROWD_SLOW_SPEED_RANGE,
         EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
         EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
         EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
     )
 except ImportError:
+    EVALUATION_CROWD_SLOW_SPEED_RANGE = None
     EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M = None
     EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS = None
     EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M = None
@@ -187,6 +195,13 @@ SLOW_LEADER_AVAILABLE = (
     and EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS is not None
     and EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M is not None
     and EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M is not None
+)
+
+SLOW_CROWD_AVAILABLE = (
+    not RVO2_CROWD_EVAL
+    and "crossing_slow" in EVALUATION_SCENARIO_CODES
+    and "against_flow_slow" in EVALUATION_SCENARIO_CODES
+    and EVALUATION_CROWD_SLOW_SPEED_RANGE is not None
 )
 
 
@@ -366,7 +381,10 @@ class EvaluationProgressReporter:
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
-    profiles = dynamic_crowd_profiles(include_slow_leader=SLOW_LEADER_AVAILABLE)
+    profiles = dynamic_crowd_profiles(
+        include_slow_leader=SLOW_LEADER_AVAILABLE,
+        include_slow_crowd=SLOW_CROWD_AVAILABLE,
+    )
     if args_cli.num_envs < len(profiles):
         raise ValueError(f"--num_envs must be at least {len(profiles)} for the benchmark profiles.")
 
@@ -669,6 +687,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "lateral_offset_range_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
                 "sampled_conditions_file": "slow_leader_conditions.json",
                 "sampled_conditions": slow_leader_summary,
+            },
+            "slow_crowd": {
+                "available": SLOW_CROWD_AVAILABLE,
+                "scenarios": ["crossing_slow", "against_flow_slow"],
+                "pedestrian_counts": sorted({
+                    profile.pedestrian_count for profile in profiles
+                    if profile.scenario in ("crossing_slow", "against_flow_slow")
+                }),
+                "speed_range_mps": EVALUATION_CROWD_SLOW_SPEED_RANGE,
             },
             "crowd_lateral_heading_max_deg": math.degrees(EVALUATION_CROWD_LATERAL_HEADING_MAX),
             "goal_reach_condition": {

@@ -470,6 +470,16 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 EVALUATION_CROWD_SPEED_RANGE = (0.9, 1.5)
 """Pedestrian desired-speed range used by the standardized dynamic-crowd benchmark."""
 
+EVALUATION_CROWD_SLOW_SPEED_RANGE = (0.3, 0.9)
+"""Pedestrian desired-speed range used by the slow-agent benchmark cells.
+
+The slow-agent scenarios (``crossing_slow`` / ``against_flow_slow``) keep the
+base crossing/against-flow layout (robot spawn, goal, pedestrian count) but
+drive the ENTIRE crowd at this lower band.  The band tops out exactly at the
+normal band's low end, so the crowd is uniformly slower than the policy's
+training speeds without being as extreme as the single slow-leader cell.
+"""
+
 EVALUATION_CROWD_LATERAL_HEADING_MAX = PED_LATERAL_HEADING_MAX_HIGH
 """Fixed maximum pedestrian heading offset used by the dynamic-crowd benchmark [rad]."""
 
@@ -499,8 +509,15 @@ EVALUATION_SCENARIO_CODES = {
     "with_flow": 1,
     "against_flow": 2,
     "with_flow_slow_leader": 3,
+    "crossing_slow": 4,
+    "against_flow_slow": 5,
 }
-"""Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts."""
+"""Stable scenario names and codes used by the dynamic-crowd benchmark and its artifacts.
+
+Codes 4/5 are the slow-agent cells: the base crossing/against-flow layout with the
+entire crowd driven at :data:`EVALUATION_CROWD_SLOW_SPEED_RANGE` instead of the
+normal band.  The codes are stable benchmark identifiers — never reuse or renumber.
+"""
 
 
 def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
@@ -554,6 +571,17 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
             "crossing_north_pose_range": _CROSSING_NORTH_SPAWN_POSE_RANGE,
             "velocity_range": _ZERO_VELOCITY_RANGE,
             "speed_range": EVALUATION_CROWD_SPEED_RANGE,
+            # Slow-agent cells drive the entire crowd at the slow band instead of
+            # the normal one (no leader; same spawn/goal geometry as the base cell).
+            "slow_speed_range": EVALUATION_CROWD_SLOW_SPEED_RANGE,
+            "slow_scenario_codes": (
+                EVALUATION_SCENARIO_CODES["crossing_slow"],
+                EVALUATION_SCENARIO_CODES["against_flow_slow"],
+            ),
+            "crossing_scenario_codes": (
+                EVALUATION_SCENARIO_CODES["crossing"],
+                EVALUATION_SCENARIO_CODES["crossing_slow"],
+            ),
         },
     )
     # Ordinary profiles keep the standard crowd reset.  The additional profile installs
@@ -579,9 +607,10 @@ def install_dynamic_crowd_evaluation_profiles(
 ) -> None:
     """Install fixed profile tensors consumed by dynamic-crowd evaluation reset hooks.
 
-    Scenario codes are ``0=crossing``, ``1=with_flow``, ``2=against_flow``, and
-    ``3=with_flow_slow_leader``. Inputs must contain one assignment per vector environment and
-    are copied to the environment device.
+    Scenario codes are ``0=crossing``, ``1=with_flow``, ``2=against_flow``,
+    ``3=with_flow_slow_leader``, ``4=crossing_slow``, and ``5=against_flow_slow``
+    (see :data:`EVALUATION_SCENARIO_CODES`). Inputs must contain one assignment per
+    vector environment and are copied to the environment device.
     """
     import torch
 
@@ -595,7 +624,7 @@ def install_dynamic_crowd_evaluation_profiles(
     if torch.any((scenarios < 0) | (scenarios > max_scenario_code)):
         raise ValueError(
             "Evaluation scenario codes must be 0 (crossing), 1 (with), 2 (against), "
-            "or 3 (with slow leader)."
+            "3 (with slow leader), 4 (crossing slow), or 5 (against slow)."
         )
 
     env.evaluation_pedestrian_count = counts
@@ -612,9 +641,22 @@ def install_dynamic_crowd_evaluation_profiles(
     env.evaluation_slow_leader_lateral_offset_m = torch.full(
         (env.num_envs,), float("nan"), device=env.device, dtype=torch.float32
     )
+    # Goal flow direction: +1 travels with the crowd, -1 against it, 0 means the
+    # crossing layout (flow direction irrelevant; the goal is across the flow).
+    with_flow_codes = (
+        EVALUATION_SCENARIO_CODES["with_flow"],
+        EVALUATION_SCENARIO_CODES["with_flow_slow_leader"],
+    )
+    against_flow_codes = (
+        EVALUATION_SCENARIO_CODES["against_flow"],
+        EVALUATION_SCENARIO_CODES["against_flow_slow"],
+    )
     env.evaluation_flow_goal_direction = torch.where(
-        (scenarios == EVALUATION_SCENARIO_CODES["with_flow"])
-        | (scenarios == EVALUATION_SCENARIO_CODES["with_flow_slow_leader"]),
+        torch.isin(scenarios, torch.as_tensor(with_flow_codes, device=env.device)),
         torch.ones_like(scenarios),
-        torch.where(scenarios == 2, -torch.ones_like(scenarios), torch.zeros_like(scenarios)),
+        torch.where(
+            torch.isin(scenarios, torch.as_tensor(against_flow_codes, device=env.device)),
+            -torch.ones_like(scenarios),
+            torch.zeros_like(scenarios),
+        ),
     )

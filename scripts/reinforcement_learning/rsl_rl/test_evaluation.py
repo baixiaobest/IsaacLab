@@ -104,11 +104,19 @@ def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
 
 def test_dynamic_profiles_cover_all_scenarios_and_counts():
     profiles = evaluation.dynamic_crowd_profiles()
-    assert len(profiles) == 32
+    assert len(profiles) == 48
     assert [profile.pedestrian_count for profile in profiles[:8]] == list(range(2, 17, 2))
     assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER)
-    assert profiles[-8:] == [
+    assert profiles[24:32] == [
         evaluation.BenchmarkProfile("with_flow_slow_leader", count)
+        for count in range(2, 17, 2)
+    ]
+    assert profiles[32:40] == [
+        evaluation.BenchmarkProfile("crossing_slow", count)
+        for count in range(2, 17, 2)
+    ]
+    assert profiles[40:48] == [
+        evaluation.BenchmarkProfile("against_flow_slow", count)
         for count in range(2, 17, 2)
     ]
 
@@ -116,8 +124,10 @@ def test_dynamic_profiles_cover_all_scenarios_and_counts():
 def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
     profiles = evaluation.dynamic_crowd_profiles(include_slow_leader=False)
 
-    assert len(profiles) == 24
+    assert len(profiles) == 40
     assert "with_flow_slow_leader" not in {profile.scenario for profile in profiles}
+    assert "crossing_slow" in {profile.scenario for profile in profiles}
+    assert "against_flow_slow" in {profile.scenario for profile in profiles}
 
 
 def test_speed_interaction_labels_cover_yield_assert_ambiguous_and_non_risky():
@@ -129,6 +139,18 @@ def test_speed_interaction_labels_cover_yield_assert_ambiguous_and_non_risky():
     assert evaluation.classify_speed_interaction("crossing", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
     assert evaluation.classify_speed_interaction("crossing", False, 0.5, 1.0, [0.1])[0] == "non_risky_close"
     assert evaluation.classify_speed_interaction("crossing", True, 0.1, 1.0, [0.1])[0] == "unclassified"
+
+
+def test_slow_crowd_scenarios_follow_base_scenario_classification():
+    # crossing_slow inherits the crossing protocol (geometric assert on front crossing).
+    assert evaluation.classify_speed_interaction(
+        "crossing_slow", True, 0.5, 1.0, [0.1, 0.2], front_crossed=True
+    ) == ("assert", None, None)
+    assert evaluation.classify_speed_interaction("crossing_slow", True, 0.5, 1.0, [0.2, 0.3, 0.4])[0] == "yield"
+    assert evaluation.classify_speed_interaction("crossing_slow", True, 0.5, 1.0, [0.95, 1.0])[0] == "ambiguous"
+    # against_flow_slow inherits the against-flow protocol (assert on maintained speed).
+    assert evaluation.classify_speed_interaction("against_flow_slow", True, 0.5, 1.0, [0.95, 1.0])[0] == "assert"
+    assert evaluation.classify_speed_interaction("against_flow_slow", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
 
 
 def test_crossing_assert_requires_pedestrian_frame_front_crossing():

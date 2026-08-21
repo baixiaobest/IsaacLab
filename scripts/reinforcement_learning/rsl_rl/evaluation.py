@@ -20,12 +20,21 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 
 
-SCENARIO_ORDER = ("crossing", "with_flow", "against_flow", "with_flow_slow_leader")
+SCENARIO_ORDER = (
+    "crossing",
+    "with_flow",
+    "against_flow",
+    "with_flow_slow_leader",
+    "crossing_slow",
+    "against_flow_slow",
+)
 SCENARIO_LABELS = {
     "crossing": "Crossing",
     "with_flow": "With flow",
     "against_flow": "Against flow",
     "with_flow_slow_leader": "With flow — slow leader",
+    "crossing_slow": "Crossing — slow crowd",
+    "against_flow_slow": "Against flow — slow crowd",
 }
 
 GOAL_REGION_COLLISION_RADIUS_M = 0.75
@@ -60,6 +69,8 @@ INTERACTION_LABELS = {
     "against_flow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
     "with_flow": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
     "with_flow_slow_leader": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
+    "crossing_slow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
+    "against_flow_slow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
 }
 
 
@@ -636,13 +647,19 @@ def _sample_standard_deviation(values: Iterable[float]) -> float:
 
 def dynamic_crowd_profiles(
     counts: Iterable[int] = range(2, 17, 2), *, include_slow_leader: bool = True,
+    include_slow_crowd: bool = True,
 ) -> list[BenchmarkProfile]:
-    """Return the normal crowd grid and slow-leader grid when supported.
+    """Return the normal crowd grid plus the slow-leader and slow-crowd grids.
 
+    The normal grid covers ``crossing``/``with_flow``/``against_flow`` for every count.
     Every slow-leader cell uses the same total pedestrian count as its regular
-    with-flow counterpart. Slot zero is the deterministic leader and the
-    remaining slots retain the normal randomized crowd, so overtaking is
-    measured both in isolation and under increasing surrounding density.
+    with-flow counterpart: slot zero is the deterministic leader and the remaining
+    slots retain the normal randomized crowd, so overtaking is measured both in
+    isolation and under increasing surrounding density.
+
+    The slow-crowd cells (``crossing_slow``/``against_flow_slow``) repeat the base
+    crossing/against-flow layout but drive the ENTIRE crowd at the slow speed band —
+    a whole-crowd speed perturbation with no leader.
     """
     counts = tuple(counts)
     ordinary_scenarios = ("crossing", "with_flow", "against_flow")
@@ -653,6 +670,12 @@ def dynamic_crowd_profiles(
     ]
     if include_slow_leader:
         profiles.extend(BenchmarkProfile("with_flow_slow_leader", count) for count in counts)
+    if include_slow_crowd:
+        profiles.extend(
+            BenchmarkProfile(scenario, count)
+            for scenario in ("crossing_slow", "against_flow_slow")
+            for count in counts
+        )
     return profiles
 
 
@@ -687,7 +710,7 @@ def classify_speed_interaction(
             return "non_overtake", None, None
         return "unclassified", None, None
 
-    if scenario == "crossing" and front_crossed:
+    if scenario in {"crossing", "crossing_slow"} and front_crossed:
         return "assert", None, None
 
     speeds = np.asarray(list(event_speeds_mps), dtype=float)
@@ -704,7 +727,7 @@ def classify_speed_interaction(
     ratio = low_speed / baseline_speed_mps
     if ratio < INTERACTION_YIELD_SPEED_RATIO:
         return "yield", low_speed, ratio
-    if scenario == "against_flow" and ratio > INTERACTION_ASSERT_SPEED_RATIO:
+    if scenario in {"against_flow", "against_flow_slow"} and ratio > INTERACTION_ASSERT_SPEED_RATIO:
         return "assert", low_speed, ratio
     return "ambiguous", low_speed, ratio
 

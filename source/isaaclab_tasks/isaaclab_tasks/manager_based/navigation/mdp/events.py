@@ -162,14 +162,22 @@ def reset_evaluation_pedestrian_scenario_robot(
     crossing_north_pose_range: dict[str, tuple[float, float]],
     velocity_range: dict[str, tuple[float, float]],
     speed_range: tuple[float, float] = (0.9, 1.5),
+    slow_speed_range: tuple[float, float] | None = None,
+    slow_scenario_codes: tuple[int, ...] = (),
+    crossing_scenario_codes: tuple[int, ...] = (0,),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
     """Reset a benchmark profile's robot pose.
 
-    ``env.evaluation_scenario`` contains 0 (crossing), 1 (with flow), 2 (against flow), or
-    3 (with flow and a slow leader). Crossing directions remain balanced per reset; flow
-    direction is controlled separately by ``env.evaluation_flow_goal_direction`` when the
-    command is resampled.
+    ``env.evaluation_scenario`` contains 0 (crossing), 1 (with flow), 2 (against flow),
+    3 (with flow and a slow leader), 4 (crossing with a slow crowd), or 5 (against flow
+    with a slow crowd). Crossing directions remain balanced per reset; flow direction is
+    controlled separately by ``env.evaluation_flow_goal_direction`` when the command is
+    resampled.  When ``slow_speed_range``/``slow_scenario_codes`` are provided, the
+    crowd's desired-speed band is lowered to ``slow_speed_range`` for every env whose
+    scenario is in ``slow_scenario_codes`` (the whole crowd is slow — no leader).
+    ``crossing_scenario_codes`` lists every scenario that uses the crossing spawn/goal
+    geometry (defaults to plain crossing only).
     """
     # The RSL-RL wrapper performs one reset during construction. Profiles are installed by the
     # evaluator immediately afterward, so let that unobserved bootstrap reset use the standard
@@ -186,9 +194,17 @@ def reset_evaluation_pedestrian_scenario_robot(
         )
         return
 
-    configure_evaluation_pedestrian_crowd(env, env_ids, speed_range)
+    configure_evaluation_pedestrian_crowd(
+        env,
+        env_ids,
+        speed_range,
+        slow_speed_range=slow_speed_range,
+        slow_scenario_codes=slow_scenario_codes,
+    )
     scenario = env.evaluation_scenario[env_ids]
-    is_crossing = scenario == 0
+    is_crossing = torch.zeros(len(env_ids), dtype=torch.bool, device=env.device)
+    for code in crossing_scenario_codes:
+        is_crossing |= scenario == code
     is_north_start = torch.rand(len(env_ids), device=env.device) < 0.5
     mode = torch.where(
         is_crossing,
@@ -215,12 +231,27 @@ def configure_evaluation_pedestrian_crowd(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     speed_range: tuple[float, float] = (0.9, 1.5),
+    slow_speed_range: tuple[float, float] | None = None,
+    slow_scenario_codes: tuple[int, ...] = (),
 ):
-    """Apply fixed per-environment crowd counts and speeds before a benchmark reset."""
+    """Apply fixed per-environment crowd counts and speeds before a benchmark reset.
+
+    The normal band is ``speed_range`` for every resetting env.  When
+    ``slow_speed_range`` and ``slow_scenario_codes`` are given, envs whose
+    ``env.evaluation_scenario`` is in ``slow_scenario_codes`` get the slow band
+    instead (a whole-crowd speed perturbation, distinct from the slot-0 leader).
+    """
     if not hasattr(env, "evaluation_pedestrian_count"):
         raise RuntimeError("Evaluation crowd buffers must be installed before resetting the environment.")
     counts = env.evaluation_pedestrian_count[env_ids]
     speed = torch.tensor(speed_range, device=env.device, dtype=torch.float32).expand(len(env_ids), 2)
+    if slow_speed_range is not None and slow_scenario_codes:
+        slow = torch.tensor(slow_speed_range, device=env.device, dtype=torch.float32).expand(len(env_ids), 2)
+        scenario = env.evaluation_scenario[env_ids]
+        is_slow = torch.zeros(len(env_ids), dtype=torch.bool, device=env.device)
+        for code in slow_scenario_codes:
+            is_slow |= scenario == code
+        speed = torch.where(is_slow.unsqueeze(-1), slow, speed)
     env.crowd_manager.set_active_count(env_ids, counts)
     env.crowd_manager.set_speed_range(env_ids, speed)
 
