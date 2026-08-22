@@ -37,6 +37,14 @@ class TemporalOccupancyCollector:
     def __init__(self, env: ManagerBasedRLEnv, cfg: TemporalOccupancyCfg | None = None) -> None:
         self.env = env
         self.cfg = cfg if cfg is not None else TemporalOccupancyCfg()
+        if self.cfg.grid_size <= 0:
+            raise ValueError("TemporalOccupancyCfg.grid_size must be positive.")
+        if self.cfg.grid_resolution <= 0.0:
+            raise ValueError("TemporalOccupancyCfg.grid_resolution must be positive.")
+        if self.cfg.sample_period_s <= 0.0:
+            raise ValueError("TemporalOccupancyCfg.sample_period_s must be positive.")
+        if self.cfg.history_frames <= 0:
+            raise ValueError("TemporalOccupancyCfg.history_frames must be positive.")
         self.num_envs = env.num_envs
         self.device = env.device
         self.frame_size = self.cfg.grid_size * self.cfg.grid_size
@@ -95,6 +103,9 @@ class TemporalOccupancyCollector:
 
     def _push(self, grids: torch.Tensor, env_ids: torch.Tensor) -> None:
         """Append pre-rasterized frames. Kept small and deterministic for unit tests."""
+        expected_shape = (env_ids.numel(), self.frame_size)
+        if tuple(grids.shape) != expected_shape:
+            raise ValueError(f"Expected occupancy frames with shape {expected_shape}, got {tuple(grids.shape)}.")
         slots = (self._head[env_ids] + 1) % self._capacity
         self._frames[env_ids, slots] = grids
         self._head[env_ids] = slots
