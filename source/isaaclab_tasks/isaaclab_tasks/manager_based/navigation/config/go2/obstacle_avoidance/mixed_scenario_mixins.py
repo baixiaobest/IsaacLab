@@ -422,6 +422,11 @@ class MixedOccupancyObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
+        # The collector samples immediately after every physics-step scene
+        # update.  Keep the ray caster on that same grid so its 0.5 s captures
+        # are actual samples at [t - 3.0, ..., t - 0.5], not a previously held
+        # high-level-control scan.
+        self.scene.obstacle_scanner.update_period = 0.0
         # Keep the experiment profile self-contained; callers can still override
         # this through the standard ``--num_envs`` configuration path.
         self.scene.num_envs = 2000

@@ -80,13 +80,17 @@ class TemporalOccupancyCollector:
             self._capture(env_ids)
             self._last_capture_physics_step[env_ids] = self._physics_steps
 
-    def history(self) -> torch.Tensor:
-        """Return the flattened ``(N, 6 * 2500)`` chronological non-current history."""
+    def history_frames(self) -> torch.Tensor:
+        """Return chronological non-current frames with shape ``(N, H, grid_size**2)``."""
         ages = torch.arange(self.cfg.history_frames, 0, -1, device=self.device)
         slots = (self._head.unsqueeze(1) - ages.unsqueeze(0)) % self._capacity
         frames = self._frames.gather(1, slots.unsqueeze(-1).expand(-1, -1, self.frame_size))
         valid = self._count.unsqueeze(1) > ages.unsqueeze(0)
-        return (frames * valid.unsqueeze(-1)).reshape(self.num_envs, -1)
+        return frames * valid.unsqueeze(-1)
+
+    def history(self) -> torch.Tensor:
+        """Return the flattened ``(N, H * grid_size**2)`` chronological non-current history."""
+        return self.history_frames().reshape(self.num_envs, -1)
 
     def _resolve_env_ids(self, env_ids: Sequence[int] | torch.Tensor | None) -> torch.Tensor:
         if env_ids is None:

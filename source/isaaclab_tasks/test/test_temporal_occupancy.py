@@ -48,6 +48,13 @@ def test_temporal_occupancy_history_is_six_chronological_non_current_frames() ->
     assert history[0, -1] == 5.0
 
 
+def test_temporal_occupancy_history_has_six_50x50_frames_per_environment() -> None:
+    collector = _collector(num_envs=3, frame_size=50 * 50)
+
+    assert collector.history_frames().shape == (3, 6, 50 * 50)
+    assert collector.history().shape == (3, 6 * 50 * 50)
+
+
 def test_temporal_occupancy_reset_clears_only_requested_environments() -> None:
     collector = _collector()
     env_ids = torch.arange(3)
@@ -103,6 +110,12 @@ def test_registered_mixed_occupancy_configs_have_15000_value_tail_last() -> None
     for cfg in (train_cfg, play_cfg):
         assert cfg.temporal_occupancy_policy.history_frames == MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES
         assert cfg.temporal_occupancy_policy.sample_period_s == 0.5
+        assert cfg.temporal_occupancy_critic.history_frames == MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES
+        assert cfg.temporal_occupancy_critic.sample_period_s == 0.5
+        # A history collector runs after each physics update, so the source
+        # ray caster must also update on the physics grid rather than holding
+        # a high-level-control-period scan.
+        assert cfg.scene.obstacle_scanner.update_period == 0.0
         assert cfg.observations.policy.occupancy_grid.func is temporal_occupancy_grid
         assert cfg.observations.critic.occupancy_grid.func is temporal_occupancy_grid
         assert expected == 15000
