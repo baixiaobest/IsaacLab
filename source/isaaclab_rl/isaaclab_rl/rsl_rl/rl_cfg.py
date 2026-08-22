@@ -223,6 +223,37 @@ class RslRlLidarModelCfg(RslRlMLPModelCfg):
     """Number of channels in the prediction target (1 = distance only)."""
 
 
+@configclass
+class RslRlTemporalOccupancyModelCfg(RslRlMLPModelCfg):
+    """Configuration for ``TemporalOccupancyModel``.
+
+    The final ``temporal_obs_size`` values of the flat observation are six
+    chronological occupancy frames. A shared CNN encodes each frame and a
+    stateless one-layer GRU aggregates the sequence for every policy decision.
+    """
+
+    class_name: str = "TemporalOccupancyModel"
+    """The model class name. Defaults to ``TemporalOccupancyModel``."""
+
+    temporal_obs_size: int = MISSING
+    """Flattened temporal occupancy tail, e.g. ``6 * 50 * 50``."""
+
+    temporal_frames: int = 6
+    """Number of chronological occupancy frames."""
+
+    frame_size: int = 2500
+    """Flattened size of one occupancy frame."""
+
+    cnn_dims: list[dict] = MISSING
+    """CNN layer configs applied independently, with shared weights, to each frame."""
+
+    gru_hidden_size: int = 1024
+    """Hidden size of the one-layer sequence-only GRU."""
+
+    tanh_output: bool = False
+    """Whether to apply ``tanh`` to the actor mean before its output distribution."""
+
+
 ############################
 # Algorithm configurations #
 ############################

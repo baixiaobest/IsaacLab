@@ -20,7 +20,6 @@ from __future__ import annotations
 import math
 
 from isaaclab.assets.rigid_object_collection import RigidObjectCollectionCfg
-from isaaclab.envs.mdp.observations import occupancy_grid_from_lidar
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -70,6 +69,7 @@ from .pedestrian_terrains import (
     build_mixed_static_pedestrian_corridor,
 )
 from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
+from .temporal_occupancy_env import TemporalOccupancyCfg, temporal_occupancy_grid
 
 # Static-env robot reset pose/velocity ranges, copied from EventCfg.reset_base.
 _STATIC_SPAWN_POSE_RANGE = {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-math.pi, math.pi)}
@@ -85,11 +85,15 @@ PED_LATERAL_HEADING_MAX_HIGH = math.radians(12.0)
 EPISODE_LENGTH = 15.0
 RESAMPLING_TIME_RANGE = (15.1, 15.1)
 
-# The 10 m x 10 m local map is intentionally the final policy/critic term.  The
-# encoder model splits its flat input at the tail, so changing this ordering
-# would silently encode a proprioceptive term as part of the image instead.
+# The six 10 m x 10 m local maps are intentionally the final policy/critic
+# term. The temporal encoder splits its flat input at this tail, so changing
+# this ordering would silently encode a proprioceptive term as part of a map.
 MIXED_OCCUPANCY_GRID_SIZE = 50
 MIXED_OCCUPANCY_GRID_RESOLUTION = 0.2
+MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES = 6
+MIXED_TEMPORAL_OCCUPANCY_SAMPLE_PERIOD_S = 0.5
+MIXED_TEMPORAL_OCCUPANCY_COLLECTOR_POLICY = "_temporal_occupancy_policy_collector"
+MIXED_TEMPORAL_OCCUPANCY_COLLECTOR_CRITIC = "_temporal_occupancy_critic_collector"
 
 # ---------------------------------------------------------------------------
 # Scenario fragments
@@ -279,12 +283,13 @@ class MixedTerminationsCfg(_MixedTerminationsCfg, TerminationsCfg):
 
 @configclass
 class MixedOccupancyObservationsCfg(ObservationsCfg):
-    """Mixed-task observations with a binary local grid from ``obstacle_scanner``.
+    """Mixed-task observations with six historical binary local occupancy grids.
 
     ``obstacle_scanner`` is the mixed scene's multi-mesh ray caster, so the
     same rasterization includes static terrain geometry and pedestrian capsules.
-    The row-major occupancy grid remains the final term in both groups for the
-    tail-splitting CNN encoder.
+    Each group owns an independent history sampled every 0.5 s on the physics
+    grid. The chronological ``50x50x6`` row-major tail remains final for the
+    temporal CNN-GRU encoder.
     """
 
     @configclass
@@ -303,11 +308,9 @@ class MixedOccupancyObservationsCfg(ObservationsCfg):
         )
         actions = ObsTerm(func=mdp.last_action)
         occupancy_grid = ObsTerm(
-            func=occupancy_grid_from_lidar,
+            func=temporal_occupancy_grid,
             params={
-                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-                "grid_size": MIXED_OCCUPANCY_GRID_SIZE,
-                "grid_resolution": MIXED_OCCUPANCY_GRID_RESOLUTION,
+                "collector_name": MIXED_TEMPORAL_OCCUPANCY_COLLECTOR_POLICY,
             },
         )
 
@@ -329,11 +332,9 @@ class MixedOccupancyObservationsCfg(ObservationsCfg):
         )
         actions = ObsTerm(func=mdp.last_action)
         occupancy_grid = ObsTerm(
-            func=occupancy_grid_from_lidar,
+            func=temporal_occupancy_grid,
             params={
-                "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
-                "grid_size": MIXED_OCCUPANCY_GRID_SIZE,
-                "grid_resolution": MIXED_OCCUPANCY_GRID_RESOLUTION,
+                "collector_name": MIXED_TEMPORAL_OCCUPANCY_COLLECTOR_CRITIC,
             },
         )
 
@@ -402,9 +403,22 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
 
 @configclass
 class MixedOccupancyObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
-    """Mixed static/pedestrian co-training with a 50x50 lidar occupancy grid."""
+    """Mixed static/pedestrian co-training with six temporal 50x50 occupancy maps."""
 
     observations: MixedOccupancyObservationsCfg = MixedOccupancyObservationsCfg()
+    temporal_occupancy_enabled: bool = True
+    temporal_occupancy_policy: TemporalOccupancyCfg = TemporalOccupancyCfg(
+        grid_size=MIXED_OCCUPANCY_GRID_SIZE,
+        grid_resolution=MIXED_OCCUPANCY_GRID_RESOLUTION,
+        sample_period_s=MIXED_TEMPORAL_OCCUPANCY_SAMPLE_PERIOD_S,
+        history_frames=MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES,
+    )
+    temporal_occupancy_critic: TemporalOccupancyCfg = TemporalOccupancyCfg(
+        grid_size=MIXED_OCCUPANCY_GRID_SIZE,
+        grid_resolution=MIXED_OCCUPANCY_GRID_RESOLUTION,
+        sample_period_s=MIXED_TEMPORAL_OCCUPANCY_SAMPLE_PERIOD_S,
+        history_frames=MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES,
+    )
 
     def __post_init__(self):
         super().__post_init__()

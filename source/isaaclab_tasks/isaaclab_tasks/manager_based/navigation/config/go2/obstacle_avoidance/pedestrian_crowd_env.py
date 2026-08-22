@@ -23,6 +23,7 @@ from isaaclab_tasks.manager_based.navigation.mdp.visual_utils import get_env_col
 
 from .pedestrian_scene import PED_CAPSULE_HEIGHTS, PED_RADII
 from .held_scan_lidar_env import HeldScanLidarCollector
+from .temporal_occupancy_env import TemporalOccupancyCollector
 
 
 class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
@@ -32,6 +33,7 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         # See ``load_managers`` below: observation terms need this collector while
         # the base constructor is still running.
         self._held_scan_lidar_collector: HeldScanLidarCollector | None = None
+        self._temporal_occupancy_collectors: dict[str, TemporalOccupancyCollector] = {}
         super().__init__(cfg, render_mode=render_mode, **kwargs)
 
         self.crowd_manager = SocialForceCrowdManager(cfg.social_force, self.num_envs, self.device)
@@ -83,6 +85,10 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
 
         reset_pedestrian_crowd(self, all_env_ids, flow_dir=cfg.pedestrian_flow_dir)
         self._write_pedestrians_to_sim()
+        for collector in self._temporal_occupancy_collectors.values():
+            # The collector is created while managers load, before the crowd is
+            # initialized. Re-capture after the initial pedestrian placement.
+            collector.reset(all_env_ids)
         self._randomize_per_env_colors()
 
     def _ensure_held_scan_lidar_collector(self) -> None:
@@ -90,9 +96,22 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         if self._held_scan_lidar_collector is None and getattr(self.cfg, "held_scan_lidar_enabled", False):
             self._held_scan_lidar_collector = HeldScanLidarCollector(self, getattr(self.cfg, "held_scan_lidar", None))
 
+    def _ensure_temporal_occupancy_collectors(self) -> None:
+        """Create independent policy and critic occupancy histories when requested."""
+        if not getattr(self.cfg, "temporal_occupancy_enabled", False):
+            return
+        for role in ("policy", "critic"):
+            name = f"_temporal_occupancy_{role}_collector"
+            if name not in self._temporal_occupancy_collectors:
+                collector_cfg = getattr(self.cfg, f"temporal_occupancy_{role}")
+                collector = TemporalOccupancyCollector(self, collector_cfg)
+                self._temporal_occupancy_collectors[name] = collector
+                setattr(self, name, collector)
+
     def load_managers(self) -> None:
         """Ensure temporal-lidar observation terms can resolve their collector."""
         self._ensure_held_scan_lidar_collector()
+        self._ensure_temporal_occupancy_collectors()
         super().load_managers()
 
     def _randomize_per_env_colors(self):
@@ -138,6 +157,8 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         super()._post_physics_step()
         if self._held_scan_lidar_collector is not None:
             self._held_scan_lidar_collector.on_physics_step()
+        for collector in self._temporal_occupancy_collectors.values():
+            collector.on_physics_step()
 
     def _reset_idx(self, env_ids):
         # event_manager.apply(mode="reset") inside super()._reset_idx runs
@@ -147,3 +168,5 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         self._write_pedestrians_to_sim()
         if self._held_scan_lidar_collector is not None:
             self._held_scan_lidar_collector.reset(env_ids)
+        for collector in self._temporal_occupancy_collectors.values():
+            collector.reset(env_ids)

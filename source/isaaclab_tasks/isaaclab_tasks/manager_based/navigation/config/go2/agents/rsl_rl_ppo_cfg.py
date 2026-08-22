@@ -6,6 +6,7 @@ from isaaclab_rl.rsl_rl import (
     RslRlEncoderModelCfg,
     RslRlMLPModelCfg,
     RslRlLidarModelCfg,
+    RslRlTemporalOccupancyModelCfg,
     RslRlLidarPredictionCfg,
     RslRlSymmetryCfg,
     RslRlRndCfg,
@@ -560,9 +561,8 @@ class UnitreeGo2ObstacleAvoidanceOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg
     logger="wandb"
 
 
-# The mixed task's occupancy grid occupies the final 2,500 entries of each
-# observation group. Keep the reshape declaration explicit so EncoderModel's
-# tail split is checked at construction rather than relying on a convention.
+# One 50x50 map is independently encoded at every temporal frame. Keep the
+# reshape declaration explicit so the model validates the 2,500-value frame.
 MixedOccupancyCNNConfig = [
     # (1, 50, 50) -> (16, 25, 25)
     {"type": "reshape", "input_size": 2500, "shape": [1, 50, 50]},
@@ -575,6 +575,30 @@ MixedOccupancyCNNConfig = [
     {"type": "adaptive_pool", "output_size": (4, 4)},
 ]
 
+from ..obstacle_avoidance.mixed_scenario_mixins import (
+    MIXED_OCCUPANCY_GRID_SIZE,
+    MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES,
+)
+
+MIXED_TEMPORAL_OCCUPANCY_FRAME_SIZE = MIXED_OCCUPANCY_GRID_SIZE * MIXED_OCCUPANCY_GRID_SIZE
+MIXED_TEMPORAL_OCCUPANCY_OBS_SIZE = MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES * MIXED_TEMPORAL_OCCUPANCY_FRAME_SIZE
+
+
+def _mixed_temporal_occupancy_model_cfg(**overrides) -> RslRlTemporalOccupancyModelCfg:
+    """Build the six-frame shared-CNN/GRU model without changing MLP head width."""
+    base = dict(
+        hidden_dims=[256, 128],
+        activation="elu",
+        temporal_obs_size=MIXED_TEMPORAL_OCCUPANCY_OBS_SIZE,
+        temporal_frames=MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES,
+        frame_size=MIXED_TEMPORAL_OCCUPANCY_FRAME_SIZE,
+        cnn_dims=MixedOccupancyCNNConfig,
+        gru_hidden_size=1024,
+        tanh_output=True,
+    )
+    base.update(overrides)
+    return RslRlTemporalOccupancyModelCfg(**base)
+
 
 @configclass
 class UnitreeGo2MixedOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
@@ -586,22 +610,13 @@ class UnitreeGo2MixedOccupancyPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     experiment_name = "go2_mixed_static_pedestrian_occupancy"
     seed = 666
     empirical_normalization = False
-    # Policy and critic use their respective noisy/clean grids. In each case
-    # the row-major 50x50 grid is the final observation term.
+    # Policy and critic use their respective noisy/clean observation groups.
+    # Their final tail is chronological occupancy frames [t-3.0, ..., t-0.5].
     obs_groups = {"actor": ["policy"], "critic": ["critic"]}
-    actor = _enc_actor(
-        hidden_dims=[256, 128],
-        init_std=1.0,
-        encoder_type="cnn",
-        encoder_dims=MixedOccupancyCNNConfig,
+    actor = _mixed_temporal_occupancy_model_cfg(
+        distribution_cfg=RslRlTemporalOccupancyModelCfg.GaussianDistributionCfg(init_std=1.0, std_type="scalar"),
     )
-    critic = RslRlEncoderModelCfg(
-        hidden_dims=[256, 128],
-        activation="elu",
-        distribution_cfg=None,
-        encoder_type="cnn",
-        encoder_dims=MixedOccupancyCNNConfig,
-    )
+    critic = _mixed_temporal_occupancy_model_cfg(distribution_cfg=None, tanh_output=False)
     algorithm = ObstacleAvoidancePPOConfig
     wandb_project="obstacle_avoidance_navigation"
     logger="wandb"
