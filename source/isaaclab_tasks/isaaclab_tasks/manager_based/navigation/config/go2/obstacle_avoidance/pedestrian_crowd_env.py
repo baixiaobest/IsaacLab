@@ -87,7 +87,8 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         self._write_pedestrians_to_sim()
         for collector in self._temporal_occupancy_collectors.values():
             # The collector is created while managers load, before the crowd is
-            # initialized. Re-capture after the initial pedestrian placement.
+            # initialized. Clear it so early observations are zero-padded until
+            # physics-rate sensor samples are available.
             collector.reset(all_env_ids)
         self._randomize_per_env_colors()
 

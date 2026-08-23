@@ -62,7 +62,6 @@ def test_temporal_occupancy_reset_clears_only_requested_environments() -> None:
         collector._push(torch.full((3, 1), float(value)), env_ids)
 
     collector._physics_steps = 123
-    collector._capture = lambda ids: collector._push(torch.full((ids.numel(), 1), 99.0), ids)
     collector.reset(torch.tensor([1]))
 
     history = collector.history()
@@ -70,6 +69,14 @@ def test_temporal_occupancy_reset_clears_only_requested_environments() -> None:
     assert torch.equal(history[0], torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
     assert torch.equal(history[1], torch.zeros(6))
     assert torch.equal(history[2], torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
+
+    # Reset occurs before the simulator applies reset poses.  The collector
+    # must not retain a reset-time sensor image and leak it into the first
+    # emitted historical frame after the next two captures.
+    reset_id = torch.tensor([1])
+    collector._push(torch.tensor([[10.0]]), reset_id)
+    collector._push(torch.tensor([[11.0]]), reset_id)
+    assert torch.equal(collector.history()[1], torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 10.0]))
 
 
 def test_temporal_occupancy_clock_uses_exact_half_second_physics_samples() -> None:

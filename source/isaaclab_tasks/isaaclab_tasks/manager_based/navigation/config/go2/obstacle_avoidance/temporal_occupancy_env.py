@@ -61,14 +61,19 @@ class TemporalOccupancyCollector:
         self._frames = torch.zeros(self.num_envs, self._capacity, self.frame_size, device=self.device)
 
     def reset(self, env_ids: Sequence[int] | torch.Tensor | None = None) -> None:
-        """Clear selected histories and capture their reset-time current map."""
+        """Clear selected histories and wait for post-reset physics-rate captures.
+
+        This hook runs before the base environment commits the reset state to the
+        simulator, so sampling here could retain a pre-reset sensor image.  The
+        history is instead zero-padded until the first regular 0.5-second
+        physics-grid capture.
+        """
         env_ids = self._resolve_env_ids(env_ids)
         if env_ids.numel() == 0:
             return
         self._frames[env_ids] = 0.0
         self._head[env_ids] = 0
         self._count[env_ids] = 0
-        self._capture(env_ids)
         self._last_capture_physics_step[env_ids] = self._physics_steps
 
     def on_physics_step(self) -> None:
