@@ -160,3 +160,11 @@ def test_registered_mixed_occupancy_configs_have_15000_value_tail_last() -> None
     assert agent_cfg.critic.class_name == "TemporalOccupancyModel"
     assert agent_cfg.actor.temporal_obs_size == expected
     assert agent_cfg.critic.temporal_obs_size == expected
+    for model_cfg in (agent_cfg.actor, agent_cfg.critic):
+        assert model_cfg.temporal_frames == MIXED_TEMPORAL_OCCUPANCY_HISTORY_FRAMES
+        assert model_cfg.frame_size == 50 * 50
+        # The final 64 x 4 x 4 CNN feature and the GRU state retain the
+        # 1,024-wide MLP input used by the single-frame baseline.
+        assert model_cfg.cnn_dims[-2]["out_channels"] == 64
+        assert model_cfg.cnn_dims[-1] == {"type": "adaptive_pool", "output_size": (4, 4)}
+        assert model_cfg.gru_hidden_size == 1024
