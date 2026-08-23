@@ -152,7 +152,11 @@ def test_registered_mixed_occupancy_configs_have_15000_value_tail_last() -> None
         assert cfg.observations.critic.occupancy_grid.func is temporal_occupancy_grid
         assert expected == 15000
 
+    assert train_cfg.scene.num_envs == 2000
+    assert play_cfg.scene.num_envs == 16
     assert agent_cfg.seed == 666
     assert agent_cfg.max_iterations == 2000
+    assert agent_cfg.actor.class_name == "TemporalOccupancyModel"
+    assert agent_cfg.critic.class_name == "TemporalOccupancyModel"
     assert agent_cfg.actor.temporal_obs_size == expected
     assert agent_cfg.critic.temporal_obs_size == expected
