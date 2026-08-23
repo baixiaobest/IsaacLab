@@ -94,6 +94,31 @@ def test_temporal_occupancy_clock_uses_exact_half_second_physics_samples() -> No
     assert all(torch.equal(env_ids, torch.tensor([0, 1])) for _, env_ids in captures)
 
 
+def test_temporal_occupancy_reset_subset_restarts_only_its_sampling_clock() -> None:
+    collector = _collector()
+    collector._sample_steps = 100
+    captures = []
+    collector._capture = lambda env_ids: captures.append((collector._physics_steps, env_ids.clone()))
+
+    # Reset environment 1 one physics tick before the other two make their
+    # first capture. Its next capture must be exactly 100 ticks after reset;
+    # environments 0 and 2 must preserve their original cadence.
+    for _ in range(99):
+        collector.on_physics_step()
+    collector.reset(torch.tensor([1]))
+
+    collector.on_physics_step()
+    for _ in range(99):
+        collector.on_physics_step()
+    collector.on_physics_step()
+
+    assert [(step, env_ids.tolist()) for step, env_ids in captures] == [
+        (100, [0, 2]),
+        (199, [1]),
+        (200, [0, 2]),
+    ]
+
+
 def test_mixed_policy_and_critic_use_separate_temporal_occupancy_histories() -> None:
     policy = MixedOccupancyObservationsCfg.PolicyCfg()
     critic = MixedOccupancyObservationsCfg.CriticCfg()
