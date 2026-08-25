@@ -6,9 +6,11 @@ import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
+    MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (
     MixedTemporalLidarObstacleAvoidanceEnvCfg,
+    MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.kp_pre_trained_policy_action import (
     KpPreTrainedPolicyAction,
@@ -47,9 +49,9 @@ def test_kp_velocity_command_respects_acceleration_limits() -> None:
 def test_kp_velocity_command_respects_velocity_limits() -> None:
     kp, accel_lo, accel_hi, vel_lo, vel_hi = _limits()
     acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[1.0, -1.0]]), torch.tensor([[0.95, -0.95]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
+        torch.tensor([[1.0, -1.0]]), torch.tensor([[1.2, -1.2]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
-    assert torch.equal(acceleration, torch.tensor([[0.25, -0.25]]))
+    assert torch.equal(acceleration, torch.tensor([[-1.0, 1.0]]))
     assert torch.equal(command, torch.tensor([[1.0, -1.0]]))
 
 
@@ -76,6 +78,7 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
     kp_task = MixedTemporalLidarKpObstacleAvoidanceEnvCfg()
 
     assert type(kp_task.observations) is type(baseline.observations)
+    assert set(kp_task.actions.__dict__) == set(baseline.actions.__dict__) == {"pre_trained_policy_action"}
     assert len(kp_task.actions.pre_trained_policy_action.action_scales) == len(
         baseline.actions.pre_trained_policy_action.action_scales
     )
@@ -84,3 +87,14 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-3.0, 3.0), (-3.0, 3.0))
     assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.0, 1.0), (-1.0, 1.0))
     assert kp_task.sim.dt * kp_task.decimation == 0.08
+
+
+def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
+    """The Kp play task changes only the high-level action term."""
+    baseline = MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY()
+    kp_task = MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY()
+
+    assert kp_task.scene.num_envs == baseline.scene.num_envs == 16
+    assert type(kp_task.observations) is type(baseline.observations)
+    assert kp_task.held_scan_lidar_enabled == baseline.held_scan_lidar_enabled
+    assert kp_task.actions.pre_trained_policy_action.action_scales == baseline.actions.pre_trained_policy_action.action_scales

@@ -9,10 +9,25 @@ from isaaclab.utils import configclass
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .mixed_scenario_mixins import MixedTemporalLidarObstacleAvoidanceEnvCfg
-from .obstacle_avoidance_env_cfg import LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
+from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
 
 
-_BASE_ACTION_CFG = MixedTemporalLidarObstacleAvoidanceEnvCfg().actions.pre_trained_policy_action
+@configclass
+class KpActionsCfg(ActionsCfg):
+    """Baseline navigation action container with only its action term replaced."""
+
+    pre_trained_policy_action: nav_mdp.KpPreTrainedPolicyActionCfg = nav_mdp.KpPreTrainedPolicyActionCfg(
+        asset_name="robot",
+        policy_path=LOW_LEVEL_POLICY_PATH,
+        low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
+        low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
+        low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
+        action_scales=(1.0, 1.0, 1.0),
+        kp=(5.0, 5.0),
+        acceleration_limits=((-3.0, 3.0), (-3.0, 3.0)),
+        velocity_limits=((-1.0, 1.0), (-1.0, 1.0)),
+        debug_vis=True,
+    )
 
 
 @configclass
@@ -24,18 +39,7 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg(MixedTemporalLidarObstacleAvoi
     mixed temporal-LiDAR baseline.
     """
 
-    actions: nav_mdp.KpPreTrainedPolicyActionCfg = nav_mdp.KpPreTrainedPolicyActionCfg(
-        asset_name="robot",
-        policy_path=LOW_LEVEL_POLICY_PATH,
-        low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
-        low_level_actions=_BASE_ACTION_CFG.low_level_actions,
-        low_level_observations=_BASE_ACTION_CFG.low_level_observations,
-        action_scales=(1.0, 1.0, 1.0),
-        kp=(5.0, 5.0),
-        acceleration_limits=((-3.0, 3.0), (-3.0, 3.0)),
-        velocity_limits=((-1.0, 1.0), (-1.0, 1.0)),
-        debug_vis=True,
-    )
+    actions: KpActionsCfg = KpActionsCfg()
 
 
 @configclass
