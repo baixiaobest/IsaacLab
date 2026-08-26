@@ -24,8 +24,8 @@ class KpActionsCfg(ActionsCfg):
         low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
         action_scales=(1.0, 1.0, 1.0),
         kp=(5.0, 5.0),
-        acceleration_limits=((-3.0, 3.0), (-3.0, 3.0)),
-        velocity_limits=((-1.0, 1.0), (-1.0, 1.0)),
+        acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
+        velocity_limits=((-1.3, 1.3), (-1.3, 1.3)),
         debug_vis=True,
     )
 
@@ -40,17 +40,6 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg(MixedTemporalLidarObstacleAvoi
     """
 
     actions: KpActionsCfg = KpActionsCfg()
-
-
-@configclass
-class MixedTemporalLidarKpEvalA5V1p3ObstacleAvoidanceEnvCfg(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
-    """Evaluation-only Kp variant with 5 m/s² acceleration and 1.3 m/s velocity limits."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        action = self.actions.pre_trained_policy_action
-        action.acceleration_limits = ((-5.0, 5.0), (-5.0, 5.0))
-        action.velocity_limits = ((-1.3, 1.3), (-1.3, 1.3))
 
 
 @configclass

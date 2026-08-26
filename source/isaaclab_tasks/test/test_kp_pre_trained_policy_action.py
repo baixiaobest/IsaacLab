@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
-    MixedTemporalLidarKpEvalA5V1p3ObstacleAvoidanceEnvCfg,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
 )
@@ -20,22 +19,11 @@ from isaaclab_tasks.manager_based.navigation.mdp.kp_pre_trained_policy_action im
 from isaaclab_tasks.utils import load_cfg_from_registry
 
 
-KP_EVAL_A5_V1P3_TASK_ID = (
-    "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Eval-A5-V1p3-Obstacle-Avoidance-Unitree-Go2-v0"
-)
+KP_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-v0"
+KP_PLAY_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-Play-v0"
 
 
 def _limits():
-    return (
-        torch.tensor((5.0, 5.0)),
-        torch.tensor((-3.0, -3.0)),
-        torch.tensor((3.0, 3.0)),
-        torch.tensor((-1.0, -1.0)),
-        torch.tensor((1.0, 1.0)),
-    )
-
-
-def _eval_limits():
     return (
         torch.tensor((5.0, 5.0)),
         torch.tensor((-5.0, -5.0)),
@@ -59,36 +47,14 @@ def test_kp_velocity_command_respects_acceleration_limits() -> None:
     acceleration, command = compute_kp_velocity_command(
         torch.tensor([[1.0, -1.0]]), torch.zeros(1, 2), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
-    assert torch.equal(acceleration, torch.tensor([[3.0, -3.0]]))
-    assert torch.allclose(command, torch.tensor([[0.24, -0.24]]))
+    assert torch.equal(acceleration, torch.tensor([[5.0, -5.0]]))
+    assert torch.allclose(command, torch.tensor([[0.4, -0.4]]))
 
 
 def test_kp_velocity_command_respects_velocity_limits() -> None:
     kp, accel_lo, accel_hi, vel_lo, vel_hi = _limits()
     acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[1.0, -1.0]]), torch.tensor([[1.2, -1.2]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
-    )
-    assert torch.equal(acceleration, torch.tensor([[-1.0, 1.0]]))
-    assert torch.equal(command, torch.tensor([[1.0, -1.0]]))
-
-
-def test_kp_eval_velocity_command_respects_a5_v1p3_limits() -> None:
-    kp, accel_lo, accel_hi, vel_lo, vel_hi = _eval_limits()
-    acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[2.0, -2.0]]), torch.zeros(1, 2), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
-    )
-    assert torch.equal(acceleration, torch.tensor([[5.0, -5.0]]))
-    assert torch.allclose(command, torch.tensor([[0.4, -0.4]]))
-
-    acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[2.0, -2.0]]),
-        torch.tensor([[1.2, -1.2]]),
-        0.08,
-        kp,
-        accel_lo,
-        accel_hi,
-        vel_lo,
-        vel_hi,
+        torch.tensor([[2.0, -2.0]]), torch.tensor([[1.2, -1.2]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
     assert torch.equal(acceleration, torch.tensor([[4.0, -4.0]]))
     assert torch.equal(command, torch.tensor([[1.3, -1.3]]))
@@ -108,8 +74,8 @@ def test_action_term_forwards_integrated_velocity_and_unchanged_yaw() -> None:
 
     term.process_actions(torch.tensor([[1.0, -1.0, 0.7]]))
 
-    assert torch.equal(term.nominal_acceleration, torch.tensor([[3.0, -3.0]]))
-    assert torch.allclose(term.processed_actions, torch.tensor([[0.24, -0.24, 0.7]]))
+    assert torch.equal(term.nominal_acceleration, torch.tensor([[5.0, -5.0]]))
+    assert torch.allclose(term.processed_actions, torch.tensor([[0.4, -0.4, 0.7]]))
 
 
 def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> None:
@@ -123,37 +89,25 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
     )
     assert not hasattr(kp_task.observations, "prediction")
     assert kp_task.actions.pre_trained_policy_action.kp == (5.0, 5.0)
-    assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-3.0, 3.0), (-3.0, 3.0))
-    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.0, 1.0), (-1.0, 1.0))
+    assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
+    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
     assert kp_task.sim.dt * kp_task.decimation == 0.08
 
 
-def test_kp_eval_a5_v1p3_task_preserves_checkpoint_compatibility() -> None:
-    baseline = MixedTemporalLidarKpObstacleAvoidanceEnvCfg()
-    eval_task = MixedTemporalLidarKpEvalA5V1p3ObstacleAvoidanceEnvCfg()
+def test_kp_task_resolves_to_updated_config() -> None:
+    cfg = load_cfg_from_registry(KP_TASK_ID, "env_cfg_entry_point")
 
-    assert type(eval_task.observations) is type(baseline.observations)
-    assert tuple(eval_task.observations.policy.__dict__) == tuple(baseline.observations.policy.__dict__)
-    assert tuple(eval_task.observations.critic.__dict__) == tuple(baseline.observations.critic.__dict__)
-    assert set(eval_task.actions.__dict__) == set(baseline.actions.__dict__) == {"pre_trained_policy_action"}
-    assert len(eval_task.actions.pre_trained_policy_action.action_scales) == 3
-    assert len(eval_task.actions.pre_trained_policy_action.action_scales) == len(
-        baseline.actions.pre_trained_policy_action.action_scales
-    )
-    assert (
-        eval_task.actions.pre_trained_policy_action.action_scales
-        == baseline.actions.pre_trained_policy_action.action_scales
-    )
-    assert baseline.actions.pre_trained_policy_action.acceleration_limits == ((-3.0, 3.0), (-3.0, 3.0))
-    assert baseline.actions.pre_trained_policy_action.velocity_limits == ((-1.0, 1.0), (-1.0, 1.0))
-    assert eval_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
-    assert eval_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
+    assert isinstance(cfg, MixedTemporalLidarKpObstacleAvoidanceEnvCfg)
+    assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
+    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
 
 
-def test_kp_eval_a5_v1p3_task_resolves_to_evaluation_config() -> None:
-    cfg = load_cfg_from_registry(KP_EVAL_A5_V1P3_TASK_ID, "env_cfg_entry_point")
+def test_kp_play_task_resolves_to_updated_config() -> None:
+    cfg = load_cfg_from_registry(KP_PLAY_TASK_ID, "env_cfg_entry_point")
 
-    assert isinstance(cfg, MixedTemporalLidarKpEvalA5V1p3ObstacleAvoidanceEnvCfg)
+    assert isinstance(cfg, MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY)
+    assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
+    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
 
 
 def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
@@ -165,3 +119,5 @@ def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
     assert type(kp_task.observations) is type(baseline.observations)
     assert kp_task.held_scan_lidar_enabled == baseline.held_scan_lidar_enabled
     assert kp_task.actions.pre_trained_policy_action.action_scales == baseline.actions.pre_trained_policy_action.action_scales
+    assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
+    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
