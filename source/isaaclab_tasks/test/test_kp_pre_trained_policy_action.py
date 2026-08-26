@@ -100,7 +100,7 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
     assert not hasattr(kp_task.observations, "prediction")
     assert kp_task.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
-    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
+    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
     assert kp_task.sim.dt * kp_task.decimation == 0.08
 
 
@@ -111,7 +111,7 @@ def test_kp_task_resolves_to_updated_config() -> None:
     assert isinstance(cfg, MixedTemporalLidarKpObstacleAvoidanceEnvCfg)
     assert cfg.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
-    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
+    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
     assert type(cfg.observations) is type(baseline.observations)
     assert len(cfg.actions.pre_trained_policy_action.action_scales) == len(
         baseline.actions.pre_trained_policy_action.action_scales
@@ -123,7 +123,7 @@ def test_kp_play_task_resolves_to_updated_config() -> None:
 
     assert isinstance(cfg, MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY)
     assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
-    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
+    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
 
 
 def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
@@ -136,4 +136,4 @@ def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
     assert kp_task.held_scan_lidar_enabled == baseline.held_scan_lidar_enabled
     assert kp_task.actions.pre_trained_policy_action.action_scales == baseline.actions.pre_trained_policy_action.action_scales
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
-    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
+    assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
