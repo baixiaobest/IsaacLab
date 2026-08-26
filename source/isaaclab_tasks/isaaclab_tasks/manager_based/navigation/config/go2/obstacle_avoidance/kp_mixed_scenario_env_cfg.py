@@ -43,6 +43,20 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg(MixedTemporalLidarObstacleAvoi
 
 
 @configclass
+class MixedTemporalLidarKp8EvalObstacleAvoidanceEnvCfg(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
+    """Evaluation-only Kp=8 variant of the temporal-LiDAR Kp task.
+
+    The inherited action configuration preserves the policy interface and all
+    acceleration and velocity bounds; only the planar proportional gains
+    differ from the parent Kp task.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.actions.pre_trained_policy_action.kp = (8.0, 8.0)
+
+
+@configclass
 class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
     """Sixteen-environment play variant of the Kp-preprocessed mixed task."""
 
