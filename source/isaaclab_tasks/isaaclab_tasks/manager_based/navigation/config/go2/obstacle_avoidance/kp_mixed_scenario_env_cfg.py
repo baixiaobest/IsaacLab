@@ -43,6 +43,17 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg(MixedTemporalLidarObstacleAvoi
 
 
 @configclass
+class MixedTemporalLidarKpEvalA5V1p3ObstacleAvoidanceEnvCfg(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
+    """Evaluation-only Kp variant with 5 m/s² acceleration and 1.3 m/s velocity limits."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        action = self.actions.pre_trained_policy_action
+        action.acceleration_limits = ((-5.0, 5.0), (-5.0, 5.0))
+        action.velocity_limits = ((-1.3, 1.3), (-1.3, 1.3))
+
+
+@configclass
 class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
     """Sixteen-environment play variant of the Kp-preprocessed mixed task."""
 
