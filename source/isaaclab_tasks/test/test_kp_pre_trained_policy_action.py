@@ -2,13 +2,11 @@
 
 from types import SimpleNamespace
 
-import gymnasium as gym
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
-    MixedTemporalLidarKp8EvalObstacleAvoidanceEnvCfg,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (
     MixedTemporalLidarObstacleAvoidanceEnvCfg,
@@ -23,7 +21,6 @@ from isaaclab_tasks.utils import load_cfg_from_registry
 
 KP_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-v0"
 KP_PLAY_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-Play-v0"
-KP8_EVAL_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp8-Eval-Obstacle-Avoidance-Unitree-Go2-v0"
 
 
 def _limits(kp_value: float = 5.0):
@@ -101,35 +98,23 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
         baseline.actions.pre_trained_policy_action.action_scales
     )
     assert not hasattr(kp_task.observations, "prediction")
-    assert kp_task.actions.pre_trained_policy_action.kp == (5.0, 5.0)
+    assert kp_task.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
     assert kp_task.sim.dt * kp_task.decimation == 0.08
 
 
 def test_kp_task_resolves_to_updated_config() -> None:
+    baseline = MixedTemporalLidarObstacleAvoidanceEnvCfg()
     cfg = load_cfg_from_registry(KP_TASK_ID, "env_cfg_entry_point")
 
     assert isinstance(cfg, MixedTemporalLidarKpObstacleAvoidanceEnvCfg)
-    assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
-    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
-
-
-def test_kp8_eval_task_resolves_to_compatible_config() -> None:
-    kp_task = MixedTemporalLidarKpObstacleAvoidanceEnvCfg()
-    cfg = load_cfg_from_registry(KP8_EVAL_TASK_ID, "env_cfg_entry_point")
-    kp_spec = gym.spec(KP_TASK_ID)
-    kp8_spec = gym.spec(KP8_EVAL_TASK_ID)
-
-    assert isinstance(cfg, MixedTemporalLidarKp8EvalObstacleAvoidanceEnvCfg)
-    assert kp8_spec.entry_point == kp_spec.entry_point
-    assert kp8_spec.kwargs["rsl_rl_cfg_entry_point"] == kp_spec.kwargs["rsl_rl_cfg_entry_point"]
     assert cfg.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
-    assert type(cfg.observations) is type(kp_task.observations)
+    assert type(cfg.observations) is type(baseline.observations)
     assert len(cfg.actions.pre_trained_policy_action.action_scales) == len(
-        kp_task.actions.pre_trained_policy_action.action_scales
+        baseline.actions.pre_trained_policy_action.action_scales
     ) == 3
 
 

@@ -211,16 +211,6 @@ gym.register(
 )
 
 gym.register(
-    id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp8-Eval-Obstacle-Avoidance-Unitree-Go2-v0",
-    entry_point=_PED_CROWD_ENTRY_POINT,
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.kp_mixed_scenario_env_cfg:MixedTemporalLidarKp8EvalObstacleAvoidanceEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
-    },
-)
-
-gym.register(
     id="Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-v0",
     entry_point=_PED_CROWD_ENTRY_POINT,
     disable_env_checker=True,
