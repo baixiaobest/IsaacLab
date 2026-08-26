@@ -133,11 +133,19 @@ def test_kp_eval_a5_v1p3_task_preserves_checkpoint_compatibility() -> None:
     eval_task = MixedTemporalLidarKpEvalA5V1p3ObstacleAvoidanceEnvCfg()
 
     assert type(eval_task.observations) is type(baseline.observations)
+    assert tuple(eval_task.observations.policy.__dict__) == tuple(baseline.observations.policy.__dict__)
+    assert tuple(eval_task.observations.critic.__dict__) == tuple(baseline.observations.critic.__dict__)
     assert set(eval_task.actions.__dict__) == set(baseline.actions.__dict__) == {"pre_trained_policy_action"}
+    assert len(eval_task.actions.pre_trained_policy_action.action_scales) == 3
+    assert len(eval_task.actions.pre_trained_policy_action.action_scales) == len(
+        baseline.actions.pre_trained_policy_action.action_scales
+    )
     assert (
         eval_task.actions.pre_trained_policy_action.action_scales
         == baseline.actions.pre_trained_policy_action.action_scales
     )
+    assert baseline.actions.pre_trained_policy_action.acceleration_limits == ((-3.0, 3.0), (-3.0, 3.0))
+    assert baseline.actions.pre_trained_policy_action.velocity_limits == ((-1.0, 1.0), (-1.0, 1.0))
     assert eval_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert eval_task.actions.pre_trained_policy_action.velocity_limits == ((-1.3, 1.3), (-1.3, 1.3))
 
