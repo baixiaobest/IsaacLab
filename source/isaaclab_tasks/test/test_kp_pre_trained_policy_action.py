@@ -5,12 +5,16 @@ from types import SimpleNamespace
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
+    MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (
     MixedTemporalLidarObstacleAvoidanceEnvCfg,
     MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY,
+)
+from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action import (
+    StaticObstacleCbfPreTrainedPolicyActionCfg,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.kp_pre_trained_policy_action import (
     KpPreTrainedPolicyAction,
@@ -21,6 +25,9 @@ from isaaclab_tasks.utils import load_cfg_from_registry
 
 KP_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-v0"
 KP_PLAY_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-Play-v0"
+CBF_PLAY_TASK_ID = (
+    "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0"
+)
 
 
 def _limits(kp_value: float = 5.0):
@@ -137,3 +144,20 @@ def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
     assert kp_task.actions.pre_trained_policy_action.action_scales == baseline.actions.pre_trained_policy_action.action_scales
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
+
+
+def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
+    """The deployment filter changes only the private locomotion command path."""
+    cfg = load_cfg_from_registry(CBF_PLAY_TASK_ID, "env_cfg_entry_point")
+
+    assert isinstance(cfg, MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY)
+    assert cfg.scene.num_envs == 16
+    assert isinstance(cfg.actions.pre_trained_policy_action, StaticObstacleCbfPreTrainedPolicyActionCfg)
+    assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
+    assert cfg.actions.pre_trained_policy_action.kp == (8.0, 8.0)
+    assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
+    assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
+    assert cfg.actions.pre_trained_policy_action.d_margin == 0.70
+    assert cfg.actions.pre_trained_policy_action.d_cbf_active == 5.0
+    assert cfg.actions.pre_trained_policy_action.max_lidar_points == 64
+    assert cfg.sim.dt * cfg.actions.pre_trained_policy_action.low_level_decimation == 0.02

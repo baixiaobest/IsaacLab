@@ -25,6 +25,8 @@ INSTALL_REQUIRES = [
     # basic logger
     "tensorboard",
     "numba",
+    # deployment-time static-obstacle CBF-QP for the PLAY-only navigation task
+    "osqp>=0.6",
 ]
 
 PYTORCH_INDEX_URL = ["https://download.pytorch.org/whl/cu128"]

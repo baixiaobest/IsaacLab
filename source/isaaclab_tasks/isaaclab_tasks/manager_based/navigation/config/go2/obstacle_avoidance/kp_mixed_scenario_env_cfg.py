@@ -49,3 +49,43 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObsta
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 16
+
+
+@configclass
+class CbfKpActionsCfg(ActionsCfg):
+    """PLAY-only Kp action container with a static-obstacle CBF-QP filter."""
+
+    pre_trained_policy_action: nav_mdp.StaticObstacleCbfPreTrainedPolicyActionCfg = (
+        nav_mdp.StaticObstacleCbfPreTrainedPolicyActionCfg(
+            asset_name="robot",
+            policy_path=LOW_LEVEL_POLICY_PATH,
+            low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
+            low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
+            low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
+            action_scales=(1.0, 1.0, 1.0),
+            kp=(8.0, 8.0),
+            acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
+            velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
+            d_margin=0.70,
+            d_cbf_active=5.0,
+            gamma1=2.0,
+            gamma2=2.0,
+            slack_penalty=1000.0,
+            max_lidar_points=64,
+            debug_vis=True,
+        )
+    )
+
+
+@configclass
+class MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
+    MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY
+):
+    """PLAY-only Kp navigation evaluation with a static-obstacle CBF-QP.
+
+    The temporal-LiDAR observations and high-level action interface remain
+    checkpoint-compatible with :class:`MixedTemporalLidarKpObstacleAvoidanceEnvCfg`.
+    Only the private command supplied to the locomotion policy is filtered.
+    """
+
+    actions: CbfKpActionsCfg = CbfKpActionsCfg()

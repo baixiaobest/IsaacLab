@@ -86,6 +86,24 @@ class HeldScanLidarCollector:
         age[available] = self._time_s - self._latest_reference_time_s[available]
         return torch.clamp(age, min=0.0)
 
+    def latest_capture(self) -> dict[str, torch.Tensor]:
+        """Return the most recently captured ideal scan without consuming it.
+
+        The temporal observation path consumes captures to update its history.  A
+        deployment controller, however, must be able to use the same held scan
+        at its own control rate without changing that history or forcing a new
+        ray-caster update.  The returned hit points are world-frame XY points;
+        ``ray_state == 2`` identifies a valid reflection and ``ray_state == 1``
+        is a no-return endpoint.
+        """
+        return {
+            "hit_xy": self._pending_hit_xy,
+            "ray_state": self._pending_state,
+            "ego_xy": self._pending_ego_xy,
+            "ego_yaw": self._pending_ego_yaw,
+            "scan_age_s": self.scan_age_s(),
+        }
+
     def consume_completed(self) -> dict[str, torch.Tensor] | None:
         """Return each queued full scan once, leaving it held thereafter."""
         if not torch.any(self._pending_valid):
