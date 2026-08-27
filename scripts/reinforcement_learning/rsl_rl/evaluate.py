@@ -20,6 +20,7 @@ from isaaclab.app import AppLauncher
 import cli_args  # isort: skip
 
 from evaluation import (  # isort: skip
+    CbfTerminalDiagnosticsCollector,
     CollisionReplayRecorder,
     EpisodeMetricsCollector,
     EpisodeVelocityAccumulator,
@@ -30,6 +31,7 @@ from evaluation import (  # isort: skip
     dynamic_crowd_profiles,
     print_results,
     save_artifacts,
+    save_cbf_diagnostic_artifacts,
     save_interaction_event_artifacts,
     terminal_goal_region_collision_ids,
 )
@@ -442,6 +444,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
+    cbf_diagnostics = CbfTerminalDiagnosticsCollector(profiles, env_profile_indices)
     slow_leader_records: list[dict[str, float | int]] = []
     seed_count = args_cli.seeds
     if seed_count < 1:
@@ -522,6 +525,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         raw_env, int(env_id), interaction_collector.pending_events(int(env_id))
                     )
         _record_cbf_filtered_command()
+        cbf_diagnostics.snapshot_terminal(raw_env.action_manager.get_term("pre_trained_policy_action"), env_ids)
         if replay_recorder is not None:
             replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
         return original_reset_idx(env_ids)
@@ -599,6 +603,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     completed_env_ids=completed_ids,
                     goal_region_collision_env_ids=goal_region_collision_ids,
                 )
+                cbf_diagnostics.resolve_terminal(completed_ids, collector.last_accepted_ids)
                 for env_id in sorted(collector.last_accepted_ids):
                     condition = slow_leader_conditions.get(env_id)
                     if condition is None:
@@ -659,6 +664,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     rows = collector.rows()
     aggregates = collector.aggregate_rows()
+    cbf_diagnostic_rows = cbf_diagnostics.rows() if cbf_diagnostics.available else []
+    cbf_diagnostic_aggregates = cbf_diagnostics.aggregate_rows() if cbf_diagnostics.available else []
     slow_leader_summary = _slow_leader_condition_summary(slow_leader_records)
     artifact_dir = save_artifacts(
         output_dir,
@@ -730,6 +737,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "base_contact_rate": "episodes terminated by the base_contact term",
                 "mean_xy_speed_mps": "episode-average world-frame horizontal robot speed over all episodes",
             },
+            "cbf_diagnostics": {
+                "available": cbf_diagnostics.available,
+                "terminal_episode_artifact": "cbf_terminal_diagnostics.csv" if cbf_diagnostics.available else None,
+                "aggregate_artifacts": (
+                    ["cbf_diagnostics.csv", "cbf_diagnostics.json"] if cbf_diagnostics.available else []
+                ),
+                "positive_fraction": "fraction of CBF control updates with positive slack",
+                "mean_nonzero": "mean positive slack per episode; zero when no slack was positive",
+                "max_slack": "maximum slack over an episode",
+                "solver_failure_rate": "accepted episodes with one or more CBF-QP solve failures",
+                "velocity_feasibility_failure_rate": (
+                    "accepted episodes with one or more incompatible velocity/acceleration bounds"
+                ),
+            },
             "velocity_metric_source": collector.velocity_metric_source,
             "step_dt_s": step_dt_s,
             "episode_length_s": episode_length_s,
@@ -749,6 +770,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             },
         },
     )
+    if cbf_diagnostics.available:
+        save_cbf_diagnostic_artifacts(
+            artifact_dir,
+            cbf_diagnostics.episode_rows,
+            cbf_diagnostic_rows,
+            cbf_diagnostic_aggregates,
+        )
     with (artifact_dir / "slow_leader_conditions.json").open("w", encoding="utf-8") as file:
         json.dump(
             {

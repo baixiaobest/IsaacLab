@@ -476,6 +476,65 @@ def test_explicit_done_ids_ignore_idle_scalar_termination_placeholders():
     assert collector.total_episodes == 0
 
 
+def test_cbf_terminal_diagnostics_aggregate_only_quota_accepted_episodes(tmp_path):
+    profiles = [
+        evaluation.BenchmarkProfile("crossing", 2),
+        evaluation.BenchmarkProfile("crossing", 4),
+        evaluation.BenchmarkProfile("with_flow", 2),
+    ]
+    collector = evaluation.CbfTerminalDiagnosticsCollector(profiles, [0, 1, 2])
+    action_term = type(
+        "CbfActionTerm",
+        (),
+        {
+            "slack_metrics": {
+                "positive_fraction": [0.2, 0.4, 0.6],
+                "mean_nonzero": [0.1, 0.3, 0.5],
+                "max": [0.3, 0.7, 0.9],
+                "solve_failures": [0, 2, 1],
+                "velocity_feasibility_failures": [1, 0, 3],
+            }
+        },
+    )()
+
+    collector.snapshot_terminal(action_term, [0, 1, 2])
+    collector.resolve_terminal([0, 1, 2], [0, 1])
+
+    assert collector.available
+    assert len(collector.episode_rows) == 2
+    assert {record["environment_id"] for record in collector.episode_rows} == {0, 1}
+    rows = collector.rows()
+    assert rows[0]["positive_fraction"] == pytest.approx(0.2)
+    assert rows[1]["max_slack"] == pytest.approx(0.7)
+    aggregate = collector.aggregate_rows()[0]
+    assert aggregate["episodes"] == 2
+    assert aggregate["positive_fraction"] == pytest.approx(0.3)
+    assert aggregate["mean_nonzero"] == pytest.approx(0.2)
+    assert aggregate["max_slack"] == pytest.approx(0.7)
+    assert aggregate["solve_failures"] == 2
+    assert aggregate["solver_failure_rate"] == pytest.approx(0.5)
+    assert aggregate["velocity_feasibility_failures"] == 1
+    assert aggregate["velocity_feasibility_failure_rate"] == pytest.approx(0.5)
+
+    output = evaluation.save_cbf_diagnostic_artifacts(
+        tmp_path, collector.episode_rows, rows, collector.aggregate_rows()
+    )
+    payload = json.loads((output / "cbf_diagnostics.json").read_text(encoding="utf-8"))
+    assert len(payload["terminal_episode_diagnostics"]) == 2
+    assert (output / "cbf_terminal_diagnostics.csv").is_file()
+    assert (output / "cbf_diagnostics.csv").is_file()
+
+
+def test_cbf_terminal_diagnostics_are_absent_safe_for_non_cbf_action_terms():
+    collector = evaluation.CbfTerminalDiagnosticsCollector([evaluation.BenchmarkProfile("crossing", 2)], [0])
+
+    collector.snapshot_terminal(object(), [0])
+    collector.resolve_terminal([0], [0])
+
+    assert not collector.available
+    assert collector.episode_rows == []
+
+
 def test_artifacts_include_csv_json_and_summary_plot(tmp_path):
     profiles = evaluation.dynamic_crowd_profiles([2])
     collector = evaluation.EpisodeMetricsCollector(profiles, [0, 1, 2], episodes_per_profile=1)

@@ -1116,6 +1116,106 @@ class EpisodeVelocityAccumulator:
             self._samples[env_id] = 0
 
 
+class CbfTerminalDiagnosticsCollector:
+    """Retain reset-scoped CBF diagnostics for the benchmark's accepted episodes only.
+
+    The CBF action term clears its counters in ``reset``.  Evaluation therefore snapshots them
+    from the reset hook, then calls :meth:`resolve_terminal` after the primary outcome collector
+    has applied its per-profile quota.  Non-CBF action terms simply have no ``slack_metrics``
+    property, leaving this collector empty.
+    """
+
+    metric_names = (
+        "positive_fraction",
+        "mean_nonzero",
+        "max",
+        "solve_failures",
+        "velocity_feasibility_failures",
+    )
+
+    def __init__(self, profiles: list[BenchmarkProfile], env_profile_indices: Iterable[int]):
+        self.profiles = profiles
+        self.env_profile_indices = [int(index) for index in env_profile_indices]
+        if not self.env_profile_indices or any(
+            index < 0 or index >= len(profiles) for index in self.env_profile_indices
+        ):
+            raise ValueError("Every vector environment must be assigned a valid profile index.")
+        self._pending: dict[int, dict[str, float | int]] = {}
+        self._episodes: list[dict[str, Any]] = []
+        self.available = False
+
+    @property
+    def episode_rows(self) -> list[dict[str, Any]]:
+        """Return one terminal diagnostic record for every quota-accepted CBF episode."""
+        return list(self._episodes)
+
+    def snapshot_terminal(self, action_term: Any, env_ids: Any) -> None:
+        """Save CBF counters immediately before the environment resets ``env_ids``."""
+        metrics = getattr(action_term, "slack_metrics", None)
+        if metrics is None:
+            return
+        if not isinstance(metrics, Mapping):
+            raise TypeError("CBF slack_metrics must be a mapping.")
+        missing = [name for name in self.metric_names if name not in metrics]
+        if missing:
+            raise KeyError(f"CBF slack_metrics is missing: {missing}")
+        values = {name: _flat_list(metrics[name]) for name in self.metric_names}
+        expected_envs = len(self.env_profile_indices)
+        if any(len(metric_values) != expected_envs for metric_values in values.values()):
+            raise ValueError("Every CBF diagnostic must contain one value per vector environment.")
+        self.available = True
+        for env_id in _ids(env_ids):
+            if env_id < 0 or env_id >= expected_envs:
+                raise IndexError(f"Invalid environment ID {env_id}.")
+            diagnostic = {
+                "positive_fraction": float(values["positive_fraction"][env_id]),
+                "mean_nonzero": float(values["mean_nonzero"][env_id]),
+                "max_slack": float(values["max"][env_id]),
+                "solve_failures": int(values["solve_failures"][env_id]),
+                "velocity_feasibility_failures": int(values["velocity_feasibility_failures"][env_id]),
+            }
+            if not all(math.isfinite(float(value)) for value in diagnostic.values()):
+                raise ValueError(f"CBF diagnostics for environment {env_id} must be finite.")
+            self._pending[env_id] = diagnostic
+
+    def resolve_terminal(self, completed_env_ids: Any, accepted_env_ids: Any) -> None:
+        """Admit only diagnostics belonging to quota-accepted completed episodes."""
+        accepted = _ids(accepted_env_ids)
+        for env_id in _ids(completed_env_ids):
+            diagnostic = self._pending.pop(env_id, None)
+            if diagnostic is None or env_id not in accepted:
+                continue
+            profile = self.profiles[self.env_profile_indices[env_id]]
+            self._episodes.append({
+                **asdict(profile),
+                "environment_id": env_id,
+                **diagnostic,
+            })
+
+    def rows(self) -> list[dict[str, Any]]:
+        """Aggregate diagnostics by scenario and pedestrian count."""
+        rows = []
+        for profile in self.profiles:
+            episode_records = [
+                record
+                for record in self._episodes
+                if record["scenario"] == profile.scenario and record["pedestrian_count"] == profile.pedestrian_count
+            ]
+            rows.append(_aggregate_cbf_diagnostic_rows(profile, episode_records))
+        return rows
+
+    def aggregate_rows(self) -> list[dict[str, Any]]:
+        """Aggregate diagnostics across pedestrian counts for every scenario."""
+        return [
+            _aggregate_cbf_diagnostic_rows(
+                BenchmarkProfile(scenario, "all"),
+                [record for record in self._episodes if record["scenario"] == scenario],
+            )
+            for scenario in SCENARIO_ORDER
+            if any(profile.scenario == scenario for profile in self.profiles)
+        ]
+
+
 class EpisodeMetricsCollector:
     """Collect bounded per-profile episode outcomes from vector-environment reset logs."""
 
@@ -1390,6 +1490,37 @@ def _result_row(
     return row
 
 
+def _aggregate_cbf_diagnostic_rows(
+    profile: BenchmarkProfile,
+    episode_records: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Pool reset-scoped CBF diagnostics without letting empty episodes create NaNs."""
+    episodes = len(episode_records)
+    solver_failure_episodes = sum(int(record["solve_failures"]) > 0 for record in episode_records)
+    velocity_failure_episodes = sum(
+        int(record["velocity_feasibility_failures"]) > 0 for record in episode_records
+    )
+    return {
+        **asdict(profile),
+        "episodes": episodes,
+        "positive_fraction": (
+            sum(float(record["positive_fraction"]) for record in episode_records) / episodes if episodes else 0.0
+        ),
+        "mean_nonzero": (
+            sum(float(record["mean_nonzero"]) for record in episode_records) / episodes if episodes else 0.0
+        ),
+        "max_slack": max((float(record["max_slack"]) for record in episode_records), default=0.0),
+        "solve_failures": sum(int(record["solve_failures"]) for record in episode_records),
+        "solver_failure_episodes": solver_failure_episodes,
+        "solver_failure_rate": solver_failure_episodes / episodes if episodes else 0.0,
+        "velocity_feasibility_failures": sum(
+            int(record["velocity_feasibility_failures"]) for record in episode_records
+        ),
+        "velocity_feasibility_failure_episodes": velocity_failure_episodes,
+        "velocity_feasibility_failure_rate": velocity_failure_episodes / episodes if episodes else 0.0,
+    }
+
+
 def _aggregate_rows_from_counts(
     profiles: list[BenchmarkProfile],
     counts: list[Mapping[str, int | float]],
@@ -1490,6 +1621,63 @@ def save_artifacts(
         )
     _save_summary_plot(output_path / "dynamic_crowd_summary.png", rows)
     _save_failure_histogram(output_path / "dynamic_crowd_failure_histogram.png", aggregate_rows)
+    return output_path
+
+
+def save_cbf_diagnostic_artifacts(
+    output_dir: str | Path,
+    episode_rows: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    aggregate_rows: list[dict[str, Any]],
+) -> Path:
+    """Write accepted-episode CBF diagnostics plus profile and scenario aggregates."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    episode_fields = [
+        "scenario",
+        "pedestrian_count",
+        "environment_id",
+        "positive_fraction",
+        "mean_nonzero",
+        "max_slack",
+        "solve_failures", "velocity_feasibility_failures",
+    ]
+    aggregate_fields = [
+        "scenario",
+        "pedestrian_count",
+        "episodes",
+        "positive_fraction",
+        "mean_nonzero",
+        "max_slack",
+        "solve_failures",
+        "solver_failure_episodes",
+        "solver_failure_rate",
+        "velocity_feasibility_failures",
+        "velocity_feasibility_failure_episodes",
+        "velocity_feasibility_failure_rate",
+    ]
+    with (output_path / "cbf_terminal_diagnostics.csv").open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=episode_fields)
+        writer.writeheader()
+        writer.writerows(episode_rows)
+    with (output_path / "cbf_diagnostics.csv").open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=aggregate_fields)
+        writer.writeheader()
+        writer.writerows([*rows, *aggregate_rows])
+    with (output_path / "cbf_diagnostics.json").open("w", encoding="utf-8") as file:
+        json.dump(
+            _json_safe(
+                {
+                    "schema_version": 1,
+                    "terminal_episode_diagnostics": episode_rows,
+                    "results": rows,
+                    "aggregates": aggregate_rows,
+                }
+            ),
+            file,
+            indent=2,
+            allow_nan=False,
+        )
     return output_path
 
 
