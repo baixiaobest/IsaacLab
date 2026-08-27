@@ -72,7 +72,7 @@ class MySceneCfg(InteractiveSceneCfg):
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.5, 0.0, 20.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[2, 1.5]),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
@@ -81,7 +81,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(1.0, 0.0, 20.0)),
         drift_range=(0.05, 0.15),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=[5.0, 3.0]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"]
@@ -89,7 +89,7 @@ class MySceneCfg(InteractiveSceneCfg):
     obstacle_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, -0.1)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.LidarPatternCfg(
             channels=1, 
             vertical_fov_range=(0.0, 0.0),

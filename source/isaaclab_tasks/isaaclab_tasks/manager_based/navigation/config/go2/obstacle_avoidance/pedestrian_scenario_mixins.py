@@ -113,7 +113,7 @@ class _PedestrianSceneCfg:
     obstacle_scanner: MultiMeshRayCasterCfg = MultiMeshRayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=ObstacleAvoidanceSceneCfg().obstacle_scanner.offset,
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         max_distance=LIDAR_MAX_DISTANCE,
         pattern_cfg=ObstacleAvoidanceSceneCfg().obstacle_scanner.pattern_cfg,
         debug_vis=True,

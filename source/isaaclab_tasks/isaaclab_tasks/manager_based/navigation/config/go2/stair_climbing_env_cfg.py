@@ -88,7 +88,7 @@ class MySceneCfg(InteractiveSceneCfg):
     height_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.2, size=(4.0, 4.0)),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
@@ -96,7 +96,7 @@ class MySceneCfg(InteractiveSceneCfg):
     fl_foot_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/FL_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"]
@@ -105,7 +105,7 @@ class MySceneCfg(InteractiveSceneCfg):
     fr_foot_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/FR_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"]
@@ -114,7 +114,7 @@ class MySceneCfg(InteractiveSceneCfg):
     rl_foot_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/RL_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"]
@@ -123,7 +123,7 @@ class MySceneCfg(InteractiveSceneCfg):
     rr_foot_scanner = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/RR_foot",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.1)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.CirclePatternCfg(radius=FOOT_SCANNER_RAIDUS, num_points=FOOT_SCANNER_NUM_POINTS),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"]

@@ -76,7 +76,7 @@ class MySceneCfg(InteractiveSceneCfg):
     l2_lidar = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=RayCasterCfg.OffsetCfg(pos=(0.28945, 0.0, -0.046825)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         max_distance=30.0,
         pattern_cfg=patterns.LidarPatternCfg(
             channels=8,
