@@ -113,9 +113,13 @@ ensure_cuda_torch() {
         tv_ver="0.24.0"
         cuda_ver="130"
     else
-        torch_ver="2.7.0"
-        tv_ver="0.22.0"
-        cuda_ver="128"
+        # RunPod's RTX worker fleet currently supplies R550-series drivers.
+        # Use the CUDA 12.4 wheel, which is compatible with that driver line;
+        # the CUDA 12.8 wheels need an R570-series driver for full support and
+        # can fail when cuDNN first initializes after Isaac Sim starts.
+        torch_ver="2.6.0"
+        tv_ver="0.21.0"
+        cuda_ver="124"
     fi
 
     local index="${base_index}/cu${cuda_ver}"
