@@ -273,6 +273,55 @@ def _slow_leader_condition_summary(records: list[dict[str, float]]) -> dict[str,
     return summary
 
 
+def _snapshot_cbf_solver_metrics(action_term, env_ids) -> dict[int, dict[str, float | int]]:
+    """Snapshot CBF QP statistics before the action term resets completed environments."""
+    metrics = getattr(action_term, "solver_metrics", None)
+    if metrics is None:
+        return {}
+    if hasattr(env_ids, "detach"):
+        environment_ids = env_ids.detach().cpu().tolist()
+    else:
+        environment_ids = list(env_ids)
+    snapshots: dict[int, dict[str, float | int]] = {}
+    for env_id in environment_ids:
+        snapshot: dict[str, float | int] = {}
+        for name, values in metrics.items():
+            value = values[int(env_id)]
+            if hasattr(value, "item"):
+                value = value.item()
+            snapshot[name] = int(value) if isinstance(value, int) else float(value)
+        snapshots[int(env_id)] = snapshot
+    return snapshots
+
+
+def _cbf_solver_summary(records: list[dict[str, float | int]]) -> dict[str, float | int] | None:
+    """Aggregate completed-episode CBF QP telemetry for evaluation metadata."""
+    if not records:
+        return None
+    solve_count = sum(int(record["solve_count"]) for record in records)
+    solve_time_total_s = sum(float(record["solve_time_total_s"]) for record in records)
+    update_time_total_s = sum(float(record["update_time_total_s"]) for record in records)
+    polish_time_total_s = sum(float(record["polish_time_total_s"]) for record in records)
+    return {
+        "episodes": len(records),
+        "solve_count": solve_count,
+        "mean_iterations_per_solve": (
+            sum(int(record["iteration_total"]) for record in records) / solve_count if solve_count else 0.0
+        ),
+        "max_iterations": max(int(record["iteration_max"]) for record in records),
+        "mean_solve_time_ms": 1_000.0 * solve_time_total_s / solve_count if solve_count else 0.0,
+        "max_solve_time_ms": 1_000.0 * max(float(record["solve_time_max_s"]) for record in records),
+        "total_solve_time_s": solve_time_total_s,
+        "total_update_time_s": update_time_total_s,
+        "total_polish_time_s": polish_time_total_s,
+        "max_primal_residual": max(float(record["primal_residual_max"]) for record in records),
+        "max_dual_residual": max(float(record["dual_residual_max"]) for record in records),
+        "solved_inaccurately_count": sum(int(record["inaccurate_count"]) for record in records),
+        "maximum_iteration_reached_count": sum(int(record["max_iteration_count"]) for record in records),
+        "timing_scope": "OSQP update/solve/polish only; excludes CBF construction and PyTorch CPU/GPU transfers",
+    }
+
+
 class EvaluationProgressReporter:
     """Best-effort live evaluation telemetry for the Research Agent UI.
 
@@ -468,6 +517,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     )
     velocity_accumulator = EpisodeVelocityAccumulator(args_cli.num_envs)
     goal_region_collision_ids: set[int] = set()
+    cbf_solver_terminal_metrics: dict[int, dict[str, float | int]] = {}
+    cbf_solver_episode_metrics: list[dict[str, float | int]] = []
 
     # Some task variants do not publish command-manager metrics in ``extras["log"]``.
     # Capture the terminal state immediately before ManagerBasedRLEnv resets it, while the
@@ -523,6 +574,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
         )
         interaction_collector.finalize_terminal(env_ids)
+        try:
+            action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
+        except KeyError:
+            action_term = None
+        if action_term is not None:
+            cbf_solver_terminal_metrics.update(_snapshot_cbf_solver_metrics(action_term, env_ids))
         success_env_ids = torch.nonzero(
             raw_env.termination_manager.get_term("goal_reached"), as_tuple=False
         ).reshape(-1)
@@ -610,6 +667,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     completed_env_ids=completed_ids,
                     goal_region_collision_env_ids=goal_region_collision_ids,
                 )
+                for env_id in collector.last_accepted_ids:
+                    metrics = cbf_solver_terminal_metrics.pop(env_id, None)
+                    if metrics is not None:
+                        cbf_solver_episode_metrics.append(metrics)
+                for env_id in completed_ids.detach().cpu().tolist():
+                    cbf_solver_terminal_metrics.pop(int(env_id), None)
                 for env_id in sorted(collector.last_accepted_ids):
                     condition = slow_leader_conditions.get(env_id)
                     if condition is None:
@@ -744,6 +807,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "velocity_metric_source": collector.velocity_metric_source,
             "step_dt_s": step_dt_s,
             "episode_length_s": episode_length_s,
+            "cbf_qp_solver": _cbf_solver_summary(cbf_solver_episode_metrics),
             "failure_replays": {
                 "enabled": replay_recorder is not None and not args_cli.disable_failure_recording,
                 "output_dir": str(failure_output_dir) if replay_recorder is not None else None,

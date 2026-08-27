@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
@@ -15,6 +17,8 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed
 )
 from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action import (
     StaticObstacleCbfPreTrainedPolicyActionCfg,
+    _OsqpSolveStats,
+    StaticObstacleCbfPreTrainedPolicyAction,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.kp_pre_trained_policy_action import (
     KpPreTrainedPolicyAction,
@@ -161,3 +165,54 @@ def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
     assert cfg.actions.pre_trained_policy_action.d_cbf_active == 5.0
     assert cfg.actions.pre_trained_policy_action.max_lidar_points == 64
     assert cfg.sim.dt * cfg.actions.pre_trained_policy_action.low_level_decimation == 0.02
+
+
+def test_cbf_solver_statistics_accumulate_osqp_results_without_cuda_tensors() -> None:
+    """QP telemetry stays host-side so recording it does not add CUDA kernels."""
+    term = object.__new__(StaticObstacleCbfPreTrainedPolicyAction)
+    term._solver_solve_count = np.zeros(1, dtype=np.int64)
+    term._solver_iteration_total = np.zeros(1, dtype=np.int64)
+    term._solver_iteration_max = np.zeros(1, dtype=np.int64)
+    term._solver_solve_time_total_s = np.zeros(1, dtype=np.float64)
+    term._solver_solve_time_max_s = np.zeros(1, dtype=np.float64)
+    term._solver_update_time_total_s = np.zeros(1, dtype=np.float64)
+    term._solver_polish_time_total_s = np.zeros(1, dtype=np.float64)
+    term._solver_primal_residual_max = np.zeros(1, dtype=np.float64)
+    term._solver_dual_residual_max = np.zeros(1, dtype=np.float64)
+    term._solver_inaccurate_count = np.zeros(1, dtype=np.int64)
+    term._solver_max_iteration_count = np.zeros(1, dtype=np.int64)
+
+    term._record_solver_stats(
+        0,
+        _OsqpSolveStats(
+            iterations=25,
+            solve_time_s=0.001,
+            update_time_s=0.0002,
+            polish_time_s=0.0001,
+            primal_residual=2.0e-4,
+            dual_residual=3.0e-4,
+            status="solved inaccurate",
+        ),
+    )
+    term._record_solver_stats(
+        0,
+        _OsqpSolveStats(
+            iterations=40,
+            solve_time_s=0.002,
+            update_time_s=0.0003,
+            polish_time_s=0.0,
+            primal_residual=1.0e-4,
+            dual_residual=5.0e-4,
+            status="maximum iterations reached",
+        ),
+    )
+
+    metrics = term.solver_metrics
+    assert metrics["solve_count"].tolist() == [2]
+    assert metrics["iteration_total"].tolist() == [65]
+    assert metrics["iteration_max"].tolist() == [40]
+    assert metrics["solve_time_total_s"].tolist() == pytest.approx([0.003])
+    assert metrics["primal_residual_max"].tolist() == [2.0e-4]
+    assert metrics["dual_residual_max"].tolist() == [5.0e-4]
+    assert metrics["inaccurate_count"].tolist() == [1]
+    assert metrics["max_iteration_count"].tolist() == [1]

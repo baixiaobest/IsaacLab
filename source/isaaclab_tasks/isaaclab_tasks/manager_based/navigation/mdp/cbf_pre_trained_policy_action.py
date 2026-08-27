@@ -13,6 +13,7 @@ Kp and the CBF-QP whenever the low-level locomotion policy is updated.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -26,6 +27,24 @@ from .kp_pre_trained_policy_action import KpPreTrainedPolicyAction, KpPreTrained
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+
+
+@dataclass(frozen=True)
+class _OsqpSolveStats:
+    """OSQP diagnostics for one QP solve.
+
+    Times are supplied by OSQP itself and therefore cover only the solver-side
+    work.  They intentionally do not include PyTorch-to-NumPy transfers or the
+    surrounding CBF construction, which can be profiled separately.
+    """
+
+    iterations: int
+    solve_time_s: float
+    update_time_s: float
+    polish_time_s: float
+    primal_residual: float
+    dual_residual: float
+    status: str
 
 
 class _OsqpStaticObstacleCbf:
@@ -91,8 +110,8 @@ class _OsqpStaticObstacleCbf:
         acceleration_upper_b: np.ndarray,
         velocity_acceleration_lower_b: np.ndarray,
         velocity_acceleration_upper_b: np.ndarray,
-    ) -> tuple[np.ndarray | None, float, str]:
-        """Solve the soft CBF QP, returning ``(u, slack, solver_status)``."""
+    ) -> tuple[np.ndarray | None, float, _OsqpSolveStats]:
+        """Solve the soft CBF QP and return its result with OSQP diagnostics."""
         matrix = np.zeros((self._num_rows, 3), dtype=np.float64)
         lower = np.full(self._num_rows, -np.inf, dtype=np.float64)
         upper = np.full(self._num_rows, np.inf, dtype=np.float64)
@@ -120,10 +139,22 @@ class _OsqpStaticObstacleCbf:
         self._solver.update(q=np.array([-2.0 * nominal_acceleration_w[0], -2.0 * nominal_acceleration_w[1], 0.0]),
                             Ax=matrix.T.reshape(-1), l=lower, u=upper)
         result = self._solver.solve()
-        status = result.info.status
+        info = result.info
+        status = str(info.status)
+        # OSQP renamed these residual fields between its 0.x and 1.x Python
+        # interfaces.  Keep the task compatible with both image variants.
+        stats = _OsqpSolveStats(
+            iterations=int(info.iter),
+            solve_time_s=float(getattr(info, "solve_time", 0.0)),
+            update_time_s=float(getattr(info, "update_time", 0.0)),
+            polish_time_s=float(getattr(info, "polish_time", 0.0)),
+            primal_residual=float(getattr(info, "prim_res", getattr(info, "pri_res", 0.0))),
+            dual_residual=float(getattr(info, "dual_res", getattr(info, "dua_res", 0.0))),
+            status=status,
+        )
         if result.x is None or not status.lower().startswith("solved"):
-            return None, 0.0, status
-        return result.x[:2], max(0.0, float(result.x[2])), status
+            return None, 0.0, stats
+        return result.x[:2], max(0.0, float(result.x[2])), stats
 
 
 class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
@@ -159,6 +190,20 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._cbf_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._solve_failures = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._velocity_feasibility_failures = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # These remain NumPy arrays because OSQP already returns host values.
+        # Updating CUDA tensors for every scalar diagnostic would add many tiny
+        # kernel launches to the control loop we are trying to measure.
+        self._solver_solve_count = np.zeros(self.num_envs, dtype=np.int64)
+        self._solver_iteration_total = np.zeros(self.num_envs, dtype=np.int64)
+        self._solver_iteration_max = np.zeros(self.num_envs, dtype=np.int64)
+        self._solver_solve_time_total_s = np.zeros(self.num_envs, dtype=np.float64)
+        self._solver_solve_time_max_s = np.zeros(self.num_envs, dtype=np.float64)
+        self._solver_update_time_total_s = np.zeros(self.num_envs, dtype=np.float64)
+        self._solver_polish_time_total_s = np.zeros(self.num_envs, dtype=np.float64)
+        self._solver_primal_residual_max = np.zeros(self.num_envs, dtype=np.float64)
+        self._solver_dual_residual_max = np.zeros(self.num_envs, dtype=np.float64)
+        self._solver_inaccurate_count = np.zeros(self.num_envs, dtype=np.int64)
+        self._solver_max_iteration_count = np.zeros(self.num_envs, dtype=np.int64)
 
     @property
     def cbf_control_dt(self) -> float:
@@ -198,6 +243,28 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             "velocity_feasibility_failures": self._velocity_feasibility_failures.clone(),
         }
 
+    @property
+    def solver_metrics(self) -> dict[str, np.ndarray]:
+        """Per-episode OSQP diagnostics for every vectorized environment.
+
+        Values are reset alongside the environment.  The evaluation runner
+        records them for completed episodes in ``evaluation_metadata.json``.
+        """
+        solve_count = self._solver_solve_count
+        return {
+            "solve_count": solve_count.copy(),
+            "iteration_total": self._solver_iteration_total.copy(),
+            "iteration_max": self._solver_iteration_max.copy(),
+            "solve_time_total_s": self._solver_solve_time_total_s.copy(),
+            "solve_time_max_s": self._solver_solve_time_max_s.copy(),
+            "update_time_total_s": self._solver_update_time_total_s.copy(),
+            "polish_time_total_s": self._solver_polish_time_total_s.copy(),
+            "primal_residual_max": self._solver_primal_residual_max.copy(),
+            "dual_residual_max": self._solver_dual_residual_max.copy(),
+            "inaccurate_count": self._solver_inaccurate_count.copy(),
+            "max_iteration_count": self._solver_max_iteration_count.copy(),
+        }
+
     def process_actions(self, actions: torch.Tensor):
         """Hold the latest RL velocity target until the next navigation step."""
         if actions.shape[-1] != self.action_dim:
@@ -227,6 +294,24 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._cbf_steps[env_ids] = 0
         self._solve_failures[env_ids] = 0
         self._velocity_feasibility_failures[env_ids] = 0
+        metric_env_ids: slice | np.ndarray
+        if isinstance(env_ids, slice):
+            metric_env_ids = env_ids
+        elif isinstance(env_ids, torch.Tensor):
+            metric_env_ids = env_ids.detach().cpu().numpy()
+        else:
+            metric_env_ids = np.asarray(env_ids)
+        self._solver_solve_count[metric_env_ids] = 0
+        self._solver_iteration_total[metric_env_ids] = 0
+        self._solver_iteration_max[metric_env_ids] = 0
+        self._solver_solve_time_total_s[metric_env_ids] = 0.0
+        self._solver_solve_time_max_s[metric_env_ids] = 0.0
+        self._solver_update_time_total_s[metric_env_ids] = 0.0
+        self._solver_polish_time_total_s[metric_env_ids] = 0.0
+        self._solver_primal_residual_max[metric_env_ids] = 0.0
+        self._solver_dual_residual_max[metric_env_ids] = 0.0
+        self._solver_inaccurate_count[metric_env_ids] = 0
+        self._solver_max_iteration_count[metric_env_ids] = 0
         self._low_level_action_term.reset(env_ids=env_ids)
 
     def _update_cbf_command(self) -> None:
@@ -298,7 +383,7 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             y_axis_w = math_utils.quat_apply_yaw(yaw_quat, torch.tensor([[0.0, 1.0, 0.0]], device=self.device))[0, :2]
             body_to_world = torch.stack((x_axis_w, y_axis_w), dim=1)
 
-            solution, env_slack, _status = self._solvers[env_id].solve(
+            solution, env_slack, solver_stats = self._solvers[env_id].solve(
                 nominal_acceleration_w[env_id].detach().cpu().numpy(),
                 obstacle_vectors_w.detach().cpu().numpy(),
                 rhs.detach().cpu().numpy(),
@@ -308,6 +393,7 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 velocity_acceleration_lower_b[env_id].detach().cpu().numpy(),
                 velocity_acceleration_upper_b[env_id].detach().cpu().numpy(),
             )
+            self._record_solver_stats(env_id, solver_stats)
             if solution is None:
                 safe_acceleration_w[env_id] = nominal_acceleration_w[env_id]
                 self._solve_failures[env_id] += 1
@@ -333,6 +419,21 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._slack_positive_steps += positive.to(torch.long)
         self._slack_sum += torch.where(positive, slack, torch.zeros_like(slack))
         self._slack_max = torch.maximum(self._slack_max, slack)
+
+    def _record_solver_stats(self, env_id: int, stats: _OsqpSolveStats) -> None:
+        """Accumulate one host-side OSQP result without perturbing GPU timing."""
+        self._solver_solve_count[env_id] += 1
+        self._solver_iteration_total[env_id] += stats.iterations
+        self._solver_iteration_max[env_id] = max(self._solver_iteration_max[env_id], stats.iterations)
+        self._solver_solve_time_total_s[env_id] += stats.solve_time_s
+        self._solver_solve_time_max_s[env_id] = max(self._solver_solve_time_max_s[env_id], stats.solve_time_s)
+        self._solver_update_time_total_s[env_id] += stats.update_time_s
+        self._solver_polish_time_total_s[env_id] += stats.polish_time_s
+        self._solver_primal_residual_max[env_id] = max(self._solver_primal_residual_max[env_id], stats.primal_residual)
+        self._solver_dual_residual_max[env_id] = max(self._solver_dual_residual_max[env_id], stats.dual_residual)
+        status = stats.status.lower()
+        self._solver_inaccurate_count[env_id] += "inaccurate" in status
+        self._solver_max_iteration_count[env_id] += "maximum iterations reached" in status
 
     def _latest_lidar_capture(self) -> tuple[torch.Tensor, torch.Tensor]:
         collector = getattr(self._env, self.cfg.lidar_collector_name, None)
@@ -364,8 +465,8 @@ class StaticObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
     """Maximum nearest valid active-range reflections retained per QP."""
     lidar_collector_name: str = "_held_scan_lidar_collector"
     """Name of the held-scan collector supplied by the temporal-LiDAR environment."""
-    solver_eps_abs: float = 1.0e-4
-    solver_eps_rel: float = 1.0e-4
-    solver_max_iter: int = 4000
+    solver_eps_abs: float = 1.0e-3
+    solver_eps_rel: float = 1.0e-3
+    solver_max_iter: int = 500
     solver_polish: bool = True
     solver_warm_start: bool = True
