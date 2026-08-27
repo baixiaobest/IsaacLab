@@ -826,19 +826,23 @@ def test_evaluator_publishes_throttled_live_progress_to_wandb():
             self.finished = True
 
     run = FakeRun()
-    fake_wandb = types.SimpleNamespace(init=lambda **kwargs: run)
+    init_calls = []
+    fake_wandb = types.SimpleNamespace(init=lambda **kwargs: (init_calls.append(kwargs), run)[1])
     original_wandb = sys.modules.get("wandb")
     sys.modules["wandb"] = fake_wandb
     previous_experiment_id = os.environ.get("RESEARCH_EXPERIMENT_ID")
     previous_project = os.environ.get("WANDB_PROJECT")
     previous_attempt_id = os.environ.get("RESEARCH_AGENT_EVALUATION_ATTEMPT_ID")
     previous_bootstrap_id = os.environ.get("RESEARCH_AGENT_BOOTSTRAP_ID")
+    previous_evaluation_run_id = os.environ.get("RESEARCH_AGENT_EVALUATION_WANDB_RUN_ID")
     os.environ["RESEARCH_EXPERIMENT_ID"] = "progress-test"
     os.environ["WANDB_PROJECT"] = "agent_obstacle_avoidance"
     os.environ["RESEARCH_AGENT_EVALUATION_ATTEMPT_ID"] = "attempt-current"
     os.environ["RESEARCH_AGENT_BOOTSTRAP_ID"] = "bootstrap-current"
+    os.environ["RESEARCH_AGENT_EVALUATION_WANDB_RUN_ID"] = "eval-progress-test-attempt-current"
     try:
         reporter = reporter_class(profile_count=24, episodes_per_profile=100, seed_count=5)
+        assert init_calls[-1]["id"] == "eval-progress-test-attempt-current"
         reporter.report(480, seed=104, seed_index=5, status="running", force=True)
         assert run.summary["research_agent_evaluation_accepted_episodes"] == 480
         assert run.summary["research_agent_evaluation_total_episodes"] == 2400
@@ -876,3 +880,7 @@ def test_evaluator_publishes_throttled_live_progress_to_wandb():
             os.environ.pop("RESEARCH_AGENT_BOOTSTRAP_ID", None)
         else:
             os.environ["RESEARCH_AGENT_BOOTSTRAP_ID"] = previous_bootstrap_id
+        if previous_evaluation_run_id is None:
+            os.environ.pop("RESEARCH_AGENT_EVALUATION_WANDB_RUN_ID", None)
+        else:
+            os.environ["RESEARCH_AGENT_EVALUATION_WANDB_RUN_ID"] = previous_evaluation_run_id

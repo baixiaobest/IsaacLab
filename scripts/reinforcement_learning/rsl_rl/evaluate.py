@@ -344,11 +344,20 @@ class EvaluationProgressReporter:
         self.run = None
         experiment_id = os.environ.get("RESEARCH_EXPERIMENT_ID")
         project = os.environ.get("WANDB_PROJECT")
-        # W&B runs are shared by training and every evaluation rerun.  Keep
-        # the durable remote-attempt identity in every update so a control
-        # plane never mistakes an earlier attempt's telemetry for this one.
+        # Each newly submitted evaluation owns an isolated W&B run.  Keep the
+        # durable remote-attempt identity in every update so the control plane
+        # never mistakes an earlier attempt's telemetry for this one.
         self.evaluation_attempt_id = os.environ.get("RESEARCH_AGENT_EVALUATION_ATTEMPT_ID")
         self.bootstrap_id = os.environ.get("RESEARCH_AGENT_BOOTSTRAP_ID")
+        # The bootstrap switches WANDB_RUN_ID before starting the evaluator,
+        # but prefer the explicit value as well: it makes this reporter robust
+        # when it is launched outside that shell wrapper.  Falling back to the
+        # experiment ID preserves the legacy shared-run behavior for old Pods.
+        self.wandb_run_id = (
+            os.environ.get("RESEARCH_AGENT_EVALUATION_WANDB_RUN_ID")
+            or os.environ.get("WANDB_RUN_ID")
+            or experiment_id
+        )
         if not experiment_id or not project:
             return
         try:
@@ -357,7 +366,7 @@ class EvaluationProgressReporter:
             self.run = wandb.init(
                 project=project,
                 entity=os.environ.get("WANDB_ENTITY") or None,
-                id=experiment_id,
+                id=self.wandb_run_id,
                 resume="allow",
             )
         except Exception as error:
