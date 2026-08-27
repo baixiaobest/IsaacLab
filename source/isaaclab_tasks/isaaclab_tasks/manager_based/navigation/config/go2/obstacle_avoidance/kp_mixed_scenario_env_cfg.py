@@ -25,7 +25,7 @@ class KpActionsCfg(ActionsCfg):
         action_scales=(1.0, 1.0, 1.0),
         kp=(8.0, 8.0),
         acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
-        velocity_limits=((-1.3, 1.3), (-1.3, 1.3)),
+        velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
         debug_vis=True,
     )
 
