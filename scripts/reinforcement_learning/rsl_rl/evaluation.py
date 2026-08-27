@@ -195,6 +195,8 @@ class CollisionReplayRecorder:
         self._elapsed_steps = None
         self._last_command = None
         self._last_cbf_filtered_command = None
+        self._last_cbf_nominal_acceleration = None
+        self._last_cbf_filtered_acceleration = None
         self._env_ids = None
         self._next_case_numbers = {"collision": 1, "success": 1}
         self._cases: list[dict[str, Any]] = []
@@ -383,6 +385,49 @@ class CollisionReplayRecorder:
         self._buffers["cbf_filtered_command_velocity_body"][env_ids, indices] = command[env_ids]
         self._last_cbf_filtered_command[env_ids] = command[env_ids]
 
+    def record_cbf_accelerations(self, nominal_acceleration_body: Any, filtered_acceleration_xy_world: Any) -> None:
+        """Attach the CBF nominal and QP-filtered planar accelerations to the latest replay frame.
+
+        The nominal acceleration is the bounded body-frame Kp value
+        ``Kp * (v_nav - v_robot)``.  The filtered value is the world-frame
+        acceleration returned by the CBF-QP.  They are recorded after stepping,
+        alongside the filtered velocity command, so they describe the same
+        controller update.
+        """
+        import torch
+
+        if self._buffers is None:
+            return
+        assert self._write_indices is not None and self._counts is not None
+        if nominal_acceleration_body.ndim != 2 or nominal_acceleration_body.shape[1] < 2:
+            raise ValueError("CBF nominal acceleration must have shape (num_envs, at least 2).")
+        if filtered_acceleration_xy_world.ndim != 2 or filtered_acceleration_xy_world.shape[1] < 2:
+            raise ValueError("CBF filtered acceleration must have shape (num_envs, at least 2).")
+        num_envs = len(self.env_profile_indices)
+        if nominal_acceleration_body.shape[0] != num_envs or filtered_acceleration_xy_world.shape[0] != num_envs:
+            raise ValueError("CBF accelerations must contain one row per vector environment.")
+        if "cbf_nominal_acceleration_body" not in self._buffers:
+            device = nominal_acceleration_body.device
+            self._buffers["cbf_nominal_acceleration_body"] = torch.zeros(num_envs, self.capacity, 2, device=device)
+            self._buffers["cbf_filtered_acceleration_xy_world"] = torch.zeros(
+                num_envs, self.capacity, 2, device=device
+            )
+            self._last_cbf_nominal_acceleration = torch.zeros(num_envs, 2, device=device)
+            self._last_cbf_filtered_acceleration = torch.zeros(num_envs, 2, device=device)
+        assert self._last_cbf_nominal_acceleration is not None
+        assert self._last_cbf_filtered_acceleration is not None
+        active = self._counts > 0
+        if not torch.any(active):
+            return
+        env_ids = torch.nonzero(active, as_tuple=False).squeeze(-1)
+        indices = (self._write_indices[env_ids] - 1) % self.capacity
+        nominal = nominal_acceleration_body[:, :2]
+        filtered = filtered_acceleration_xy_world[:, :2]
+        self._buffers["cbf_nominal_acceleration_body"][env_ids, indices] = nominal[env_ids]
+        self._buffers["cbf_filtered_acceleration_xy_world"][env_ids, indices] = filtered[env_ids]
+        self._last_cbf_nominal_acceleration[env_ids] = nominal[env_ids]
+        self._last_cbf_filtered_acceleration[env_ids] = filtered[env_ids]
+
     def _ordered_frames(self, env_id: int, max_frames: int | None = None) -> dict[str, np.ndarray]:
         import torch
 
@@ -425,6 +470,13 @@ class CollisionReplayRecorder:
         if self._last_cbf_filtered_command is not None:
             terminal["cbf_filtered_command_velocity_body"] = (
                 self._last_cbf_filtered_command[env_id : env_id + 1].detach().cpu().numpy()
+            )
+        if self._last_cbf_nominal_acceleration is not None:
+            terminal["cbf_nominal_acceleration_body"] = (
+                self._last_cbf_nominal_acceleration[env_id : env_id + 1].detach().cpu().numpy()
+            )
+            terminal["cbf_filtered_acceleration_xy_world"] = (
+                self._last_cbf_filtered_acceleration[env_id : env_id + 1].detach().cpu().numpy()
             )
         return terminal
 
@@ -568,6 +620,9 @@ class CollisionReplayRecorder:
         self._last_command[ids] = 0.0
         if self._last_cbf_filtered_command is not None:
             self._last_cbf_filtered_command[ids] = 0.0
+        if self._last_cbf_nominal_acceleration is not None:
+            self._last_cbf_nominal_acceleration[ids] = 0.0
+            self._last_cbf_filtered_acceleration[ids] = 0.0
         self._minimum_agent_distances[ids] = float("inf")
 
 

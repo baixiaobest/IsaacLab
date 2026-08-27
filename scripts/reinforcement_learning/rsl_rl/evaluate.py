@@ -565,14 +565,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         else None
     )
 
-    def _record_cbf_filtered_command() -> None:
-        """Write the final CBF command once per navigation-rate replay frame."""
+    def _record_cbf_replay_state() -> None:
+        """Write final CBF velocity and acceleration state for the latest replay frame."""
         if replay_recorder is None:
             return
         action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
         command = getattr(action_term, "cbf_filtered_velocity_command", None)
         if command is not None:
             replay_recorder.record_cbf_filtered_command(command)
+        nominal_acceleration = getattr(action_term, "nominal_acceleration", None)
+        filtered_acceleration = getattr(action_term, "safe_acceleration", None)
+        if nominal_acceleration is not None and filtered_acceleration is not None:
+            replay_recorder.record_cbf_accelerations(nominal_acceleration, filtered_acceleration)
 
     original_reset_idx = raw_env._reset_idx
 
@@ -598,7 +602,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     interaction_replay_recorder.stage_terminal_success(
                         raw_env, int(env_id), interaction_collector.pending_events(int(env_id))
                     )
-        _record_cbf_filtered_command()
+        _record_cbf_replay_state()
         if replay_recorder is not None:
             replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
         return original_reset_idx(env_ids)
@@ -661,7 +665,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         )
                     interaction_collector.record_pre_step(raw_env)
                     obs, _, dones, extras = env.step(actions)
-                    _record_cbf_filtered_command()
+                    _record_cbf_replay_state()
                 if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                     policy.reset(dones)
                 else:

@@ -157,6 +157,33 @@ class _OsqpStaticObstacleCbf:
         return result.x[:2], max(0.0, float(result.x[2])), stats
 
 
+def integrate_velocity_setpoint_world(
+    velocity_setpoint_w: torch.Tensor,
+    acceleration_w: torch.Tensor,
+    root_quat_w: torch.Tensor,
+    control_dt: float,
+    velocity_lower_b: torch.Tensor,
+    velocity_upper_b: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Integrate a world-frame acceleration into a bounded body-frame command.
+
+    The reference state remains in the world frame so it is not spuriously
+    changed merely because the robot turns. The locomotion policy still
+    receives its usual body-frame velocity command.
+    """
+    next_setpoint_w = velocity_setpoint_w + control_dt * acceleration_w
+    next_setpoint_b = math_utils.quat_apply_inverse(
+        math_utils.yaw_quat(root_quat_w),
+        torch.cat((next_setpoint_w, torch.zeros_like(next_setpoint_w[:, :1])), dim=1),
+    )[:, :2]
+    next_setpoint_b = torch.clamp(next_setpoint_b, min=velocity_lower_b, max=velocity_upper_b)
+    next_setpoint_w = math_utils.quat_apply_yaw(
+        root_quat_w,
+        torch.cat((next_setpoint_b, torch.zeros_like(next_setpoint_b[:, :1])), dim=1),
+    )[:, :2]
+    return next_setpoint_w, next_setpoint_b
+
+
 class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
     """Kp navigation command filtered by a static-obstacle, soft CBF-QP.
 
@@ -183,6 +210,11 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._control_dt = cfg.low_level_decimation * env.physics_dt
         self._solvers = [_OsqpStaticObstacleCbf(cfg) for _ in range(self.num_envs)]
         self._safe_acceleration_w = torch.zeros(self.num_envs, 2, device=self.device)
+        # The CBF's acceleration is applied to this persistent reference, not
+        # repeatedly rebased on the measured robot velocity. Keeping it in the
+        # world frame makes the integration invariant to changes in body yaw.
+        self._velocity_setpoint_w = torch.zeros(self.num_envs, 2, device=self.device)
+        self._velocity_setpoint_initialized = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._slack = torch.zeros(self.num_envs, device=self.device)
         self._slack_positive_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._slack_sum = torch.zeros(self.num_envs, device=self.device)
@@ -214,6 +246,11 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
     def safe_acceleration(self) -> torch.Tensor:
         """World-frame planar acceleration returned by the CBF-QP."""
         return self._safe_acceleration_w
+
+    @property
+    def velocity_setpoint(self) -> torch.Tensor:
+        """Persistent world-frame planar velocity reference sent to the locomotion policy."""
+        return self._velocity_setpoint_w
 
     @property
     def cbf_slack(self) -> torch.Tensor:
@@ -286,7 +323,12 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
+        self._raw_actions[env_ids] = 0.0
+        self._processed_actions[env_ids] = 0.0
+        self._nominal_acceleration[env_ids] = 0.0
         self._safe_acceleration_w[env_ids] = 0.0
+        self._velocity_setpoint_w[env_ids] = 0.0
+        self._velocity_setpoint_initialized[env_ids] = False
         self._slack[env_ids] = 0.0
         self._slack_positive_steps[env_ids] = 0
         self._slack_sum[env_ids] = 0.0
@@ -315,17 +357,24 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._low_level_action_term.reset(env_ids=env_ids)
 
     def _update_cbf_command(self) -> None:
-        measured_velocity_b = self.robot.data.root_lin_vel_b[:, :2]
+        root_quat_w = self.robot.data.root_quat_w
+        root_velocity_w = self.robot.data.root_lin_vel_w[:, :2]
+        root_position_w = self.robot.data.root_pos_w[:, :2]
+        uninitialized = ~self._velocity_setpoint_initialized
+        if torch.any(uninitialized):
+            self._velocity_setpoint_w[uninitialized] = root_velocity_w[uninitialized]
+            self._velocity_setpoint_initialized[uninitialized] = True
+        velocity_setpoint_b = math_utils.quat_apply_inverse(
+            math_utils.yaw_quat(root_quat_w),
+            torch.cat((self._velocity_setpoint_w, torch.zeros_like(self._velocity_setpoint_w[:, :1])), dim=1),
+        )[:, :2]
         nominal_acceleration_b = torch.clamp(
-            self._kp * (self._raw_actions[:, :2] - measured_velocity_b),
+            self._kp * (self._raw_actions[:, :2] - velocity_setpoint_b),
             min=self._acceleration_lower,
             max=self._acceleration_upper,
         )
         self._nominal_acceleration[:] = nominal_acceleration_b
 
-        root_quat_w = self.robot.data.root_quat_w
-        root_velocity_w = self.robot.data.root_lin_vel_w[:, :2]
-        root_position_w = self.robot.data.root_pos_w[:, :2]
         nominal_acceleration_w = math_utils.quat_apply_yaw(
             root_quat_w, torch.cat((nominal_acceleration_b, torch.zeros_like(nominal_acceleration_b[:, :1])), dim=1)
         )[:, :2]
@@ -335,8 +384,10 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         slack = torch.zeros_like(self._slack)
 
         # The existing acceleration and velocity limits are body-frame boxes.
-        velocity_acceleration_lower_b = (self._velocity_lower - measured_velocity_b) / self._control_dt
-        velocity_acceleration_upper_b = (self._velocity_upper - measured_velocity_b) / self._control_dt
+        # Apply the one-step velocity bounds to the persistent command state,
+        # while the barrier itself continues to use measured robot velocity.
+        velocity_acceleration_lower_b = (self._velocity_lower - velocity_setpoint_b) / self._control_dt
+        velocity_acceleration_upper_b = (self._velocity_upper - velocity_setpoint_b) / self._control_dt
         effective_lower_b = torch.maximum(self._acceleration_lower, velocity_acceleration_lower_b)
         effective_upper_b = torch.minimum(self._acceleration_upper, velocity_acceleration_upper_b)
         feasible_velocity_bounds = torch.all(effective_lower_b <= effective_upper_b, dim=1)
@@ -347,9 +398,9 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
 
         for env_id in range(self.num_envs):
             if not feasible_velocity_bounds[env_id]:
-                # An externally realized velocity outside the configured envelope
-                # can make hard acceleration and one-step velocity bounds mutually
-                # incompatible.  Preserve finite bounded commands and diagnose it.
+                # A malformed or externally changed command reference can make
+                # hard acceleration and one-step velocity bounds incompatible.
+                # Preserve finite bounded commands and diagnose it.
                 safe_acceleration_w[env_id] = nominal_acceleration_w[env_id]
                 self._velocity_feasibility_failures[env_id] += 1
                 continue
@@ -401,16 +452,14 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 safe_acceleration_w[env_id] = torch.as_tensor(solution, device=self.device, dtype=torch.float32)
                 slack[env_id] = env_slack
 
-        safe_acceleration_b = math_utils.quat_apply_inverse(
-            math_utils.yaw_quat(root_quat_w),
-            torch.cat((safe_acceleration_w, torch.zeros_like(safe_acceleration_w[:, :1])), dim=1),
-        )[:, :2]
         self._safe_acceleration_w[:] = safe_acceleration_w
-        # Numerical guard only: a solved QP already enforces these bounds.
-        self._processed_actions[:, :2] = torch.clamp(
-            measured_velocity_b + self._control_dt * safe_acceleration_b,
-            min=self._velocity_lower,
-            max=self._velocity_upper,
+        self._velocity_setpoint_w[:], self._processed_actions[:, :2] = integrate_velocity_setpoint_world(
+            self._velocity_setpoint_w,
+            safe_acceleration_w,
+            root_quat_w,
+            self._control_dt,
+            self._velocity_lower,
+            self._velocity_upper,
         )
         self._processed_actions[:, 2] = self._raw_actions[:, 2]
         self._slack[:] = slack

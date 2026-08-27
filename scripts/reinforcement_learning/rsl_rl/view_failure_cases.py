@@ -91,7 +91,11 @@ def load_case_index(replay_dir: str | Path) -> dict[str, Any]:
     path = Path(replay_dir) / INDEX_FILENAME
     with path.open(encoding="utf-8") as file:
         payload = json.load(file)
-    if payload.get("schema_version") != 1 or not isinstance(payload.get("cases"), list):
+    # Version 2 added richer case metadata (goal-region classification and
+    # complete-success replay fields) without changing the per-case fields the
+    # local viewer reads.  Accept both so local diagnostic runs and ordinary
+    # evaluator artifacts are viewable through the same endpoint.
+    if payload.get("schema_version") not in (1, 2) or not isinstance(payload.get("cases"), list):
         raise ValueError(f"Unsupported failure-case index: {path}")
     return payload
 

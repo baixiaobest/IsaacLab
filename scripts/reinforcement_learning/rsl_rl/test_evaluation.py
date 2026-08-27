@@ -541,9 +541,12 @@ def test_collision_replay_records_raw_policy_and_navigation_rate_cbf_command(tmp
     env.crowd_manager.pos[0, 0] = torch.tensor([10.0, 0.0])
     raw_command = torch.tensor([[1.0, -0.2, 0.3]])
     cbf_command = torch.tensor([[0.5, 0.0, 0.3]])
+    nominal_acceleration = torch.tensor([[2.0, -1.0]])
+    filtered_acceleration = torch.tensor([[0.75, -0.25]])
 
     recorder.record_pre_step(env, raw_command, cbf_filtered_command=cbf_command)
     recorder.record_cbf_filtered_command(cbf_command)
+    recorder.record_cbf_accelerations(nominal_acceleration, filtered_acceleration)
     env.crowd_manager.pos[0, 0] = torch.tensor([0.0, 0.0])
     entry = recorder.capture_terminal_collisions(env, torch.tensor([0]))[0]
 
@@ -552,6 +555,10 @@ def test_collision_replay_records_raw_policy_and_navigation_rate_cbf_command(tmp
         assert np.allclose(replay["navigation_policy_velocity_body"][0], raw_command.numpy()[0])
         assert replay["cbf_filtered_command_velocity_body"].shape == (2, 3)
         assert np.allclose(replay["cbf_filtered_command_velocity_body"], cbf_command.numpy())
+        assert replay["cbf_nominal_acceleration_body"].shape == (2, 2)
+        assert np.allclose(replay["cbf_nominal_acceleration_body"], nominal_acceleration.numpy())
+        assert replay["cbf_filtered_acceleration_xy_world"].shape == (2, 2)
+        assert np.allclose(replay["cbf_filtered_acceleration_xy_world"], filtered_acceleration.numpy())
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")

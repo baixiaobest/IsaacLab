@@ -19,6 +19,7 @@ from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action i
     StaticObstacleCbfPreTrainedPolicyActionCfg,
     _OsqpSolveStats,
     StaticObstacleCbfPreTrainedPolicyAction,
+    integrate_velocity_setpoint_world,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.kp_pre_trained_policy_action import (
     KpPreTrainedPolicyAction,
@@ -165,6 +166,33 @@ def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
     assert cfg.actions.pre_trained_policy_action.d_cbf_active == 5.0
     assert cfg.actions.pre_trained_policy_action.max_lidar_points == 64
     assert cfg.sim.dt * cfg.actions.pre_trained_policy_action.low_level_decimation == 0.02
+
+
+def test_cbf_velocity_setpoint_accumulates_successive_acceleration_updates() -> None:
+    """A persistent CBF reference keeps braking when measured velocity lags."""
+    root_quat_w = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+    velocity_lower_b = torch.tensor((-1.5, -1.5))
+    velocity_upper_b = torch.tensor((1.5, 1.5))
+
+    setpoint_w, command_b = integrate_velocity_setpoint_world(
+        torch.tensor([[1.0, 0.0]]),
+        torch.tensor([[-5.0, 0.0]]),
+        root_quat_w,
+        0.02,
+        velocity_lower_b,
+        velocity_upper_b,
+    )
+    setpoint_w, command_b = integrate_velocity_setpoint_world(
+        setpoint_w,
+        torch.tensor([[-5.0, 0.0]]),
+        root_quat_w,
+        0.02,
+        velocity_lower_b,
+        velocity_upper_b,
+    )
+
+    assert torch.allclose(setpoint_w, torch.tensor([[0.8, 0.0]]))
+    assert torch.allclose(command_b, torch.tensor([[0.8, 0.0]]))
 
 
 def test_cbf_solver_statistics_accumulate_osqp_results_without_cuda_tensors() -> None:
