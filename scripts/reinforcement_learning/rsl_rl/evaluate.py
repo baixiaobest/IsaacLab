@@ -110,6 +110,13 @@ parser.add_argument(
     "--use_pretrained_checkpoint", action="store_true", help="Use the published checkpoint when available."
 )
 parser.add_argument(
+    "--require_cbf_telemetry",
+    action="store_true",
+    help=(
+        "Fail before rollout unless the policy action term exposes CBF velocity-command and solver telemetry."
+    ),
+)
+parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 cli_args.add_rsl_rl_args(parser)
@@ -206,6 +213,19 @@ SLOW_CROWD_AVAILABLE = (
 
 
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
+
+
+_REQUIRED_CBF_TELEMETRY_FIELDS = ("cbf_filtered_velocity_command", "solver_metrics")
+
+
+def _require_cbf_telemetry(action_term) -> None:
+    """Raise unless an action term publishes the CBF telemetry used by this evaluator."""
+    missing_fields = [field for field in _REQUIRED_CBF_TELEMETRY_FIELDS if not hasattr(action_term, field)]
+    if missing_fields:
+        raise RuntimeError(
+            "--require_cbf_telemetry requires pre_trained_policy_action to expose "
+            f"{', '.join(_REQUIRED_CBF_TELEMETRY_FIELDS)}; missing {', '.join(missing_fields)}."
+        )
 
 
 def _resolve_checkpoint(agent_cfg: RslRlBaseRunnerCfg) -> tuple[str, str]:
@@ -479,6 +499,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    if args_cli.require_cbf_telemetry:
+        try:
+            action_term = env.unwrapped.action_manager.get_term("pre_trained_policy_action")
+        except KeyError as error:
+            raise RuntimeError(
+                "--require_cbf_telemetry requires the pre_trained_policy_action action term."
+            ) from error
+        _require_cbf_telemetry(action_term)
+        print("[INFO] CBF telemetry preflight passed.")
 
     checkpoint = handle_deprecated_rsl_rl_checkpoint(checkpoint, INSTALLED_RSL_RL_VERSION)
     if agent_cfg.class_name == "OnPolicyRunner":

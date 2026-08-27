@@ -810,6 +810,36 @@ def test_multi_seed_evaluator_imports_json_for_per_seed_aggregates():
     assert "per_seed_aggregates.json" in source
 
 
+def test_cbf_telemetry_preflight_requires_each_requested_field():
+    tree = ast.parse(EVALUATE_PATH.read_text(encoding="utf-8"))
+    required_fields_node = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "_REQUIRED_CBF_TELEMETRY_FIELDS" for target in node.targets)
+    )
+    preflight_node = next(
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_require_cbf_telemetry"
+    )
+    namespace = {}
+    exec(
+        compile(ast.Module(body=[required_fields_node, preflight_node], type_ignores=[]), str(EVALUATE_PATH), "exec"),
+        namespace,
+    )
+    require_cbf_telemetry = namespace["_require_cbf_telemetry"]
+
+    full_term = types.SimpleNamespace(cbf_filtered_velocity_command=object(), solver_metrics={})
+    assert require_cbf_telemetry(full_term) is None
+
+    for missing_field in namespace["_REQUIRED_CBF_TELEMETRY_FIELDS"]:
+        fields = {
+            "cbf_filtered_velocity_command": object(),
+            "solver_metrics": {},
+        }
+        fields.pop(missing_field)
+        with pytest.raises(RuntimeError, match=missing_field):
+            require_cbf_telemetry(types.SimpleNamespace(**fields))
+
+
 def test_evaluator_publishes_throttled_live_progress_to_wandb():
     """A long remote benchmark exposes progress without depending on Pod logs."""
     tree = ast.parse(EVALUATE_PATH.read_text(encoding="utf-8"))
