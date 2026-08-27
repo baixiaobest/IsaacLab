@@ -176,6 +176,11 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         return self._slack
 
     @property
+    def cbf_filtered_velocity_command(self) -> torch.Tensor:
+        """Latest body-frame CBF-filtered velocity command for PLAY replay."""
+        return self._processed_actions
+
+    @property
     def slack_metrics(self) -> dict[str, torch.Tensor]:
         """Per-episode CBF slack and solver diagnostics.
 

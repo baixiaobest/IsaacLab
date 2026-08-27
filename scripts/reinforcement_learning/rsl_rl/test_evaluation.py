@@ -532,6 +532,29 @@ def test_collision_replay_keeps_ordered_history_terminal_state_and_active_slots(
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_collision_replay_records_raw_policy_and_navigation_rate_cbf_command(tmp_path):
+    recorder = evaluation.CollisionReplayRecorder(
+        [evaluation.BenchmarkProfile("crossing", 2)], [0], tmp_path, step_dt_s=0.08
+    )
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([10.0, 0.0])
+    raw_command = torch.tensor([[1.0, -0.2, 0.3]])
+    cbf_command = torch.tensor([[0.5, 0.0, 0.3]])
+
+    recorder.record_pre_step(env, raw_command, cbf_filtered_command=cbf_command)
+    recorder.record_cbf_filtered_command(cbf_command)
+    env.crowd_manager.pos[0, 0] = torch.tensor([0.0, 0.0])
+    entry = recorder.capture_terminal_collisions(env, torch.tensor([0]))[0]
+
+    with np.load(tmp_path / entry["replay_file"], allow_pickle=False) as replay:
+        assert np.allclose(replay["robot_command_velocity_body"], replay["navigation_policy_velocity_body"])
+        assert np.allclose(replay["navigation_policy_velocity_body"][0], raw_command.numpy()[0])
+        assert replay["cbf_filtered_command_velocity_body"].shape == (2, 3)
+        assert np.allclose(replay["cbf_filtered_command_velocity_body"], cbf_command.numpy())
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
 def test_goal_region_collision_ids_and_replay_automatic_tag(tmp_path):
     env = _FakeEnv(num_envs=1)
     env.crowd_manager.active[0, 0] = True

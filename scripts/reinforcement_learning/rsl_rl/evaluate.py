@@ -494,6 +494,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         else None
     )
 
+    def _record_cbf_filtered_command() -> None:
+        """Write the final CBF command once per navigation-rate replay frame."""
+        if replay_recorder is None:
+            return
+        action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
+        command = getattr(action_term, "cbf_filtered_velocity_command", None)
+        if command is not None:
+            replay_recorder.record_cbf_filtered_command(command)
+
     original_reset_idx = raw_env._reset_idx
 
     def _tracked_reset_idx(env_ids):
@@ -512,6 +521,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     interaction_replay_recorder.stage_terminal_success(
                         raw_env, int(env_id), interaction_collector.pending_events(int(env_id))
                     )
+        _record_cbf_filtered_command()
         if replay_recorder is not None:
             replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
         return original_reset_idx(env_ids)
@@ -568,9 +578,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                             submitted_actions = torch.clamp(submitted_actions, -env.clip_actions, env.clip_actions)
                         action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
                         action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
-                        replay_recorder.record_pre_step(raw_env, submitted_actions * action_scales)
+                        cbf_command = getattr(action_term, "cbf_filtered_velocity_command", None)
+                        replay_recorder.record_pre_step(
+                            raw_env, submitted_actions * action_scales, cbf_filtered_command=cbf_command
+                        )
                     interaction_collector.record_pre_step(raw_env)
                     obs, _, dones, extras = env.step(actions)
+                    _record_cbf_filtered_command()
                 if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                     policy.reset(dones)
                 else:

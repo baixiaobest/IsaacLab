@@ -137,7 +137,7 @@ class CollisionReplayRecorder:
     an episode ends, immediately before Isaac Lab clears its terminal state.
     """
 
-    schema_version = 1
+    schema_version = 2
 
     def __init__(
         self,
@@ -194,6 +194,7 @@ class CollisionReplayRecorder:
         self._counts = None
         self._elapsed_steps = None
         self._last_command = None
+        self._last_cbf_filtered_command = None
         self._env_ids = None
         self._next_case_numbers = {"collision": 1, "success": 1}
         self._cases: list[dict[str, Any]] = []
@@ -260,7 +261,7 @@ class CollisionReplayRecorder:
             },
         )
 
-    def _initialize_buffers(self, env: Any) -> None:
+    def _initialize_buffers(self, env: Any, cbf_filtered_command: Any | None = None) -> None:
         import torch
 
         robot = env.scene["robot"]
@@ -275,7 +276,9 @@ class CollisionReplayRecorder:
             "robot_position_xy": torch.zeros(num_envs, self.capacity, 2, device=device),
             "robot_yaw": torch.zeros(num_envs, self.capacity, device=device),
             "robot_velocity_xy_world": torch.zeros(num_envs, self.capacity, 2, device=device),
+            # Kept as a legacy alias for existing replay consumers.
             "robot_command_velocity_body": torch.zeros(num_envs, self.capacity, 3, device=device),
+            "navigation_policy_velocity_body": torch.zeros(num_envs, self.capacity, 3, device=device),
             "goal_position_xy": torch.zeros(num_envs, self.capacity, 2, device=device),
             "pedestrian_position_xy": torch.zeros(num_envs, self.capacity, max_pedestrians, 2, device=device),
             "pedestrian_velocity_xy_world": torch.zeros(num_envs, self.capacity, max_pedestrians, 2, device=device),
@@ -283,6 +286,14 @@ class CollisionReplayRecorder:
                 num_envs, self.capacity, max_pedestrians, dtype=torch.bool, device=device
             ),
         }
+        if cbf_filtered_command is not None:
+            filtered = self._three_component_command(cbf_filtered_command)
+            if filtered.shape[0] != num_envs:
+                raise ValueError("CBF command must contain one row per vector environment.")
+            self._buffers["cbf_filtered_command_velocity_body"] = torch.zeros(
+                num_envs, self.capacity, 3, device=device
+            )
+            self._last_cbf_filtered_command = torch.zeros(num_envs, 3, device=device)
         self._write_indices = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._counts = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._elapsed_steps = torch.zeros(num_envs, dtype=torch.long, device=device)
@@ -301,11 +312,11 @@ class CollisionReplayRecorder:
         command[:, : min(3, command_velocity_body.shape[1])] = command_velocity_body[:, :3]
         return command
 
-    def _snapshot(self, env: Any, command_velocity_body: Any) -> None:
+    def _snapshot(self, env: Any, command_velocity_body: Any, cbf_filtered_command: Any | None = None) -> None:
         import torch
 
         if self._buffers is None:
-            self._initialize_buffers(env)
+            self._initialize_buffers(env, cbf_filtered_command)
         assert self._buffers is not None
         assert self._env_ids is not None
         assert self._write_indices is not None
@@ -329,6 +340,7 @@ class CollisionReplayRecorder:
         self._buffers["robot_yaw"][env_ids, indices] = robot.data.heading_w
         self._buffers["robot_velocity_xy_world"][env_ids, indices] = robot.data.root_lin_vel_w[:, :2]
         self._buffers["robot_command_velocity_body"][env_ids, indices] = command
+        self._buffers["navigation_policy_velocity_body"][env_ids, indices] = command
         self._buffers["goal_position_xy"][env_ids, indices] = goal
         self._buffers["pedestrian_position_xy"][env_ids, indices] = crowd.get_world_positions()
         self._buffers["pedestrian_velocity_xy_world"][env_ids, indices] = crowd.get_velocities()
@@ -341,9 +353,35 @@ class CollisionReplayRecorder:
         self._counts = (self._counts + 1).clamp(max=self.capacity)
         self._elapsed_steps += 1
 
-    def record_pre_step(self, env: Any, command_velocity_body: Any) -> None:
-        """Store the state and body-frame command immediately before an environment step."""
-        self._snapshot(env, command_velocity_body)
+    def record_pre_step(
+        self, env: Any, command_velocity_body: Any, cbf_filtered_command: Any | None = None
+    ) -> None:
+        """Store the state and raw policy command immediately before an environment step.
+
+        ``cbf_filtered_command`` enables CBF replay recording. Call
+        :meth:`record_cbf_filtered_command` after the step to write the final
+        CBF command produced for this policy action.
+        """
+        self._snapshot(env, command_velocity_body, cbf_filtered_command)
+
+    def record_cbf_filtered_command(self, cbf_filtered_command: Any) -> None:
+        """Attach the final CBF command to the latest navigation-rate replay frame."""
+        import torch
+
+        if self._buffers is None or "cbf_filtered_command_velocity_body" not in self._buffers:
+            return
+        assert self._write_indices is not None and self._counts is not None
+        assert self._last_cbf_filtered_command is not None
+        command = self._three_component_command(cbf_filtered_command)
+        if command.shape[0] != len(self.env_profile_indices):
+            raise ValueError("CBF command must contain one row per vector environment.")
+        active = self._counts > 0
+        if not torch.any(active):
+            return
+        env_ids = torch.nonzero(active, as_tuple=False).squeeze(-1)
+        indices = (self._write_indices[env_ids] - 1) % self.capacity
+        self._buffers["cbf_filtered_command_velocity_body"][env_ids, indices] = command[env_ids]
+        self._last_cbf_filtered_command[env_ids] = command[env_ids]
 
     def _ordered_frames(self, env_id: int, max_frames: int | None = None) -> dict[str, np.ndarray]:
         import torch
@@ -372,17 +410,23 @@ class CollisionReplayRecorder:
         robot = env.scene["robot"]
         crowd = env.crowd_manager
         command_term = env.command_manager.get_term("pose_2d_command")
-        return {
+        terminal = {
             "time_s": np.asarray([float(self._elapsed_steps[env_id].item()) * self.step_dt_s], dtype=np.float32),
             "robot_position_xy": robot.data.root_pos_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
             "robot_yaw": robot.data.heading_w[env_id : env_id + 1].detach().cpu().numpy(),
             "robot_velocity_xy_world": robot.data.root_lin_vel_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
             "robot_command_velocity_body": self._last_command[env_id : env_id + 1].detach().cpu().numpy(),
+            "navigation_policy_velocity_body": self._last_command[env_id : env_id + 1].detach().cpu().numpy(),
             "goal_position_xy": command_term.pos_command_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
             "pedestrian_position_xy": crowd.get_world_positions()[env_id : env_id + 1].detach().cpu().numpy(),
             "pedestrian_velocity_xy_world": crowd.get_velocities()[env_id : env_id + 1].detach().cpu().numpy(),
             "pedestrian_active_mask": crowd.get_active_mask()[env_id : env_id + 1].detach().cpu().numpy(),
         }
+        if self._last_cbf_filtered_command is not None:
+            terminal["cbf_filtered_command_velocity_body"] = (
+                self._last_cbf_filtered_command[env_id : env_id + 1].detach().cpu().numpy()
+            )
+        return terminal
 
     def _collision_indices(self, env: Any, env_id: int) -> list[int]:
         import torch
@@ -522,6 +566,8 @@ class CollisionReplayRecorder:
         self._counts[ids] = 0
         self._elapsed_steps[ids] = 0
         self._last_command[ids] = 0.0
+        if self._last_cbf_filtered_command is not None:
+            self._last_cbf_filtered_command[ids] = 0.0
         self._minimum_agent_distances[ids] = float("inf")
 
 
