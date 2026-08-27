@@ -324,8 +324,6 @@ class EvaluationProgressReporter:
         force: bool = False,
     ) -> None:
         """Publish a throttled progress snapshot without affecting evaluation."""
-        if self.run is None:
-            return
         now = time.monotonic()
         if not force and now - self.last_report_at < self._INTERVAL_SECONDS:
             return
@@ -334,6 +332,19 @@ class EvaluationProgressReporter:
         rate = accepted_episodes / elapsed_seconds if elapsed_seconds else 0.0
         remaining_episodes = max(0, self.total_episodes - accepted_episodes)
         remaining_seconds = remaining_episodes / rate if rate > 0.0 else None
+        percent = round(100.0 * accepted_episodes / self.total_episodes, 1) if self.total_episodes else 100.0
+        eta = f"{remaining_seconds:.0f}s" if remaining_seconds is not None else "n/a"
+        seed_desc = f"seed {seed} ({seed_index}/{self.seed_count})" if seed is not None else "finalizing"
+        # Mirror the throttled snapshot to stdout: the Pod console stream is
+        # captured by the Research Agent pod-log logger, so live evaluation
+        # progress is visible even if W&B telemetry is unavailable.
+        print(
+            f"[EVAL] {status}: {accepted_episodes}/{self.total_episodes} episodes ({percent}%), "
+            f"{seed_desc}, elapsed {elapsed_seconds:.0f}s, ETA {eta}",
+            flush=True,
+        )
+        if self.run is None:
+            return
         snapshot = {
             f"{self._PREFIX}status": status,
             f"{self._PREFIX}accepted_episodes": int(accepted_episodes),
