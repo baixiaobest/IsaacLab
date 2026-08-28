@@ -39,14 +39,14 @@ parser.add_argument(
     default=0.01,
     help="Histogram resolution in seconds for fitted tau distributions.",
 )
-parser.add_argument("--min_r_squared", type=float, default=0.80, help="Minimum R-squared for final-tau eligibility.")
-parser.add_argument("--max_nrmse", type=float, default=0.20, help="Maximum normalized RMSE for final-tau eligibility.")
-parser.add_argument("--max_residual_lag1", type=float, default=0.90, help="Maximum residual lag-one correlation magnitude.")
+parser.add_argument("--min_r_squared", type=float, default=0.80, help="R-squared threshold for a first-order-fit warning.")
+parser.add_argument("--max_nrmse", type=float, default=0.20, help="Normalized-RMSE threshold for a first-order-fit warning.")
+parser.add_argument("--max_residual_lag1", type=float, default=0.90, help="Residual lag-one-correlation threshold for a first-order-fit warning.")
 parser.add_argument(
     "--min_valid_fraction",
     type=float,
     default=0.75,
-    help="Minimum eligible-trial fraction per mode before publishing a recommended tau.",
+    help="Minimum non-excluded-trial fraction per mode for an adequate identification data set.",
 )
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -78,7 +78,6 @@ from rsl_rl.runners import DistillationRunner, OnPolicyRunner  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 from isaaclab.envs import DirectMARLEnv, DirectRLEnvCfg, ManagerBasedRLEnvCfg, multi_agent_to_single_agent  # noqa: E402
-from isaaclab.terrains.config.rough import FLAT_TERRAINS_CFG  # noqa: E402
 from isaaclab.utils.assets import retrieve_file_path  # noqa: E402
 from isaaclab_rl.rsl_rl import (  # noqa: E402
     RslRlBaseRunnerCfg,
@@ -92,7 +91,7 @@ from locomotion_system_identification_analysis import (  # noqa: E402
     conservative_tau,
     first_order_velocity,
     fit_first_order_response,
-    fit_quality_reasons,
+    fit_quality_warnings,
 )
 
 matplotlib.use("Agg")
@@ -102,6 +101,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
 CRUISE_SPEED_MPS = 1.5
 STEP_MAGNITUDES_MPS = (0.5, 1.0, 1.5)
+NUM_DIRECTION_SAMPLES = 16
+CARDINAL_EXEMPLARS = (
+    ("Forward", 0),
+    ("Right", 12),
+    ("Back", 8),
+    ("Left", 4),
+)
 
 
 def _create_run_dir(root: Path) -> Path:
@@ -118,20 +124,33 @@ def _create_run_dir(root: Path) -> Path:
 
 
 def _trial_specs(repetitions: int) -> list[dict[str, Any]]:
-    directions = (("forward", 0, 1.0), ("lateral_left", 1, 1.0), ("lateral_right", 1, -1.0))
+    # Body-frame angles: 0° is forward (+x), 90° is left (+y).  The full
+    # circle exposes anisotropy in the learned locomotion velocity response.
+    directions = [
+        {
+            "direction": f"{index * 360.0 / NUM_DIRECTION_SAMPLES:05.1f}deg",
+            "direction_index": index,
+            "direction_angle_deg": index * 360.0 / NUM_DIRECTION_SAMPLES,
+            "direction_xy": (
+                float(np.cos(2.0 * np.pi * index / NUM_DIRECTION_SAMPLES)),
+                float(np.sin(2.0 * np.pi * index / NUM_DIRECTION_SAMPLES)),
+            ),
+        }
+        for index in range(NUM_DIRECTION_SAMPLES)
+    ]
     specs: list[dict[str, Any]] = []
     for mode in ("acceleration", "deceleration"):
         targets = STEP_MAGNITUDES_MPS if mode == "acceleration" else (1.0, 0.5, 0.0)
-        for direction, axis, sign in directions:
+        for direction in directions:
             for target in targets:
                 for repeat in range(repetitions):
                     specs.append(
                         {
-                            "trial_id": f"{mode}_{direction}_{CRUISE_SPEED_MPS:g}_to_{target:g}_repeat_{repeat + 1}",
+                            "trial_id": (
+                                f"{mode}_{direction['direction']}_{CRUISE_SPEED_MPS:g}_to_{target:g}_repeat_{repeat + 1}"
+                            ),
                             "mode": mode,
-                            "direction": direction,
-                            "axis": axis,
-                            "sign": sign,
+                            **direction,
                             "source_speed_mps": 0.0 if mode == "acceleration" else CRUISE_SPEED_MPS,
                             "target_speed_mps": target,
                             "repeat": repeat + 1,
@@ -148,13 +167,29 @@ def _command_tensor(
     commands = torch.zeros((total_envs, 3), device=device)
     for env_id, spec in enumerate(specs):
         speed = spec["source_speed_mps"] if phase != "response" else spec["target_speed_mps"]
-        commands[env_id, spec["axis"]] = spec["sign"] * speed
+        direction_x, direction_y = spec["direction_xy"]
+        commands[env_id, 0] = direction_x * speed
+        commands[env_id, 1] = direction_y * speed
     return commands
 
 
 def _override_for_identification(env_cfg: ManagerBasedRLEnvCfg) -> None:
     """Keep the learned low-level controller intact while removing experiment confounders."""
-    env_cfg.scene.terrain.single_terrain_generator = FLAT_TERRAINS_CFG
+    # The selected locomotion task normally uses ``terrain_type='generator'``
+    # with ROUGH_AND_GRIDS.  A ``single_terrain_generator`` override is ignored
+    # for that type, so use Isaac Lab's explicit plane instead.
+    terrain_cfg = env_cfg.scene.terrain
+    terrain_cfg.terrain_type = "plane"
+    terrain_cfg.terrain_generator = None
+    terrain_cfg.single_terrain_generator = None
+    terrain_cfg.max_init_terrain_level = None
+    env_cfg.curriculum.terrain_levels = None
+    env_cfg.curriculum.command_resampling_time = None
+    # These training perturbations either require terrain levels or inject a
+    # disturbance during the response window; neither belongs in a controlled
+    # flat-ground actuator-identification trial.
+    env_cfg.events.joint_torque_offset_curriculum = None
+    env_cfg.events.push_robot = None
     command_cfg = env_cfg.commands.base_velocity
     command_cfg.resampling_time_range = (1.0e6, 1.0e6)
     command_cfg.heading_command = False
@@ -225,9 +260,10 @@ def _record_batch(
             policy_nn.reset(dones)
 
         for env_id, spec in enumerate(specs):
-            axis, sign = spec["axis"], spec["sign"]
-            pre_projected = float((sign * before_velocity[env_id, axis]).item())
-            post_projected = float((sign * after_velocity[env_id, axis]).item())
+            direction_x, direction_y = spec["direction_xy"]
+            pre_projected = float((direction_x * before_velocity[env_id, 0] + direction_y * before_velocity[env_id, 1]).item())
+            post_projected = float((direction_x * after_velocity[env_id, 0] + direction_y * after_velocity[env_id, 1]).item())
+            projected_acceleration = float((direction_x * acceleration[env_id, 0] + direction_y * acceleration[env_id, 1]).item())
             if applied_phase == "response" and states[env_id]["response_initial"] is None:
                 states[env_id]["response_initial"] = pre_projected
                 states[env_id]["pre_step_speed"] = pre_projected
@@ -239,6 +275,8 @@ def _record_batch(
                     "trial_id": spec["trial_id"],
                     "mode": spec["mode"],
                     "direction": spec["direction"],
+                    "direction_index": spec["direction_index"],
+                    "direction_angle_deg": spec["direction_angle_deg"],
                     "repeat": spec["repeat"],
                     "phase": applied_phase,
                     "control_step": step,
@@ -251,7 +289,7 @@ def _record_batch(
                     "realized_ax_mps2": float(acceleration[env_id, 0].item()),
                     "realized_ay_mps2": float(acceleration[env_id, 1].item()),
                     "projected_velocity_mps": post_projected,
-                    "projected_acceleration_mps2": float((sign * acceleration[env_id, axis]).item()),
+                    "projected_acceleration_mps2": projected_acceleration,
                 }
             )
         applied_phase = scheduled_phase
@@ -271,7 +309,12 @@ def _analyse_trial(spec: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[di
         reasons.append("terminated_or_reset")
     if initial is None or len(response) < 5:
         reasons.append("insufficient_response_samples")
-        return {**spec, "valid_for_pooling": False, "exclusion_reasons": reasons}, np.empty(0), np.empty(0), np.empty(0)
+        return {
+            **spec,
+            "valid_for_pooling": False,
+            "exclusion_reasons": reasons,
+            "quality_warnings": [],
+        }, np.empty(0), np.empty(0), np.empty(0)
     expected = spec["source_speed_mps"]
     tolerance = args_cli.cruise_tolerance_mps if spec["mode"] == "deceleration" else args_cli.cruise_tolerance_mps
     if abs(initial - expected) > tolerance:
@@ -280,13 +323,11 @@ def _analyse_trial(spec: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[di
     measured = np.asarray([float(row["projected_velocity_mps"]) for row in response])
     acceleration = np.asarray([float(row["projected_acceleration_mps2"]) for row in response])
     fit = fit_first_order_response(times, measured, spec["target_speed_mps"], float(initial))
-    reasons.extend(
-        fit_quality_reasons(
-            fit,
-            min_r_squared=args_cli.min_r_squared,
-            max_nrmse=args_cli.max_nrmse,
-            max_abs_residual_lag1=args_cli.max_residual_lag1,
-        )
+    quality_warnings = fit_quality_warnings(
+        fit,
+        min_r_squared=args_cli.min_r_squared,
+        max_nrmse=args_cli.max_nrmse,
+        max_abs_residual_lag1=args_cli.max_residual_lag1,
     )
     return (
         {
@@ -294,6 +335,7 @@ def _analyse_trial(spec: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[di
             "fit": fit.to_dict(),
             "valid_for_pooling": not reasons,
             "exclusion_reasons": reasons,
+            "quality_warnings": quality_warnings,
         },
         times,
         measured,
@@ -329,7 +371,13 @@ def _plot_trial(result: dict[str, Any], times: np.ndarray, measured: np.ndarray,
     acceleration_axis.set_ylabel("Acceleration (m/s²)")
     acceleration_axis.grid(alpha=0.3)
     acceleration_axis.legend(loc="best")
-    figure.suptitle(f"{result['trial_id']} ({'eligible' if result['valid_for_pooling'] else 'excluded'})")
+    if not result["valid_for_pooling"]:
+        status = "excluded: " + ", ".join(result["exclusion_reasons"])
+    elif result["quality_warnings"]:
+        status = "pooled with fit warnings: " + ", ".join(result["quality_warnings"])
+    else:
+        status = "pooled: no first-order fit warnings"
+    figure.suptitle(f"{result['trial_id']} ({status})")
     figure.tight_layout()
     figure.savefig(output_dir / "trial_plots" / f"{result['trial_id']}.png", dpi=160)
     plt.close(figure)
@@ -339,12 +387,8 @@ def _plot_tau_distributions(results: list[dict[str, Any]], output_dir: Path) -> 
     selected: dict[str, float | None] = {}
     figure, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharey=False)
     for axis, mode in zip(axes, ("acceleration", "deceleration"), strict=True):
-        grouped = {
-            direction: [item["fit"]["tau_s"] for item in results if item["mode"] == mode and item["direction"] == direction
-                        and item["valid_for_pooling"]]
-            for direction in ("forward", "lateral_left", "lateral_right")
-        }
-        pooled = [value for values in grouped.values() for value in values]
+        poolable = [item for item in results if item["mode"] == mode and item["valid_for_pooling"]]
+        pooled = [item["fit"]["tau_s"] for item in poolable]
         if pooled:
             # Use a physical bin width instead of a small number of bins.  A
             # 10 ms default makes the response-time distribution visible with
@@ -356,20 +400,30 @@ def _plot_tau_distributions(results: list[dict[str, Any]], output_dir: Path) -> 
                 lower -= bin_width / 2.0
                 upper += bin_width / 2.0
             bins = np.arange(lower, upper + bin_width * 1.01, bin_width)
-            axis.hist(pooled, bins=bins, color="tab:blue", alpha=0.35, label="pooled valid trials")
-            for direction, values in grouped.items():
-                if values:
-                    axis.hist(values, bins=bins, histtype="step", linewidth=1.5, label=direction)
+            clean = [item["fit"]["tau_s"] for item in poolable if not item["quality_warnings"]]
+            warned = [item["fit"]["tau_s"] for item in poolable if item["quality_warnings"]]
+            histogram_values = [values for values in (clean, warned) if values]
+            histogram_labels = [label for values, label in ((clean, "no fit warnings"), (warned, "fit warning")) if values]
+            histogram_colors = [color for values, color in ((clean, "tab:blue"), (warned, "tab:orange")) if values]
+            axis.hist(
+                histogram_values,
+                bins=bins,
+                stacked=True,
+                color=histogram_colors,
+                alpha=0.45,
+                label=histogram_labels,
+            )
             # Preserve the individual observations: histograms alone can hide
             # a sparse or multimodal fit distribution.
-            axis.scatter(pooled, np.full(len(pooled), -0.08), marker="|", s=100, color="tab:blue", clip_on=False)
+            axis.scatter(clean, np.full(len(clean), -0.08), marker="|", s=100, color="tab:blue", clip_on=False)
+            axis.scatter(warned, np.full(len(warned), -0.08), marker="|", s=100, color="tab:orange", clip_on=False)
             selected[mode] = conservative_tau(pooled, args_cli.tau_percentile)
             axis.axvline(selected[mode], color="tab:red", linestyle="--", linewidth=2,
                          label=f"P{args_cli.tau_percentile:g} = {selected[mode]:.3f} s")
         else:
             selected[mode] = None
             axis.text(0.5, 0.5, "No valid trials", ha="center", va="center", transform=axis.transAxes)
-        axis.set_title(f"{mode.title()} tau distribution")
+        axis.set_title(f"{mode.title()} tau distribution (pooled trials)")
         axis.set_xlabel("Fitted tau (s)")
         axis.set_ylabel("Trial count")
         axis.grid(alpha=0.25)
@@ -391,12 +445,255 @@ def _plot_tau_distributions(results: list[dict[str, Any]], output_dir: Path) -> 
         # ``labels`` is the compatible spelling and has the same behavior.
         axis.boxplot(box_data, labels=labels, showmeans=True)
         axis.set_ylabel("Fitted tau (s)")
-        axis.set_title("Valid-trial tau comparison")
+        axis.set_title("Pooled-trial tau comparison")
         axis.grid(axis="y", alpha=0.25)
         figure.tight_layout()
         figure.savefig(output_dir / "tau_boxplot.png", dpi=180)
         plt.close(figure)
     return selected
+
+
+def _directional_tau_profiles(results: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Aggregate poolable fits by the 16 commanded body-frame directions."""
+    profiles: dict[str, list[dict[str, Any]]] = {}
+    for mode in ("acceleration", "deceleration"):
+        by_index: dict[int, list[dict[str, Any]]] = {index: [] for index in range(NUM_DIRECTION_SAMPLES)}
+        for item in results:
+            if item["mode"] == mode and item["valid_for_pooling"]:
+                by_index[item["direction_index"]].append(item)
+        profile: list[dict[str, Any]] = []
+        for index, items in by_index.items():
+            angle_deg = index * 360.0 / NUM_DIRECTION_SAMPLES
+            taus = [item["fit"]["tau_s"] for item in items]
+            profile.append(
+                {
+                    "direction_index": index,
+                    "direction_angle_deg": angle_deg,
+                    "direction": f"{angle_deg:05.1f}deg",
+                    "valid_trial_count": len(taus),
+                    "quality_warning_trial_count": sum(bool(item["quality_warnings"]) for item in items),
+                    "tau_median_s": float(np.median(taus)) if taus else None,
+                    "tau_percentile_s": conservative_tau(taus, args_cli.tau_percentile) if taus else None,
+                }
+            )
+        profiles[mode] = profile
+    return profiles
+
+
+def _plot_spatial_tau_profiles(profiles: dict[str, list[dict[str, Any]]], output_dir: Path) -> None:
+    """Plot median and conservative tau as a polar, robot-centred directional profile."""
+    figure, axes = plt.subplots(1, 2, figsize=(12, 6), subplot_kw={"projection": "polar"})
+    for axis, mode in zip(axes, ("acceleration", "deceleration"), strict=True):
+        profile = profiles[mode]
+        angles = np.deg2rad([item["direction_angle_deg"] for item in profile])
+        median = np.asarray([np.nan if item["tau_median_s"] is None else item["tau_median_s"] for item in profile])
+        conservative = np.asarray(
+            [np.nan if item["tau_percentile_s"] is None else item["tau_percentile_s"] for item in profile]
+        )
+        finite = np.isfinite(median) | np.isfinite(conservative)
+        if np.any(finite):
+            closed_angles = np.append(angles, angles[0])
+            axis.plot(closed_angles, np.append(median, median[0]), color="tab:blue", linewidth=2, label="median tau")
+            axis.scatter(angles, median, color="tab:blue", s=28, zorder=3)
+            axis.plot(
+                closed_angles,
+                np.append(conservative, conservative[0]),
+                color="tab:orange",
+                linestyle="--",
+                linewidth=2,
+                label=f"P{args_cli.tau_percentile:g} tau",
+            )
+            axis.scatter(angles, conservative, color="tab:orange", marker="x", s=36, zorder=3)
+            radial_max = float(np.nanmax(np.concatenate((median, conservative))))
+            axis.set_ylim(0.0, radial_max * 1.15 if radial_max > 0.0 else 1.0)
+        else:
+            axis.text(0.5, 0.5, "No valid trials", transform=axis.transAxes, ha="center", va="center")
+        # Robot-centric convention: forward at the top, left to the plot's left.
+        axis.set_theta_zero_location("N")
+        axis.set_theta_direction(1)
+        axis.set_thetagrids([0, 90, 180, 270], labels=["Forward", "Left", "Back", "Right"])
+        axis.set_title(f"{mode.title()} directional tau", pad=20)
+        axis.set_rlabel_position(45)
+        axis.set_ylabel("tau (s)", labelpad=28)
+        axis.grid(alpha=0.35)
+        if np.any(finite):
+            axis.legend(loc="upper right", bbox_to_anchor=(1.28, 1.14), fontsize=8)
+    figure.suptitle("Robot-centred first-order velocity-response time constants")
+    figure.tight_layout()
+    figure.savefig(output_dir / "tau_spatial_profiles.png", dpi=200)
+    plt.close(figure)
+
+
+def _select_representative_trial(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Prefer an eligible fit nearest the candidate set's median tau."""
+    fitted = [item for item in candidates if "fit" in item]
+    eligible = [item for item in fitted if item["valid_for_pooling"]]
+    pool = eligible or fitted
+    if not pool:
+        return None
+    median_tau = float(np.median([item["fit"]["tau_s"] for item in pool]))
+    return min(pool, key=lambda item: abs(item["fit"]["tau_s"] - median_tau))
+
+
+def _plot_exemplary_step_responses(
+    results: list[dict[str, Any]], traces: dict[str, list[dict[str, Any]]], output_dir: Path
+) -> list[dict[str, Any]]:
+    """Render cardinal representative responses with command, data, and fitted curve."""
+    figure, axes = plt.subplots(2, 4, figsize=(16, 7), sharex=True, sharey="row")
+    selected: list[dict[str, Any]] = []
+    for row_index, mode in enumerate(("acceleration", "deceleration")):
+        target = 1.5 if mode == "acceleration" else 0.0
+        for column_index, (name, direction_index) in enumerate(CARDINAL_EXEMPLARS):
+            axis = axes[row_index, column_index]
+            candidates = [
+                item
+                for item in results
+                if item["mode"] == mode
+                and item["direction_index"] == direction_index
+                and item["target_speed_mps"] == target
+            ]
+            result = _select_representative_trial(candidates)
+            if result is None:
+                axis.text(0.5, 0.5, "No fitted trial", ha="center", va="center", transform=axis.transAxes)
+                axis.set_title(f"{name}: {mode}")
+                continue
+            response = [entry for entry in traces[result["trial_id"]] if entry["phase"] == "response"]
+            times = np.asarray([float(entry["response_time_s"]) for entry in response])
+            measured = np.asarray([float(entry["projected_velocity_mps"]) for entry in response])
+            fit = result["fit"]
+            initial = float(result["response_initial_mps"])
+            fitted = first_order_velocity(times, target, initial, float(fit["tau_s"]))
+            # The first plotted point at t=0 makes the ideal discontinuous
+            # command step explicit; measured data begins one control step later.
+            axis.step(
+                np.insert(times, 0, 0.0),
+                np.concatenate(([float(result["source_speed_mps"])], np.full(len(times), target))),
+                where="post",
+                color="tab:gray",
+                label="command",
+            )
+            axis.plot(times, measured, color="tab:blue", linewidth=2, label="measured")
+            axis.plot(times, fitted, "--", color="tab:orange", linewidth=2, label="first-order fit")
+            warning_label = " · fit warning" if result["quality_warnings"] else ""
+            axis.set_title(f"{name}: {mode}{warning_label}\n{initial:.1f} → {target:.1f} m/s")
+            axis.grid(alpha=0.3)
+            axis.text(
+                0.03,
+                0.04,
+                f"tau={fit['tau_s']:.3f} s\nR²={fit['r_squared']:.3f}",
+                transform=axis.transAxes,
+                fontsize=8,
+                bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+            )
+            selected.append(
+                {
+                    "mode": mode,
+                    "cardinal_direction": name.lower(),
+                    "trial_id": result["trial_id"],
+                    "valid_for_pooling": result["valid_for_pooling"],
+                    "quality_warnings": result["quality_warnings"],
+                    "tau_s": fit["tau_s"],
+                }
+            )
+    for axis in axes[-1, :]:
+        axis.set_xlabel("Time after velocity step (s)")
+    for axis in axes[:, 0]:
+        axis.set_ylabel("Velocity along commanded direction (m/s)")
+    axes[0, 0].legend(loc="best", fontsize=8)
+    figure.suptitle("Representative cardinal-direction velocity step responses")
+    figure.tight_layout()
+    figure.savefig(output_dir / "exemplary_cardinal_step_responses.png", dpi=200)
+    plt.close(figure)
+    return selected
+
+
+def _rejection_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Count hard exclusion reasons without making reasons exclusive."""
+    rejected = [item for item in results if not item["valid_for_pooling"]]
+
+    def count_reasons(items: list[dict[str, Any]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            for reason in item["exclusion_reasons"]:
+                counts[reason] = counts.get(reason, 0) + 1
+        return dict(sorted(counts.items()))
+
+    by_mode = {
+        mode: {
+            "rejected_trial_count": len([item for item in rejected if item["mode"] == mode]),
+            "reason_counts": count_reasons([item for item in rejected if item["mode"] == mode]),
+        }
+        for mode in ("acceleration", "deceleration")
+    }
+    by_direction = {
+        f"{angle:05.1f}deg": {
+            "rejected_trial_count": len(
+                [item for item in rejected if item["direction_index"] == direction_index]
+            ),
+            "reason_counts": count_reasons(
+                [item for item in rejected if item["direction_index"] == direction_index]
+            ),
+        }
+        for direction_index, angle in (
+            (index, index * 360.0 / NUM_DIRECTION_SAMPLES) for index in range(NUM_DIRECTION_SAMPLES)
+        )
+    }
+    by_step_profile: dict[str, dict[str, Any]] = {}
+    for item in results:
+        key = f"{item['mode']}_{item['source_speed_mps']:g}_to_{item['target_speed_mps']:g}"
+        profile = by_step_profile.setdefault(
+            key,
+            {"trial_count": 0, "rejected_trial_count": 0, "reason_counts": {}},
+        )
+        profile["trial_count"] += 1
+        if not item["valid_for_pooling"]:
+            profile["rejected_trial_count"] += 1
+            for reason in item["exclusion_reasons"]:
+                profile["reason_counts"][reason] = profile["reason_counts"].get(reason, 0) + 1
+    for profile in by_step_profile.values():
+        profile["reason_counts"] = dict(sorted(profile["reason_counts"].items()))
+
+    return {
+        "note": "Hard-exclusion reason counts are non-exclusive: one rejected trial can increment multiple reasons.",
+        "trial_count": len(results),
+        "rejected_trial_count": len(rejected),
+        "reason_counts": count_reasons(rejected),
+        "by_mode": by_mode,
+        "by_direction": by_direction,
+        "by_step_profile": by_step_profile,
+    }
+
+
+def _quality_warning_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize soft first-order-model diagnostics for poolable trials."""
+    poolable = [item for item in results if item["valid_for_pooling"]]
+    warned = [item for item in poolable if item["quality_warnings"]]
+
+    def count_warnings(items: list[dict[str, Any]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            for warning in item["quality_warnings"]:
+                counts[warning] = counts.get(warning, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def by_mode(mode: str) -> dict[str, Any]:
+        mode_items = [item for item in poolable if item["mode"] == mode]
+        mode_warned = [item for item in mode_items if item["quality_warnings"]]
+        return {
+            "poolable_trial_count": len(mode_items),
+            "warning_trial_count": len(mode_warned),
+            "warning_free_trial_count": len(mode_items) - len(mode_warned),
+            "reason_counts": count_warnings(mode_warned),
+        }
+
+    return {
+        "note": "Fit-quality warning counts are non-exclusive and do not exclude a complete, settled trial from tau pooling.",
+        "poolable_trial_count": len(poolable),
+        "warning_trial_count": len(warned),
+        "warning_free_trial_count": len(poolable) - len(warned),
+        "reason_counts": count_warnings(warned),
+        "by_mode": {mode: by_mode(mode) for mode in ("acceleration", "deceleration")},
+    }
 
 
 def _write_raw_csv(traces: dict[str, list[dict[str, Any]]], output_dir: Path) -> None:
@@ -459,6 +756,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg, agent_cfg: RslRlBaseRun
 
     _write_raw_csv(all_traces, output_dir)
     selected = _plot_tau_distributions(all_results, output_dir)
+    directional_profiles = _directional_tau_profiles(all_results)
+    _plot_spatial_tau_profiles(directional_profiles, output_dir)
+    exemplary_trials = _plot_exemplary_step_responses(all_results, all_traces, output_dir)
+    rejection_summary = _rejection_summary(all_results)
+    quality_warning_summary = _quality_warning_summary(all_results)
     for result in all_results:
         result["fit_equation"] = result.get("fit", {}).get("equation")
     valid = [result for result in all_results if result["valid_for_pooling"]]
@@ -466,15 +768,33 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg, agent_cfg: RslRlBaseRun
     for mode in ("acceleration", "deceleration"):
         mode_results = [result for result in all_results if result["mode"] == mode]
         mode_valid = [result for result in mode_results if result["valid_for_pooling"]]
+        mode_warned = [result for result in mode_valid if result["quality_warnings"]]
+        mode_warning_free = [result for result in mode_valid if not result["quality_warnings"]]
         valid_fraction = len(mode_valid) / len(mode_results) if mode_results else 0.0
-        adequate = selected[mode] is not None and valid_fraction >= args_cli.min_valid_fraction
+        warning_free_fraction = len(mode_warning_free) / len(mode_valid) if mode_valid else 0.0
+        adequate = (
+            selected[mode] is not None
+            and valid_fraction >= args_cli.min_valid_fraction
+            and warning_free_fraction >= args_cli.min_valid_fraction
+        )
+        if selected[mode] is None:
+            adequacy_reason = "no_poolable_trials"
+        elif valid_fraction < args_cli.min_valid_fraction:
+            adequacy_reason = "insufficient_complete_settled_trials"
+        elif warning_free_fraction < args_cli.min_valid_fraction:
+            adequacy_reason = "systematic_first_order_fit_warnings"
+        else:
+            adequacy_reason = None
         adequacy_by_mode[mode] = {
             "adequate": adequate,
-            "valid_trial_count": len(mode_valid),
+            "poolable_trial_count": len(mode_valid),
             "trial_count": len(mode_results),
-            "valid_fraction": valid_fraction,
-            "minimum_valid_fraction": args_cli.min_valid_fraction,
-            "reason": None if adequate else "insufficient_first_order_fit_quality_or_trial_stability",
+            "poolable_fraction": valid_fraction,
+            "quality_warning_trial_count": len(mode_warned),
+            "warning_free_trial_count": len(mode_warning_free),
+            "warning_free_fraction_of_poolable": warning_free_fraction,
+            "minimum_fraction": args_cli.min_valid_fraction,
+            "reason": adequacy_reason,
         }
     summary = {
         "mode": "local_locomotion_system_identification",
@@ -483,26 +803,42 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg, agent_cfg: RslRlBaseRun
         "control_dt_s": float(raw_env.step_dt),
         "command_frame": "robot body frame",
         "command_delivery": "direct UniformVelocityCommand.vel_command_b write",
-        "terrain": "FLAT_TERRAINS_CFG",
+        "disabled_training_perturbations": ["joint_torque_offset_curriculum", "push_robot"],
+        "direction_samples": {
+            "count": NUM_DIRECTION_SAMPLES,
+            "convention": "0 degrees is forward (+x); 90 degrees is left (+y); angles increase counter-clockwise",
+        },
+        "terrain": "plane",
         "requested_steps_mps": {"acceleration": [0.5, 1.0, 1.5], "deceleration": [[1.5, 1.0], [1.5, 0.5], [1.5, 0.0]]},
         "extrapolation_note": "1.5 m/s is exercised directly but lies beyond the original [-1, 1] command sampling range.",
         "tau_percentile": args_cli.tau_percentile,
         "adequacy_by_mode": adequacy_by_mode,
         "recommended_model": {
-            "tau_accel_s": selected["acceleration"] if adequacy_by_mode["acceleration"]["adequate"] else None,
-            "tau_decel_s": selected["deceleration"] if adequacy_by_mode["deceleration"]["adequate"] else None,
+            "tau_accel_s": selected["acceleration"],
+            "tau_decel_s": selected["deceleration"],
             "pooled_tau_percentile_s": selected,
             "adequate": adequacy_by_mode["acceleration"]["adequate"] and adequacy_by_mode["deceleration"]["adequate"],
+            "use_note": "Tau values use all complete, settled trials. Review fit-quality warnings before treating the first-order model as an accurate predictive model.",
             "switching_rule": "use tau_accel while speed magnitude is increasing; tau_decel while decreasing",
         },
         "trial_count": len(all_results),
         "valid_trial_count": len(valid),
         "excluded_trial_count": len(all_results) - len(valid),
+        "rejection_summary": rejection_summary,
+        "quality_warning_summary": quality_warning_summary,
+        "directional_tau_profiles": directional_profiles,
+        "exemplary_cardinal_trials": exemplary_trials,
         "trials": all_results,
     }
     (output_dir / "system_identification_summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False), encoding="utf-8")
     (output_dir / "recommended_model.json").write_text(
         json.dumps(summary["recommended_model"], indent=2, allow_nan=False), encoding="utf-8"
+    )
+    (output_dir / "rejection_summary.json").write_text(
+        json.dumps(rejection_summary, indent=2, allow_nan=False), encoding="utf-8"
+    )
+    (output_dir / "fit_quality_warning_summary.json").write_text(
+        json.dumps(quality_warning_summary, indent=2, allow_nan=False), encoding="utf-8"
     )
     print(
         "[LOCAL SYSTEM ID] Complete. "

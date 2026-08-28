@@ -118,22 +118,26 @@ def fit_first_order_response(
     )
 
 
-def fit_quality_reasons(
+def fit_quality_warnings(
     fit: FirstOrderFit,
     *,
     min_r_squared: float = 0.80,
     max_nrmse: float = 0.20,
     max_abs_residual_lag1: float = 0.90,
 ) -> list[str]:
-    """Return explicit reasons a trace is unsuitable for conservative pooling."""
-    reasons: list[str] = []
+    """Return diagnostics that indicate a one-pole model is a poor description.
+
+    These flags describe model adequacy; they do *not* make an otherwise
+    complete, settled trial unusable for a conservative response-time sample.
+    """
+    warnings: list[str] = []
     if not math.isfinite(fit.r_squared) or fit.r_squared < min_r_squared:
-        reasons.append(f"r_squared_below_{min_r_squared:g}")
+        warnings.append(f"r_squared_below_{min_r_squared:g}")
     if fit.nrmse > max_nrmse:
-        reasons.append(f"nrmse_above_{max_nrmse:g}")
+        warnings.append(f"nrmse_above_{max_nrmse:g}")
     if fit.residual_lag1_correlation is not None and abs(fit.residual_lag1_correlation) > max_abs_residual_lag1:
-        reasons.append(f"residual_lag1_above_{max_abs_residual_lag1:g}")
-    return reasons
+        warnings.append(f"residual_lag1_above_{max_abs_residual_lag1:g}")
+    return warnings
 
 
 def conservative_tau(values_s: list[float] | np.ndarray, percentile: float = 95.0) -> float:

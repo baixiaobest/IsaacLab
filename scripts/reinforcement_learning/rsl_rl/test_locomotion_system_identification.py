@@ -12,7 +12,7 @@ from locomotion_system_identification_analysis import (  # noqa: E402
     conservative_tau,
     first_order_velocity,
     fit_first_order_response,
-    fit_quality_reasons,
+    fit_quality_warnings,
 )
 
 
@@ -24,7 +24,7 @@ def test_first_order_fit_recovers_synthetic_tau() -> None:
 
     assert abs(fit.tau_s - expected_tau) < 1.0e-3
     assert fit.rmse_mps < 1.0e-5
-    assert fit_quality_reasons(fit) == []
+    assert fit_quality_warnings(fit) == []
 
 
 def test_fit_quality_flags_systematic_residuals() -> None:
@@ -33,7 +33,7 @@ def test_fit_quality_flags_systematic_residuals() -> None:
     measured = first_order_velocity(np.maximum(times - 0.20, 0.0), command_mps=1.0, initial_mps=0.0, tau_s=0.18)
     fit = fit_first_order_response(times, measured, command_mps=1.0, initial_mps=0.0)
 
-    assert fit_quality_reasons(fit)
+    assert fit_quality_warnings(fit)
 
 
 def test_conservative_tau_uses_requested_percentile() -> None:
