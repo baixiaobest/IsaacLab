@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 def compute_kp_velocity_command(
     desired_velocity: torch.Tensor,
-    measured_velocity: torch.Tensor,
+    velocity_setpoint: torch.Tensor,
     step_dt: float,
     kp: torch.Tensor,
     acceleration_lower: torch.Tensor,
@@ -40,18 +40,20 @@ def compute_kp_velocity_command(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return bounded nominal acceleration and integrated planar command.
 
-    All velocity tensors are planar body-frame velocities.  ``step_dt`` is
-    supplied by the environment at action-processing time, rather than being a
-    controller constant, so the result remains correct if environment
-    decimation changes.
+    All velocity tensors are planar body-frame velocities.  The Kp error is
+    computed from the previously issued velocity setpoint, rather than the
+    measured robot velocity: the integrated command is therefore the state
+    advanced by this acceleration model.  ``step_dt`` is supplied by the
+    environment at action-processing time, rather than being a controller
+    constant, so the result remains correct if environment decimation changes.
     """
     nominal_acceleration = torch.clamp(
-        kp * (desired_velocity - measured_velocity),
+        kp * (desired_velocity - velocity_setpoint),
         min=acceleration_lower,
         max=acceleration_upper,
     )
     commanded_velocity = torch.clamp(
-        measured_velocity + step_dt * nominal_acceleration,
+        velocity_setpoint + step_dt * nominal_acceleration,
         min=velocity_lower,
         max=velocity_upper,
     )
@@ -62,9 +64,10 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
     """Pre-trained locomotion action with bounded Kp planar-velocity tracking.
 
     The high-level policy action remains ``(v_RL,x, v_RL,y, yaw_rate)``.  Its
-    planar desired velocity and ``root_lin_vel_b`` are both body-frame values.
-    The low-level policy instead receives ``(v_cmd,x, v_cmd,y, yaw_rate)``;
-    the yaw command is intentionally passed through unchanged.
+    planar desired velocity is a body-frame value. The controller advances its
+    previously issued body-frame velocity setpoint and the low-level policy
+    receives ``(v_cmd,x, v_cmd,y, yaw_rate)``. The yaw command is intentionally
+    passed through unchanged.
     """
 
     cfg: KpPreTrainedPolicyActionCfg
@@ -141,12 +144,13 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             )
         self._raw_actions[:] = actions * self._action_scales
 
-        # root_lin_vel_b uses the same root/body frame as the low-level Go2
-        # velocity command.  No world-frame rotation is required or applied.
-        measured_velocity = self.robot.data.root_lin_vel_b[:, :2]
+        # The processed planar action is the previous body-frame velocity
+        # setpoint passed to the locomotion policy.  Advance that reference in
+        # the same way as the CBF evaluation action, rather than rebasing the
+        # acceleration on the robot's measured velocity.
         self._nominal_acceleration[:], self._processed_actions[:, :2] = compute_kp_velocity_command(
             self._raw_actions[:, :2],
-            measured_velocity,
+            self._processed_actions[:, :2],
             self._env.step_dt,
             self._kp,
             self._acceleration_lower,

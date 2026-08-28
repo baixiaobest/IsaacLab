@@ -500,7 +500,7 @@ class StaticObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
     """Configuration for the PLAY-only static-obstacle CBF action term."""
 
     class_type: type[ActionTerm] = StaticObstacleCbfPreTrainedPolicyAction
-    d_margin: float = 0.70
+    d_margin: float = 1.0
     """Circular clearance radius around each valid LiDAR reflection, in metres."""
     d_cbf_active: float = 5.0
     """Maximum current-scan point distance considered by the CBF, in metres."""
