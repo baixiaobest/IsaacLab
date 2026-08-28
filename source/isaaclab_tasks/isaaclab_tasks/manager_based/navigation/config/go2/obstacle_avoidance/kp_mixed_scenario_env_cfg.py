@@ -26,6 +26,7 @@ class KpActionsCfg(ActionsCfg):
         kp=(8.0, 8.0),
         acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
         velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
+        tracking_tau_s=0.30,
         debug_vis=True,
     )
 
@@ -70,6 +71,7 @@ class CbfKpActionsCfg(ActionsCfg):
             d_cbf_active=5.0,
             gamma1=2.0,
             gamma2=2.0,
+            tracking_tau_s=0.30,
             slack_penalty=1000.0,
             max_lidar_points=64,
             debug_vis=True,

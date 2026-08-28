@@ -274,9 +274,10 @@ def _slow_leader_condition_summary(records: list[dict[str, float]]) -> dict[str,
 
 
 def _snapshot_cbf_solver_metrics(action_term, env_ids) -> dict[int, dict[str, float | int]]:
-    """Snapshot CBF QP statistics before the action term resets completed environments."""
+    """Snapshot CBF QP and barrier diagnostics before completed environments reset."""
     metrics = getattr(action_term, "solver_metrics", None)
-    if metrics is None:
+    slack_metrics = getattr(action_term, "slack_metrics", None)
+    if metrics is None and slack_metrics is None:
         return {}
     if hasattr(env_ids, "detach"):
         environment_ids = env_ids.detach().cpu().tolist()
@@ -285,11 +286,16 @@ def _snapshot_cbf_solver_metrics(action_term, env_ids) -> dict[int, dict[str, fl
     snapshots: dict[int, dict[str, float | int]] = {}
     for env_id in environment_ids:
         snapshot: dict[str, float | int] = {}
-        for name, values in metrics.items():
+        for name, values in (metrics or {}).items():
             value = values[int(env_id)]
             if hasattr(value, "item"):
                 value = value.item()
             snapshot[name] = int(value) if isinstance(value, int) else float(value)
+        for name, values in (slack_metrics or {}).items():
+            value = values[int(env_id)]
+            if hasattr(value, "item"):
+                value = value.item()
+            snapshot[f"slack_{name}"] = int(value) if isinstance(value, int) else float(value)
         snapshots[int(env_id)] = snapshot
     return snapshots
 
@@ -318,6 +324,17 @@ def _cbf_solver_summary(records: list[dict[str, float | int]]) -> dict[str, floa
         "max_dual_residual": max(float(record["dual_residual_max"]) for record in records),
         "solved_inaccurately_count": sum(int(record["inaccurate_count"]) for record in records),
         "maximum_iteration_reached_count": sum(int(record["max_iteration_count"]) for record in records),
+        "max_point_slack": max(float(record.get("slack_max", 0.0)) for record in records),
+        "mean_nonzero_max_point_slack": (
+            sum(float(record.get("slack_mean_nonzero", 0.0)) for record in records) / len(records)
+        ),
+        "max_active_lidar_points": max(int(record.get("slack_active_point_count", 0)) for record in records),
+        "minimum_barrier_residual_at_episode_end": min(
+            float(record.get("slack_current_min_residual", 0.0)) for record in records
+        ),
+        "command_envelope_guard_count": sum(
+            int(record.get("slack_command_envelope_guard_count", 0)) for record in records
+        ),
         "timing_scope": "OSQP update/solve/polish only; excludes CBF construction and PyTorch CPU/GPU transfers",
     }
 

@@ -31,15 +31,19 @@ def tracking_velocity_command(
     controller: str,
     tau_accel_s: float,
     tau_decel_s: float,
-    feedback_gain_s_inv: float,
+    navigation_kp_s_inv: float,
+    acceleration_lower: np.ndarray,
+    acceleration_upper: np.ndarray,
     velocity_lower: np.ndarray,
     velocity_upper: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """Return clipped command, unclipped command, desired acceleration, and tau.
 
-    ``feedback_inverse`` implements the inverse first-order model
-    ``v_cmd = v + tau * (v_ref_dot + k_e * (v_ref - v))``.  The other two
-    modes provide the no-compensation and feed-forward comparison baselines.
+    ``cbf_proportional_inverse`` mirrors the obstacle-free part of the planned
+    CBF pipeline.  The navigation velocity request first becomes
+    ``a_nom = Kp * (v_ref - v)``; that acceleration would be the CBF QP's
+    nominal (and safe) acceleration when no obstacle constraint is active.
+    The inverse model then produces ``v_cmd = v + tau * a_nom``.
     """
     if controller == "baseline":
         desired_acceleration = reference_acceleration
@@ -49,8 +53,12 @@ def tracking_velocity_command(
         desired_acceleration = reference_acceleration
         tau_s = select_tracking_tau(measured_velocity, desired_acceleration, tau_accel_s, tau_decel_s)
         unclipped = reference_velocity + tau_s * desired_acceleration
-    elif controller == "feedback_inverse":
-        desired_acceleration = reference_acceleration + feedback_gain_s_inv * (reference_velocity - measured_velocity)
+    elif controller == "cbf_proportional_inverse":
+        desired_acceleration = np.clip(
+            navigation_kp_s_inv * (reference_velocity - measured_velocity),
+            acceleration_lower,
+            acceleration_upper,
+        )
         tau_s = select_tracking_tau(measured_velocity, desired_acceleration, tau_accel_s, tau_decel_s)
         unclipped = measured_velocity + tau_s * desired_acceleration
     else:

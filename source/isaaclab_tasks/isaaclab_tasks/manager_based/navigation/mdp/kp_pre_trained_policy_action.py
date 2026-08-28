@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import math
 import torch
 
 from isaaclab.assets import Articulation
@@ -28,32 +29,47 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def zoh_average_acceleration_gain(step_dt: float, tracking_tau_s: float) -> float:
+    """Return the ZOH gain from interval-average acceleration to command offset."""
+    if step_dt <= 0.0 or tracking_tau_s <= 0.0:
+        raise ValueError("step_dt and tracking_tau_s must be positive.")
+    return step_dt / (1.0 - math.exp(-step_dt / tracking_tau_s))
+
+
 def compute_kp_velocity_command(
     desired_velocity: torch.Tensor,
-    velocity_setpoint: torch.Tensor,
+    measured_velocity: torch.Tensor,
     step_dt: float,
+    tracking_tau_s: float,
     kp: torch.Tensor,
     acceleration_lower: torch.Tensor,
     acceleration_upper: torch.Tensor,
     velocity_lower: torch.Tensor,
     velocity_upper: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return bounded nominal acceleration and integrated planar command.
+    """Return model-aware nominal acceleration and a bounded planar command.
 
-    All velocity tensors are planar body-frame velocities.  The Kp error is
-    computed from the previously issued velocity setpoint, rather than the
-    measured robot velocity: the integrated command is therefore the state
-    advanced by this acceleration model.  ``step_dt`` is supplied by the
-    environment at action-processing time, rather than being a controller
-    constant, so the result remains correct if environment decimation changes.
+    All velocity tensors are planar body-frame velocities. ``step_dt`` is the
+    high-level command hold period. The ZOH gain maps a desired *average*
+    acceleration over that period to the locomotion velocity command required
+    by the fixed first-order tracking model.
     """
+    zoh_gain_s = zoh_average_acceleration_gain(step_dt, tracking_tau_s)
     nominal_acceleration = torch.clamp(
-        kp * (desired_velocity - velocity_setpoint),
+        kp * (desired_velocity - measured_velocity),
         min=acceleration_lower,
         max=acceleration_upper,
     )
+    effective_lower = torch.maximum(acceleration_lower, (velocity_lower - measured_velocity) / zoh_gain_s)
+    effective_upper = torch.minimum(acceleration_upper, (velocity_upper - measured_velocity) / zoh_gain_s)
+    feasible = torch.all(effective_lower <= effective_upper, dim=-1, keepdim=True)
+    safe_acceleration = torch.clamp(nominal_acceleration, min=effective_lower, max=effective_upper)
+    # If a transient measured velocity lies outside the command envelope,
+    # command the nearest achievable return rather than advancing stale state.
+    safe_acceleration = torch.where(feasible, safe_acceleration, torch.zeros_like(safe_acceleration))
+    commanded_velocity = measured_velocity + zoh_gain_s * safe_acceleration
     commanded_velocity = torch.clamp(
-        velocity_setpoint + step_dt * nominal_acceleration,
+        commanded_velocity,
         min=velocity_lower,
         max=velocity_upper,
     )
@@ -64,18 +80,17 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
     """Pre-trained locomotion action with bounded Kp planar-velocity tracking.
 
     The high-level policy action remains ``(v_RL,x, v_RL,y, yaw_rate)``.  Its
-    planar desired velocity is a body-frame value. The controller advances its
-    previously issued body-frame velocity setpoint and the low-level policy
-    receives ``(v_cmd,x, v_cmd,y, yaw_rate)``. The yaw command is intentionally
-    passed through unchanged.
+    planar desired velocity is a body-frame value. The controller compares it
+    with measured body velocity and sends a ZOH model-aware velocity command to
+    the low-level policy. The yaw command is intentionally passed through
+    unchanged.
     """
 
     cfg: KpPreTrainedPolicyActionCfg
 
     def __init__(self, cfg: KpPreTrainedPolicyActionCfg, env: ManagerBasedRLEnv) -> None:
-        # This mirrors PreTrainedPolicyAction initialization instead of calling
-        # its __init__, because the low-level observation must bind to the
-        # integrated command rather than to the original desired velocity.
+        # This mirrors PreTrainedPolicyAction initialization because the
+        # low-level observation binds to the model-aware command, not v_RL.
         ActionTerm.__init__(self, cfg, env)
 
         if len(cfg.action_scales) != 3:
@@ -116,10 +131,11 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
         cfg.low_level_observations.velocity_commands.params = dict()
         self._low_level_obs_manager = ObservationManager({"ll_policy": cfg.low_level_observations}, env)
         self._counter = 0
+        self._control_dt = cfg.low_level_decimation * env.physics_dt
 
     @property
     def processed_actions(self) -> torch.Tensor:
-        """Integrated body-frame velocity command sent to the low-level policy."""
+        """Model-aware body-frame velocity command sent to the low-level policy."""
         return self._processed_actions
 
     @property
@@ -134,7 +150,7 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
 
     @property
     def commanded_velocity(self) -> torch.Tensor:
-        """The integrated, velocity-limited planar command in the body frame."""
+        """The model-aware, velocity-limited planar command in the body frame."""
         return self._processed_actions[:, :2]
 
     def process_actions(self, actions: torch.Tensor):
@@ -144,14 +160,14 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             )
         self._raw_actions[:] = actions * self._action_scales
 
-        # The processed planar action is the previous body-frame velocity
-        # setpoint passed to the locomotion policy.  Advance that reference in
-        # the same way as the CBF evaluation action, rather than rebasing the
-        # acceleration on the robot's measured velocity.
+    def _update_model_aware_command(self) -> None:
+        """Recompute the held navigation target against the latest measured velocity."""
+        measured_velocity = self.robot.data.root_lin_vel_b[:, :2]
         self._nominal_acceleration[:], self._processed_actions[:, :2] = compute_kp_velocity_command(
             self._raw_actions[:, :2],
-            self._processed_actions[:, :2],
-            self._env.step_dt,
+            measured_velocity,
+            self._control_dt,
+            self.cfg.tracking_tau_s,
             self._kp,
             self._acceleration_lower,
             self._acceleration_upper,
@@ -159,6 +175,17 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             self._velocity_upper,
         )
         self._processed_actions[:, 2] = self._raw_actions[:, 2]
+
+    def apply_actions(self):
+        """Update the model-aware command at the locomotion-policy cadence."""
+        if self._counter % self.cfg.low_level_decimation == 0:
+            self._update_model_aware_command()
+            low_level_obs = self._low_level_obs_manager.compute_group("ll_policy")
+            self.low_level_actions[:] = self.policy(low_level_obs)
+            self._low_level_action_term.process_actions(self.low_level_actions)
+            self._counter = 0
+        self._low_level_action_term.apply_actions()
+        self._counter += 1
 
     def _limits_to_tensors(
         self, limits: tuple[tuple[float, float], tuple[float, float]], name: str
@@ -183,3 +210,5 @@ class KpPreTrainedPolicyActionCfg(PreTrainedPolicyActionCfg):
     """Body-frame component-wise acceleration bounds in m/s^2: ``((x_min, x_max), (y_min, y_max))``."""
     velocity_limits: tuple[tuple[float, float], tuple[float, float]] = ((-1.0, 1.0), (-1.0, 1.0))
     """Existing body-frame component-wise planar velocity bounds in m/s."""
+    tracking_tau_s: float = 0.30
+    """Fixed first-order locomotion tracking time constant used by ZOH preprocessing, in seconds."""

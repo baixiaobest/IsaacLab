@@ -173,6 +173,9 @@ class StaticCbfTrace:
             "nearest_pedestrian_velocity_xy_world": [],
             "nearest_pedestrian_distance_m": [],
             "cbf_slack": [],
+            "cbf_mean_slack": [],
+            "cbf_minimum_residual": [],
+            "cbf_active_point_count": [],
             "cbf_solve_failures": [],
             "cbf_velocity_feasibility_failures": [],
         }
@@ -219,6 +222,13 @@ class StaticCbfTrace:
 
         slack_metrics = getattr(action_term, "slack_metrics", {})
         slack = slack_metrics.get("current", torch.zeros(raw_env.num_envs, device=raw_env.device))
+        mean_slack = slack_metrics.get("current_mean", torch.zeros(raw_env.num_envs, device=raw_env.device))
+        minimum_residual = slack_metrics.get(
+            "current_min_residual", torch.zeros(raw_env.num_envs, device=raw_env.device)
+        )
+        active_point_count = slack_metrics.get(
+            "active_point_count", torch.zeros(raw_env.num_envs, device=raw_env.device, dtype=torch.long)
+        )
         solve_failures = slack_metrics.get("solve_failures", torch.zeros(raw_env.num_envs, device=raw_env.device))
         feasibility_failures = slack_metrics.get(
             "velocity_feasibility_failures", torch.zeros(raw_env.num_envs, device=raw_env.device)
@@ -236,6 +246,9 @@ class StaticCbfTrace:
         self._append("nearest_pedestrian_velocity_xy_world", nearest_vel)
         self._append("nearest_pedestrian_distance_m", nearest_distance)
         self._append("cbf_slack", slack)
+        self._append("cbf_mean_slack", mean_slack)
+        self._append("cbf_minimum_residual", minimum_residual)
+        self._append("cbf_active_point_count", active_point_count)
         self._append("cbf_solve_failures", solve_failures)
         self._append("cbf_velocity_feasibility_failures", feasibility_failures)
         self.sample_count += raw_env.num_envs
@@ -272,6 +285,9 @@ class StaticCbfTrace:
                     "nearest_pedestrian_position_xy": nearest_pos[env_id].detach().cpu().tolist(),
                     "nearest_pedestrian_velocity_xy_world": nearest_vel[env_id].detach().cpu().tolist(),
                     "cbf_slack": float(slack[env_id].item()),
+                    "cbf_mean_slack": float(mean_slack[env_id].item()),
+                    "cbf_minimum_residual": float(minimum_residual[env_id].item()),
+                    "cbf_active_point_count": int(active_point_count[env_id].item()),
                     "cbf_solve_failures": int(solve_failures[env_id].item()),
                     "cbf_velocity_feasibility_failures": int(feasibility_failures[env_id].item()),
                 }

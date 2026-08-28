@@ -19,11 +19,14 @@ from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action i
     StaticObstacleCbfPreTrainedPolicyActionCfg,
     _OsqpSolveStats,
     StaticObstacleCbfPreTrainedPolicyAction,
-    integrate_velocity_setpoint_world,
+    effective_zoh_acceleration_bounds,
+    velocity_command_from_average_acceleration,
+    zoh_average_acceleration_gain,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.kp_pre_trained_policy_action import (
     KpPreTrainedPolicyAction,
     compute_kp_velocity_command,
+    zoh_average_acceleration_gain,
 )
 from isaaclab_tasks.utils import load_cfg_from_registry
 
@@ -45,19 +48,20 @@ def _limits(kp_value: float = 5.0):
     )
 
 
-def test_kp_velocity_command_integrates_unclipped_acceleration() -> None:
+def test_kp_velocity_command_rebases_on_measured_velocity() -> None:
     kp, accel_lo, accel_hi, vel_lo, vel_hi = _limits()
+    gain = zoh_average_acceleration_gain(0.08, 0.30)
     acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[0.3, -0.2]]), torch.tensor([[0.1, -0.1]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
+        torch.tensor([[0.3, -0.2]]), torch.tensor([[0.1, -0.1]]), 0.08, 0.30, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
     assert torch.allclose(acceleration, torch.tensor([[1.0, -0.5]]))
-    assert torch.allclose(command, torch.tensor([[0.18, -0.14]]))
+    assert torch.allclose(command, torch.tensor([[0.1 + gain, -0.1 - 0.5 * gain]]))
 
 
 def test_kp_velocity_command_respects_acceleration_limits() -> None:
     kp, accel_lo, accel_hi, vel_lo, vel_hi = _limits()
     acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[1.0, -1.0]]), torch.zeros(1, 2), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
+        torch.tensor([[1.0, -1.0]]), torch.zeros(1, 2), 0.08, 0.30, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
     assert torch.equal(acceleration, torch.tensor([[5.0, -5.0]]))
     assert torch.allclose(command, torch.tensor([[0.4, -0.4]]))
@@ -66,7 +70,7 @@ def test_kp_velocity_command_respects_acceleration_limits() -> None:
 def test_kp_velocity_command_respects_velocity_limits() -> None:
     kp, accel_lo, accel_hi, vel_lo, vel_hi = _limits()
     acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[2.0, -2.0]]), torch.tensor([[1.2, -1.2]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
+        torch.tensor([[2.0, -2.0]]), torch.tensor([[1.2, -1.2]]), 0.08, 0.30, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
     assert torch.equal(acceleration, torch.tensor([[4.0, -4.0]]))
     assert torch.equal(command, torch.tensor([[1.3, -1.3]]))
@@ -75,29 +79,30 @@ def test_kp_velocity_command_respects_velocity_limits() -> None:
 def test_kp8_velocity_command_preserves_acceleration_and_velocity_limits() -> None:
     kp, accel_lo, accel_hi, vel_lo, vel_hi = _limits(8.0)
     acceleration, command = compute_kp_velocity_command(
-        torch.tensor([[2.0, -2.0]]), torch.tensor([[1.2, -1.2]]), 0.08, kp, accel_lo, accel_hi, vel_lo, vel_hi
+        torch.tensor([[2.0, -2.0]]), torch.tensor([[1.2, -1.2]]), 0.08, 0.30, kp, accel_lo, accel_hi, vel_lo, vel_hi
     )
 
     assert torch.equal(acceleration, torch.tensor([[5.0, -5.0]]))
     assert torch.equal(command, torch.tensor([[1.3, -1.3]]))
 
 
-def test_action_term_forwards_integrated_velocity_and_unchanged_yaw() -> None:
+def test_action_term_forwards_model_aware_velocity_and_unchanged_yaw() -> None:
     """The private low-level command differs only in planar Kp preprocessing."""
     term = object.__new__(KpPreTrainedPolicyAction)
-    term.cfg = SimpleNamespace(action_scales=(1.0, 1.0, 1.0))
+    term.cfg = SimpleNamespace(action_scales=(1.0, 1.0, 1.0), tracking_tau_s=0.30)
     term._action_scales = torch.ones(3)
     term._raw_actions = torch.zeros(1, 3)
-    term._processed_actions = torch.zeros(1, 3)
+    term._processed_actions = torch.tensor([[1.2, -1.2, 0.0]])
     term._nominal_acceleration = torch.zeros(1, 2)
     term._kp, term._acceleration_lower, term._acceleration_upper, term._velocity_lower, term._velocity_upper = _limits()
-    term._env = SimpleNamespace(step_dt=0.08)
+    term._control_dt = 0.02
     term.robot = SimpleNamespace(data=SimpleNamespace(root_lin_vel_b=torch.tensor([[0.0, 0.0, 0.0]])))
 
     term.process_actions(torch.tensor([[1.0, -1.0, 0.7]]))
+    term._update_model_aware_command()
 
     assert torch.equal(term.nominal_acceleration, torch.tensor([[5.0, -5.0]]))
-    assert torch.allclose(term.processed_actions, torch.tensor([[0.4, -0.4, 0.7]]))
+    assert torch.allclose(term.processed_actions, torch.tensor([[1.3, -1.3, 0.7]]))
 
 
 def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> None:
@@ -113,6 +118,7 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
     assert kp_task.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
+    assert kp_task.actions.pre_trained_policy_action.tracking_tau_s == 0.30
     assert kp_task.sim.dt * kp_task.decimation == 0.08
 
 
@@ -165,34 +171,36 @@ def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
     assert cfg.actions.pre_trained_policy_action.d_margin == 0.70
     assert cfg.actions.pre_trained_policy_action.d_cbf_active == 5.0
     assert cfg.actions.pre_trained_policy_action.max_lidar_points == 64
+    assert cfg.actions.pre_trained_policy_action.tracking_tau_s == 0.30
     assert cfg.sim.dt * cfg.actions.pre_trained_policy_action.low_level_decimation == 0.02
 
 
-def test_cbf_velocity_setpoint_accumulates_successive_acceleration_updates() -> None:
-    """A persistent CBF reference keeps braking when measured velocity lags."""
-    root_quat_w = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
-    velocity_lower_b = torch.tensor((-1.5, -1.5))
-    velocity_upper_b = torch.tensor((1.5, 1.5))
+def test_cbf_zoh_mapping_rebases_on_measured_velocity() -> None:
+    """The CBF command is a stateless inverse-model command, not an integrator."""
+    gain = zoh_average_acceleration_gain(0.02, 0.30)
+    assert gain == pytest.approx(0.310111, rel=1.0e-5)
 
-    setpoint_w, command_b = integrate_velocity_setpoint_world(
-        torch.tensor([[1.0, 0.0]]),
-        torch.tensor([[-5.0, 0.0]]),
-        root_quat_w,
-        0.02,
-        velocity_lower_b,
-        velocity_upper_b,
+    command = velocity_command_from_average_acceleration(
+        torch.tensor([[1.0, -0.4]]), torch.tensor([[-5.0, 2.0]]), gain
     )
-    setpoint_w, command_b = integrate_velocity_setpoint_world(
-        setpoint_w,
-        torch.tensor([[-5.0, 0.0]]),
-        root_quat_w,
-        0.02,
-        velocity_lower_b,
-        velocity_upper_b,
-    )
+    assert torch.allclose(command, torch.tensor([[1.0 - 5.0 * gain, -0.4 + 2.0 * gain]]))
 
-    assert torch.allclose(setpoint_w, torch.tensor([[0.8, 0.0]]))
-    assert torch.allclose(command_b, torch.tensor([[0.8, 0.0]]))
+
+def test_cbf_zoh_effective_bounds_enforce_velocity_command_envelope() -> None:
+    gain = zoh_average_acceleration_gain(0.02, 0.30)
+    measured = torch.tensor([[1.4, -1.4]])
+    lower, upper = effective_zoh_acceleration_bounds(
+        measured,
+        gain,
+        torch.tensor((-5.0, -5.0)),
+        torch.tensor((5.0, 5.0)),
+        torch.tensor((-1.5, -1.5)),
+        torch.tensor((1.5, 1.5)),
+    )
+    command_at_lower = velocity_command_from_average_acceleration(measured, lower, gain)
+    command_at_upper = velocity_command_from_average_acceleration(measured, upper, gain)
+    assert torch.all(command_at_lower >= torch.tensor((-1.5, -1.5)))
+    assert torch.all(command_at_upper <= torch.tensor((1.5, 1.5)))
 
 
 def test_cbf_solver_statistics_accumulate_osqp_results_without_cuda_tensors() -> None:
