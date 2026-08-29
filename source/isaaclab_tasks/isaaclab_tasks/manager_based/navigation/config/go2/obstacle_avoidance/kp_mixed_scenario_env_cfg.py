@@ -67,7 +67,7 @@ class CbfKpActionsCfg(ActionsCfg):
             kp=(8.0, 8.0),
             acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
             velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
-            d_margin=0.70,
+            d_margin=1.2,
             d_cbf_active=5.0,
             gamma1=2.0,
             gamma2=2.0,

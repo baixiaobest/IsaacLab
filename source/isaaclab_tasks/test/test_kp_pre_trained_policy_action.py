@@ -168,7 +168,7 @@ def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
     assert cfg.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
-    assert cfg.actions.pre_trained_policy_action.d_margin == 0.70
+    assert cfg.actions.pre_trained_policy_action.d_margin == 1.2
     assert cfg.actions.pre_trained_policy_action.d_cbf_active == 5.0
     assert cfg.actions.pre_trained_policy_action.max_lidar_points == 64
     assert cfg.actions.pre_trained_policy_action.tracking_tau_s == 0.30
