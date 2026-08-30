@@ -6,6 +6,7 @@ from . import obstacle_avoidance_env_cfg
 from . import temporal_lidar_env_cfg
 from . import observation_modifiers
 from . import pedestrian_scenario_mixins
+from . import lidar_velocity_data_env_cfg
 from . import mixed_scenario_mixins
 
 ###############
@@ -206,6 +207,18 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.kp_mixed_scenario_env_cfg:MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
+    id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Point-Velocity-Data-Unitree-Go2-Play-v0",
+    entry_point=f"{__name__}.lidar_velocity_data_env:FixedCoveragePedestrianCrowdNavigationEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.lidar_velocity_data_env_cfg:MixedTemporalLidarKpPointVelocityDataEnvCfg"
+        ),
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
     },
 )

@@ -54,9 +54,16 @@ class HeldScanLidarCollector:
 
         self._pending_hit_xy = torch.zeros(self.num_envs, self.num_rays, 2, device=self.device)
         self._pending_state = torch.zeros(self.num_envs, self.num_rays, dtype=torch.uint8, device=self.device)
+        # Mesh ids are optional on the base ray caster.  Data-collection tasks enable
+        # them to identify which scene object produced each reflection.
+        self._pending_ray_mesh_ids = torch.full(
+            (self.num_envs, self.num_rays), -1, dtype=torch.int16, device=self.device
+        )
+        self._pending_ped_velocity_w: torch.Tensor | None = None
         self._pending_ego_xy = torch.zeros(self.num_envs, 2, device=self.device)
         self._pending_ego_yaw = torch.zeros(self.num_envs, device=self.device)
         self._pending_reference_time_s = torch.zeros(self.num_envs, device=self.device)
+        self._capture_index = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._pending_valid = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._latest_reference_time_s = torch.zeros(self.num_envs, device=self.device)
         self._has_latest = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -102,6 +109,9 @@ class HeldScanLidarCollector:
             "ego_xy": self._pending_ego_xy,
             "ego_yaw": self._pending_ego_yaw,
             "scan_age_s": self.scan_age_s(),
+            "ray_mesh_ids": self._pending_ray_mesh_ids,
+            "pedestrian_velocity_w": self._pending_ped_velocity_w,
+            "capture_index": self._capture_index,
         }
 
     def consume_completed(self) -> dict[str, torch.Tensor] | None:
@@ -119,6 +129,11 @@ class HeldScanLidarCollector:
             "ego_xy": self._pending_ego_xy[env_ids],
             "ego_yaw": self._pending_ego_yaw[env_ids],
             "scan_age_s": self.scan_age_s()[env_ids],
+            "ray_mesh_ids": self._pending_ray_mesh_ids[env_ids],
+            "pedestrian_velocity_w": (
+                self._pending_ped_velocity_w[env_ids] if self._pending_ped_velocity_w is not None else None
+            ),
+            "capture_index": self._capture_index[env_ids],
         }
 
     def _resolve_env_ids(self, env_ids: Sequence[int] | torch.Tensor | None) -> torch.Tensor:
@@ -153,6 +168,24 @@ class HeldScanLidarCollector:
         self._pending_ego_yaw[env_ids] = yaw[env_ids]
         self._pending_reference_time_s[env_ids] = self._time_s
         self._pending_valid[env_ids] = True
+        self._capture_index[env_ids] += 1
+
+        ray_mesh_ids = getattr(data, "ray_mesh_ids", None)
+        if ray_mesh_ids is not None:
+            self._pending_ray_mesh_ids[env_ids] = ray_mesh_ids[env_ids].squeeze(-1).to(torch.int16)
+        else:
+            self._pending_ray_mesh_ids[env_ids] = -1
+
+        # The crowd is created after the collector during environment startup, so
+        # allocate this optional buffer lazily on the first live capture.  Storing
+        # velocity here, rather than when rollout observations are read, keeps the
+        # pedestrian state synchronized with the LiDAR reflection time.
+        crowd_manager = getattr(self.env, "crowd_manager", None)
+        if crowd_manager is not None:
+            velocity_w = crowd_manager.get_velocities()
+            if self._pending_ped_velocity_w is None or self._pending_ped_velocity_w.shape != velocity_w.shape:
+                self._pending_ped_velocity_w = torch.zeros_like(velocity_w)
+            self._pending_ped_velocity_w[env_ids] = velocity_w[env_ids]
 
 
 class HeldScanTemporalLidarRLEnv(ManagerBasedRLEnv):
