@@ -66,6 +66,27 @@ class PointVelocityDataset(Dataset):
     def __len__(self) -> int:
         return self.offsets[-1]
 
+    @staticmethod
+    def _canonical_lidar(array: np.ndarray, source: str) -> np.ndarray:
+        """Return a temporal scan in the model's ``(C, H, bins)`` layout.
+
+        Observation-manager terms are flattened when their group is
+        concatenated, so rollout files made from ``obstacle_scan`` contain a
+        single 1024-element vector.  Keep the HDF5 schema tolerant of that
+        native observation representation while always presenting the CNN with
+        its explicit ``(2, 4, 128)`` layout.
+        """
+        array = np.asarray(array, dtype=np.float32)
+        expected_shape = (2, 4, 128)
+        if array.shape == expected_shape:
+            return array
+        if array.size == int(np.prod(expected_shape)):
+            return array.reshape(expected_shape)
+        raise ValueError(
+            f"{source} has LiDAR sample shape {array.shape}; expected {expected_shape} "
+            "or a flattened 1024-element temporal scan."
+        )
+
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         if index < 0 or index >= len(self):
             raise IndexError(index)
@@ -75,7 +96,12 @@ class PointVelocityDataset(Dataset):
         with h5py.File(entry.file_path, "r") as handle:
             group = handle["data"][entry.episode_name]
             return {
-                "lidar": torch.from_numpy(np.asarray(group[self.input_name][sample_index], dtype=np.float32)),
+                "lidar": torch.from_numpy(
+                    self._canonical_lidar(
+                        group[self.input_name][sample_index],
+                        f"{entry.file_path}:{entry.episode_name}/{self.input_name}",
+                    )
+                ),
                 "target": torch.from_numpy(np.asarray(group["point_velocity_w"][sample_index], dtype=np.float32)),
                 "reflection_mask": torch.from_numpy(np.asarray(group["reflection_mask"][sample_index], dtype=np.bool_)),
                 "dynamic_mask": torch.from_numpy(np.asarray(group["dynamic_mask"][sample_index], dtype=np.bool_)),
