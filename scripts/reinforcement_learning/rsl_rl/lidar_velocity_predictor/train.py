@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train LiDAR per-bin velocity predictor.")
     parser.add_argument("--dataset_path", required=True)
     parser.add_argument("--output_dir", default="logs/lidar_velocity_predictor")
-    parser.add_argument("--run_name", default="run")
+    parser.add_argument("--run_name", default=None, help="Optional run name; defaults to a timestamp.")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument(
         "--checkpoint_save_interval",
@@ -112,6 +113,8 @@ def main() -> None:
     args = parse_args()
     if args.checkpoint_save_interval < 0:
         raise ValueError("--checkpoint_save_interval must be greater than or equal to zero.")
+    if args.run_name is None:
+        args.run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
