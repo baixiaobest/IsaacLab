@@ -115,7 +115,7 @@ class DynamicCbfKpActionsCfg(ActionsCfg):
             tracking_tau_s=0.30,
             slack_penalty=1000.0,
             max_lidar_points=64,
-            velocity_predictor_jit_path="logs/lidar_velocity_predictor/best_jit.pt",
+            velocity_predictor_jit_path="logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_jit.pt",
             require_velocity_predictor=True,
             debug_vis=True,
         )
