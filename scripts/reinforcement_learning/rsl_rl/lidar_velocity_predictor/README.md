@@ -26,3 +26,11 @@ Train, evaluate, and export:
 ```
 
 The exported model takes `(batch, 2, 4, 128)` and returns `(batch, 128, 2)` world-frame XY velocities.
+
+Training reports each epoch to Weights & Biases by default under the `lidar velocity predictor`
+project. Authenticate once with `wandb login`, choose another project with `--wandb_project`, or
+train without remote logging via `--logger none`.
+`last.pt` is uploaded each epoch; retained checkpoints under `checkpoints/epoch_*.pt` are saved
+and uploaded every 10 epochs by default (configure with `--checkpoint_save_interval`).
+Whenever validation produces a new best checkpoint, both `best.pt` and its TorchScript export
+`best_jit.pt` are saved and uploaded.

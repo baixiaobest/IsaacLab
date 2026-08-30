@@ -16,12 +16,19 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
         super().__post_init__()
         self.scene.num_envs = 40
         self.scene.terrain.class_type = FixedCoverageTerrainImporter
-        self.scene.terrain.terrain_generator = build_mixed_static_pedestrian_corridor(
+        terrain_generator = build_mixed_static_pedestrian_corridor(
             discrete_obstacles_proportion=1.0,
             concentric_maze_proportion=1.0,
             ped_corridor_proportion=2.0,
             num_cols=4,
         )
+        # The shared terrain defaults begin the discrete-obstacle curriculum
+        # with zero high obstacles.  This data-only variant must retain useful
+        # static LiDAR returns even at fixed level 0, while still growing more
+        # cluttered at higher levels.
+        discrete_cfg = terrain_generator.sub_terrains["discrete_obstacles"]
+        discrete_cfg.min_num_high_obstacles = 4
+        self.scene.terrain.terrain_generator = terrain_generator
         self.scene.terrain.max_init_terrain_level = None
         self.scene.obstacle_scanner.update_mesh_ids = True
 

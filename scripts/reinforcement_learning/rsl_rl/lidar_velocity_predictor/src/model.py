@@ -43,11 +43,13 @@ class TemporalLidarVelocityCNN(nn.Module):
                     nn.init.zeros_(module.bias)
 
     def forward(self, lidar: torch.Tensor) -> torch.Tensor:
-        if lidar.ndim != 4 or lidar.shape[1:] != (2, 4, 128):
-            raise ValueError(f"Expected LiDAR input (B, 2, 4, 128), received {tuple(lidar.shape)}.")
+        # Keep validation TorchScript-compatible: tuple formatting of dynamic
+        # shapes cannot be compiled by ``torch.jit.script``.
+        if lidar.dim() != 4 or lidar.size(1) != 2 or lidar.size(2) != 4 or lidar.size(3) != 128:
+            raise ValueError("Expected LiDAR input with shape (B, 2, 4, 128).")
         encoded = self.encoder(lidar)
-        if encoded.shape[1:] != (64, 1, 8):
-            raise RuntimeError(f"Unexpected encoder output shape: {tuple(encoded.shape)}")
+        if encoded.size(1) != 64 or encoded.size(2) != 1 or encoded.size(3) != 8:
+            raise RuntimeError("Unexpected encoder output shape.")
         latent = self.fusion(encoded.flatten(start_dim=1))
-        decoded = self.decoder(latent.view(latent.shape[0], 64, 8))
+        decoded = self.decoder(latent.view(latent.size(0), 64, 8))
         return decoded.transpose(1, 2)

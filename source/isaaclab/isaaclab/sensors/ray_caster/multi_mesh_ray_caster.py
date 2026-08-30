@@ -395,7 +395,11 @@ class MultiMeshRayCaster(RayCaster):
         )
 
         if self.cfg.update_mesh_ids:
-            self._data.ray_mesh_ids[env_ids] = mesh_ids
+            # ``raycast_dynamic_meshes`` returns one mesh index per ray with
+            # shape ``(num_envs, num_rays)``.  Keep the ray-caster data
+            # convention of a trailing channel dimension, matching
+            # ``ray_hits_w`` and the camera mesh-id buffer.
+            self._data.ray_mesh_ids[env_ids] = mesh_ids.unsqueeze(-1)
 
     def __del__(self):
         super().__del__()

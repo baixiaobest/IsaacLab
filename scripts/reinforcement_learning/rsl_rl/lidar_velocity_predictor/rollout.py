@@ -134,7 +134,9 @@ def main() -> None:
         base_env = multi_agent_to_single_agent(base_env)
     if not isinstance(base_env.unwrapped, ManagerBasedRLEnv):
         raise RuntimeError("Point velocity collection requires a manager-based RL environment.")
-    base_env.seed(args_cli.seed)
+    # Gymnasium's outer ``OrderEnforcing`` wrapper does not proxy ``seed``.
+    # Seed the Isaac environment directly, as the other Isaac rollout tools do.
+    base_env.unwrapped.seed(args_cli.seed)
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     checkpoint = retrieve_file_path(args_cli.checkpoint)
