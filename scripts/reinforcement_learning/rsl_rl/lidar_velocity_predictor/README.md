@@ -37,3 +37,16 @@ train without remote logging via `--logger none`.
 and uploaded every 10 epochs by default (configure with `--checkpoint_save_interval`).
 Whenever validation produces a new best checkpoint, both `best.pt` and its TorchScript export
 `best_jit.pt` are saved and uploaded.
+
+To continue a stopped run, provide its trainable checkpoint. This restores the model, AdamW
+moments, and the previous best validation score; `--epochs` is the total target epoch, so this
+example continues an epoch-20 run through epoch 50:
+
+```bash
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/train.py \
+  --dataset_path datasets/lidar_point_velocity --epochs 50 \
+  --resume_checkpoint logs/lidar_velocity_predictor/first_run/last.pt
+```
+
+Use `--resume_model_only` with `--resume_checkpoint` to initialize from a previous model while
+resetting AdamW and the epoch schedule. Resume from `last.pt` or `best.pt`, not `best_jit.pt`.

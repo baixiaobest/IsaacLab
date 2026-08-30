@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import random
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", default="logs/lidar_velocity_predictor")
     parser.add_argument("--run_name", default=None, help="Optional run name; defaults to a timestamp.")
     parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument(
+        "--resume_checkpoint",
+        default=None,
+        help=(
+            "Path to a training .pt checkpoint (for example last.pt). Restores model and AdamW state and "
+            "continues at the following epoch. --epochs is the total target epoch count."
+        ),
+    )
+    parser.add_argument(
+        "--resume_model_only",
+        action="store_true",
+        help="Load only model weights from --resume_checkpoint and start a new optimizer/epoch schedule.",
+    )
     parser.add_argument(
         "--checkpoint_save_interval",
         type=int,
@@ -104,6 +118,71 @@ def _publish_deployment_torchscript(model: torch.nn.Module, output_path: Path) -
     os.replace(temporary, output_path)
 
 
+def _load_resume_checkpoint(
+    checkpoint_path: Path,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    model_only: bool,
+    learning_rate: float,
+    weight_decay: float,
+) -> tuple[int, float]:
+    """Restore a trainable checkpoint and return the next epoch and best loss."""
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Resume checkpoint does not exist: {checkpoint_path}")
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    except Exception as error:
+        raise RuntimeError(
+            f"Failed to load {checkpoint_path} as a training checkpoint. "
+            "Use a .pt checkpoint such as last.pt or best.pt, not the TorchScript best_jit.pt artifact."
+        ) from error
+    if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("model_state_dict"), dict):
+        raise RuntimeError(
+            f"{checkpoint_path} is not a LiDAR predictor training checkpoint. "
+            "Expected a dictionary containing model_state_dict."
+        )
+    model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    if model_only:
+        return 1, float("inf")
+    if not isinstance(checkpoint.get("optimizer_state_dict"), dict):
+        raise RuntimeError(
+            f"{checkpoint_path} has no optimizer_state_dict. Use --resume_model_only to fine-tune from model weights only."
+        )
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    # Keep explicit command-line hyperparameters effective after optimizer-state
+    # restoration, while retaining AdamW moments for a genuine continuation.
+    for group in optimizer.param_groups:
+        group["lr"] = learning_rate
+        group["weight_decay"] = weight_decay
+    completed_epoch = checkpoint.get("epoch")
+    if not isinstance(completed_epoch, int) or completed_epoch < 0:
+        raise RuntimeError(f"{checkpoint_path} has an invalid completed epoch: {completed_epoch!r}.")
+    metrics = checkpoint.get("metrics", {})
+    prior_best = checkpoint.get("best_validation_loss")
+    # Checkpoints made before resume support did not save the running best
+    # score in last.pt. Recover it from its sibling best.pt when available.
+    if prior_best is None:
+        best_checkpoint_path = checkpoint_path.with_name("best.pt")
+        if best_checkpoint_path != checkpoint_path and best_checkpoint_path.is_file():
+            try:
+                best_checkpoint = torch.load(best_checkpoint_path, map_location="cpu", weights_only=False)
+                prior_best = best_checkpoint.get("metrics", {}).get("loss")
+            except Exception:
+                prior_best = None
+    if prior_best is None:
+        prior_best = metrics.get("loss", float("inf"))
+    if not isinstance(prior_best, (float, int)):
+        prior_best = float("inf")
+    return completed_epoch + 1, float(prior_best)
+
+
+def _resume_best_checkpoint_path(checkpoint_path: Path) -> Path | None:
+    """Find the best checkpoint belonging to a resumed training run, if retained."""
+    candidate = checkpoint_path if checkpoint_path.name == "best.pt" else checkpoint_path.with_name("best.pt")
+    return candidate if candidate.is_file() else None
+
+
 def evaluate(
     model: torch.nn.Module, loader: DataLoader, device: torch.device, static_loss_weight: float = 0.5
 ) -> dict[str, float]:
@@ -161,6 +240,8 @@ def main() -> None:
         raise ValueError("--checkpoint_save_interval must be greater than or equal to zero.")
     if not 0.0 <= args.static_loss_weight <= 1.0:
         raise ValueError("--static_loss_weight must be in [0, 1].")
+    if args.resume_model_only and args.resume_checkpoint is None:
+        raise ValueError("--resume_model_only requires --resume_checkpoint.")
     if args.run_name is None:
         args.run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     random.seed(args.seed)
@@ -180,12 +261,37 @@ def main() -> None:
     model = TemporalLidarVelocityCNN().to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_validation_loss = float("inf")
+    start_epoch = 1
+    resume_checkpoint_path = None
+    resume_best_checkpoint_path = None
+    if args.resume_checkpoint is not None:
+        resume_checkpoint_path = Path(args.resume_checkpoint).expanduser().resolve()
+        start_epoch, best_validation_loss = _load_resume_checkpoint(
+            resume_checkpoint_path,
+            model,
+            optimizer,
+            device,
+            args.resume_model_only,
+            args.learning_rate,
+            args.weight_decay,
+        )
+        resume_best_checkpoint_path = _resume_best_checkpoint_path(resume_checkpoint_path)
+        mode = "model weights only" if args.resume_model_only else "model and AdamW state"
+        print(f"Resumed {mode} from {resume_checkpoint_path}; starting epoch {start_epoch}.")
+    if start_epoch > args.epochs:
+        raise ValueError(
+            f"The resume checkpoint completed epoch {start_epoch - 1}, but --epochs is {args.epochs}. "
+            "Set --epochs higher than the checkpoint epoch to continue training."
+        )
     periodic_checkpoint_dir = output / "checkpoints"
     if args.checkpoint_save_interval > 0:
         periodic_checkpoint_dir.mkdir(exist_ok=True)
     metadata = {
         "args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test),
         "target_velocity_frame": "body_xy", "deployment_jit_path": str(deployment_jit_path),
+        "resume_checkpoint": str(resume_checkpoint_path) if resume_checkpoint_path is not None else None,
+        "resume_model_only": args.resume_model_only,
+        "start_epoch": start_epoch,
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     wandb_run = _init_wandb(args, output)
@@ -206,9 +312,22 @@ def main() -> None:
         )
         _upload_file_to_wandb(wandb_run, output / "metadata.json", output)
         _upload_file_to_wandb(wandb_run, output / "splits.json", output)
+    # A resumed run writes to its own timestamped directory by default. Carry
+    # forward the previous best artifact so the run remains deployable even
+    # when no later epoch improves on it.
+    if not args.resume_model_only and resume_best_checkpoint_path is not None:
+        output_best_checkpoint = output / "best.pt"
+        if resume_best_checkpoint_path.resolve() != output_best_checkpoint.resolve():
+            shutil.copy2(resume_best_checkpoint_path, output_best_checkpoint)
+            _upload_file_to_wandb(wandb_run, output_best_checkpoint, output)
+        source_best_jit = resume_best_checkpoint_path.with_name("best_jit.pt")
+        output_best_jit = output / "best_jit.pt"
+        if source_best_jit.is_file() and source_best_jit.resolve() != output_best_jit.resolve():
+            shutil.copy2(source_best_jit, output_best_jit)
+            _upload_file_to_wandb(wandb_run, output_best_jit, output)
 
     try:
-        for epoch in range(1, args.epochs + 1):
+        for epoch in range(start_epoch, args.epochs + 1):
             model.train()
             train_loss = 0.0
             for batch in train_loader:
@@ -227,11 +346,16 @@ def main() -> None:
                 train_loss += float(loss.item())
             average_train_loss = train_loss / max(len(train_loader), 1)
             metrics = evaluate(model, validation_loader, device, args.static_loss_weight)
+            score = metrics.get("loss", float("inf"))
+            is_best = score < best_validation_loss
+            if is_best:
+                best_validation_loss = score
             checkpoint = {
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch,
                 "metrics": metrics,
+                "best_validation_loss": best_validation_loss,
                 "model": "TemporalLidarVelocityCNN",
                 "args": vars(args),
             }
@@ -241,10 +365,7 @@ def main() -> None:
                 periodic_checkpoint_path = periodic_checkpoint_dir / f"epoch_{epoch:04d}.pt"
                 torch.save(checkpoint, periodic_checkpoint_path)
                 _upload_file_to_wandb(wandb_run, periodic_checkpoint_path, output)
-            score = metrics.get("loss", float("inf"))
-            is_best = score < best_validation_loss
             if is_best:
-                best_validation_loss = score
                 torch.save(checkpoint, output / "best.pt")
                 _upload_file_to_wandb(wandb_run, output / "best.pt", output)
                 _save_torchscript(model, output / "best_jit.pt")
