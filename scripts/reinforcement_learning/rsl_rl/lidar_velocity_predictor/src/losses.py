@@ -20,17 +20,11 @@ def masked_class_balanced_huber(
     range_m: torch.Tensor,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """Return equally weighted static/dynamic masked Smooth-L1 loss."""
-    point_loss = F.smooth_l1_loss(prediction, target, reduction="none").mean(dim=-1)
-    weights = distance_weight(range_m)
-    static_mask = reflection_mask & ~dynamic_mask
-
-    def class_loss(mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        denominator = (weights * mask).sum()
-        numerator = (weights * point_loss * mask).sum()
-        return numerator / denominator.clamp_min(1.0), denominator
-
-    static_loss, static_weight = class_loss(static_mask)
-    dynamic_loss, dynamic_weight = class_loss(dynamic_mask)
+    totals = masked_class_balanced_huber_totals(prediction, target, reflection_mask, dynamic_mask, range_m)
+    static_weight = totals["static_weight"]
+    dynamic_weight = totals["dynamic_weight"]
+    static_loss = totals["static_numerator"] / static_weight.clamp_min(1.0)
+    dynamic_loss = totals["dynamic_numerator"] / dynamic_weight.clamp_min(1.0)
     active = (static_weight > 0).to(torch.float32) + (dynamic_weight > 0).to(torch.float32)
     total = (static_loss * (static_weight > 0) + dynamic_loss * (dynamic_weight > 0)) / active.clamp_min(1.0)
     return total, {
@@ -38,6 +32,25 @@ def masked_class_balanced_huber(
         "dynamic_loss": dynamic_loss.detach(),
         "static_weight": static_weight.detach(),
         "dynamic_weight": dynamic_weight.detach(),
+    }
+
+
+def masked_class_balanced_huber_totals(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    reflection_mask: torch.Tensor,
+    dynamic_mask: torch.Tensor,
+    range_m: torch.Tensor,
+) -> dict[str, torch.Tensor]:
+    """Return unnormalized class terms for exact aggregation across batches."""
+    point_loss = F.smooth_l1_loss(prediction, target, reduction="none").mean(dim=-1)
+    weights = distance_weight(range_m)
+    static_mask = reflection_mask & ~dynamic_mask
+    return {
+        "static_numerator": (weights * point_loss * static_mask).sum(),
+        "static_weight": (weights * static_mask).sum(),
+        "dynamic_numerator": (weights * point_loss * dynamic_mask).sum(),
+        "dynamic_weight": (weights * dynamic_mask).sum(),
     }
 
 

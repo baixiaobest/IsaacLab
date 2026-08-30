@@ -16,7 +16,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 from src.dataset import DynamicAwareBatchSampler, PointVelocityDataset, save_split_metadata
-from src.losses import masked_class_balanced_huber, masked_metrics
+from src.losses import masked_class_balanced_huber, masked_class_balanced_huber_totals, masked_metrics
 from src.model import TemporalLidarVelocityCNN
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -100,6 +100,7 @@ def _publish_deployment_torchscript(model: torch.nn.Module, output_path: Path) -
 
 def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
     totals: dict[str, list[float]] = {}
+    loss_totals = {"static_numerator": 0.0, "static_weight": 0.0, "dynamic_numerator": 0.0, "dynamic_weight": 0.0}
     model.eval()
     with torch.inference_mode():
         for batch in loader:
@@ -108,11 +109,27 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
             reflection = batch["reflection_mask"].to(device)
             dynamic = batch["dynamic_mask"].to(device)
             ranges = batch["range_m"].to(device)
-            for key, (value, count) in masked_metrics(model(lidar), target, reflection, dynamic, ranges).items():
+            prediction = model(lidar)
+            for key, value in masked_class_balanced_huber_totals(
+                prediction, target, reflection, dynamic, ranges
+            ).items():
+                loss_totals[key] += float(value.item())
+            for key, (value, count) in masked_metrics(prediction, target, reflection, dynamic, ranges).items():
                 total = totals.setdefault(key, [0.0, 0.0])
                 total[0] += value
                 total[1] += count
     metrics: dict[str, float] = {}
+    class_losses = []
+    for class_name in ("static", "dynamic"):
+        weight = loss_totals[f"{class_name}_weight"]
+        if weight > 0.0:
+            class_loss = loss_totals[f"{class_name}_numerator"] / weight
+            metrics[f"{class_name}_loss"] = class_loss
+            class_losses.append(class_loss)
+    if class_losses:
+        # Same equal static/dynamic class weighting as the training objective,
+        # aggregated over all validation samples rather than per batch.
+        metrics["loss"] = sum(class_losses) / len(class_losses)
     for key, (value, count) in totals.items():
         if count:
             metrics[key] = value / count
@@ -147,7 +164,7 @@ def main() -> None:
     device = torch.device(args.device)
     model = TemporalLidarVelocityCNN().to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    best_rmse = float("inf")
+    best_validation_loss = float("inf")
     periodic_checkpoint_dir = output / "checkpoints"
     if args.checkpoint_save_interval > 0:
         periodic_checkpoint_dir.mkdir(exist_ok=True)
@@ -207,10 +224,10 @@ def main() -> None:
                 periodic_checkpoint_path = periodic_checkpoint_dir / f"epoch_{epoch:04d}.pt"
                 torch.save(checkpoint, periodic_checkpoint_path)
                 _upload_file_to_wandb(wandb_run, periodic_checkpoint_path, output)
-            score = metrics.get("dynamic_within_5m_rmse", metrics.get("dynamic_rmse", float("inf")))
-            is_best = score < best_rmse
+            score = metrics.get("loss", float("inf"))
+            is_best = score < best_validation_loss
             if is_best:
-                best_rmse = score
+                best_validation_loss = score
                 torch.save(checkpoint, output / "best.pt")
                 _upload_file_to_wandb(wandb_run, output / "best.pt", output)
                 _save_torchscript(model, output / "best_jit.pt")
@@ -222,13 +239,13 @@ def main() -> None:
                         "epoch": epoch,
                         "train/loss": average_train_loss,
                         "train/learning_rate": optimizer.param_groups[0]["lr"],
-                        "validation/selection_dynamic_within_5m_rmse": score,
+                        "validation/selection_loss": score,
                         "validation/is_best": int(is_best),
                         **{f"validation/{name}": value for name, value in metrics.items()},
                     },
                     step=epoch,
                 )
-            print(f"[Epoch {epoch:03d}] train_loss={average_train_loss:.6f} dynamic_5m_rmse={score:.6f}")
+            print(f"[Epoch {epoch:03d}] train_loss={average_train_loss:.6f} validation_loss={score:.6f}")
         final_metrics = {
             "validation": evaluate(model, validation_loader, device),
             "test": evaluate(model, DataLoader(test, batch_size=args.batch_size), device),
