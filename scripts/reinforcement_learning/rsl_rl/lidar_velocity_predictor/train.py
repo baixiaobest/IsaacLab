@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from torch.utils.data import DataLoader
 from src.dataset import DynamicAwareBatchSampler, PointVelocityDataset, save_split_metadata
 from src.losses import masked_class_balanced_huber, masked_metrics
 from src.model import TemporalLidarVelocityCNN
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +48,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--wandb_project", default="lidar velocity predictor")
     parser.add_argument("--wandb_entity", default=None)
+    parser.add_argument(
+        "--deployment_jit_path",
+        default=str(REPO_ROOT / "logs/lidar_velocity_predictor/best_jit.pt"),
+        help="Fixed body-frame TorchScript artifact replaced atomically whenever validation finds a new best model.",
+    )
     return parser.parse_args()
 
 
@@ -80,6 +88,14 @@ def _save_torchscript(model: torch.nn.Module, output_path: Path) -> None:
     """Export the current model with its deployment input/output signature."""
     model.eval()
     torch.jit.script(model).save(str(output_path))
+
+
+def _publish_deployment_torchscript(model: torch.nn.Module, output_path: Path) -> None:
+    """Atomically replace the fixed CBF deployment JIT artifact."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_name(f".{output_path.name}.tmp")
+    _save_torchscript(model, temporary)
+    os.replace(temporary, output_path)
 
 
 def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
@@ -120,6 +136,7 @@ def main() -> None:
     torch.manual_seed(args.seed)
     output = Path(args.output_dir).expanduser().resolve() / args.run_name
     output.mkdir(parents=True, exist_ok=True)
+    deployment_jit_path = Path(args.deployment_jit_path).expanduser().resolve()
     dataset = PointVelocityDataset(args.dataset_path, input_name="lidar_noisy")
     train, validation, test = dataset.split(args.seed)
     if len(validation) == 0 or len(test) == 0:
@@ -134,7 +151,10 @@ def main() -> None:
     periodic_checkpoint_dir = output / "checkpoints"
     if args.checkpoint_save_interval > 0:
         periodic_checkpoint_dir.mkdir(exist_ok=True)
-    metadata = {"args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test)}
+    metadata = {
+        "args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test),
+        "target_velocity_frame": "body_xy", "deployment_jit_path": str(deployment_jit_path),
+    }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     wandb_run = _init_wandb(args, output)
     if wandb_run is not None:
@@ -148,6 +168,7 @@ def main() -> None:
                 "num_test_samples": len(test),
                 "input_shape": [2, 4, 128],
                 "target_shape": [128, 2],
+                "target_velocity_frame": "body_xy",
             },
             allow_val_change=True,
         )
@@ -193,6 +214,7 @@ def main() -> None:
                 torch.save(checkpoint, output / "best.pt")
                 _upload_file_to_wandb(wandb_run, output / "best.pt", output)
                 _save_torchscript(model, output / "best_jit.pt")
+                _publish_deployment_torchscript(model, deployment_jit_path)
                 _upload_file_to_wandb(wandb_run, output / "best_jit.pt", output)
             if wandb_run is not None:
                 wandb_run.log(

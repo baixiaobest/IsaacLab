@@ -4,6 +4,11 @@ from types import SimpleNamespace
 
 import torch
 
+from isaaclab_tasks.manager_based.navigation.lidar_geometry import (
+    body_to_world_xy,
+    forward_lidar_reflection_bins,
+    world_to_body_xy,
+)
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.held_scan_lidar_env import (
     HeldScanLidarCollector,
 )
@@ -102,6 +107,32 @@ def test_rebinning_and_collector_noise_are_absent() -> None:
     """The held-scan model intentionally contains timing only."""
     assert not hasattr(HeldScanLidarCollector, "_rebin_to_policy")
     assert not hasattr(HeldScanLidarCollector, "_apply_simple_scan_noise")
+
+
+def test_body_world_velocity_rotation_is_invertible() -> None:
+    velocity_w = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])
+    yaw = torch.tensor([torch.pi / 2.0])
+
+    velocity_b = world_to_body_xy(velocity_w, yaw)
+
+    assert torch.allclose(velocity_b, torch.tensor([[[0.0, -1.0], [1.0, 0.0]]]), atol=1.0e-6)
+    assert torch.allclose(body_to_world_xy(velocity_b, yaw), velocity_w, atol=1.0e-6)
+
+
+def test_forward_bins_keep_only_nearest_valid_reflection() -> None:
+    # Both first rays lie in the forward bin at yaw zero; the 1 m return owns it.
+    capture = {
+        "hit_xy": torch.tensor([[[2.0, 0.0], [1.0, 0.0], [-1.0, 0.0]]]),
+        "ray_state": torch.tensor([[2, 2, 1]], dtype=torch.uint8),
+        "ego_xy": torch.zeros(1, 2),
+        "ego_yaw": torch.zeros(1),
+    }
+    binned = forward_lidar_reflection_bins(capture, num_bins=256, fov_bins=128)
+    forward = 64
+
+    assert binned["reflection_mask"][0, forward]
+    assert binned["range_m"][0, forward] == 1.0
+    assert binned["winner_ray"][0, forward] == 1
 
 
 def test_actor_and_critic_share_held_history_and_scan_age() -> None:

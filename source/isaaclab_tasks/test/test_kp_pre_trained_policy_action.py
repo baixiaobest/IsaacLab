@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
+    MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
@@ -16,10 +17,13 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed
     MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action import (
+    DynamicObstacleCbfPreTrainedPolicyAction,
+    DynamicObstacleCbfPreTrainedPolicyActionCfg,
     StaticObstacleCbfPreTrainedPolicyActionCfg,
     _OsqpSolveStats,
     StaticObstacleCbfPreTrainedPolicyAction,
     effective_zoh_acceleration_bounds,
+    dynamic_cbf_barrier_offset,
     velocity_command_from_average_acceleration,
     zoh_average_acceleration_gain,
 )
@@ -35,6 +39,9 @@ KP_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance
 KP_PLAY_TASK_ID = "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-Play-v0"
 CBF_PLAY_TASK_ID = (
     "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0"
+)
+DYNAMIC_CBF_PLAY_TASK_ID = (
+    "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Dynamic-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0"
 )
 
 
@@ -173,6 +180,54 @@ def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
     assert cfg.actions.pre_trained_policy_action.max_lidar_points == 64
     assert cfg.actions.pre_trained_policy_action.tracking_tau_s == 0.30
     assert cfg.sim.dt * cfg.actions.pre_trained_policy_action.low_level_decimation == 0.02
+
+
+def test_dynamic_cbf_play_task_requires_the_fixed_body_frame_jit() -> None:
+    cfg = load_cfg_from_registry(DYNAMIC_CBF_PLAY_TASK_ID, "env_cfg_entry_point")
+
+    assert isinstance(cfg, MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY)
+    assert isinstance(cfg.actions.pre_trained_policy_action, DynamicObstacleCbfPreTrainedPolicyActionCfg)
+    assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == "logs/lidar_velocity_predictor/best_jit.pt"
+    assert cfg.actions.pre_trained_policy_action.require_velocity_predictor
+    assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
+
+
+def test_dynamic_barrier_offset_uses_relative_point_velocity() -> None:
+    r = torch.tensor([[2.0, 0.0]])
+    robot_velocity = torch.tensor([[1.0, 0.0]])
+    point_velocity = torch.tensor([[0.25, 0.0]])
+    offset = dynamic_cbf_barrier_offset(r, robot_velocity - point_velocity, gamma1=2.0, gamma2=3.0, d_margin=1.0)
+
+    expected = 2.0 * 0.75**2 + 2.0 * 5.0 * 2.0 * 0.75 + 6.0 * (4.0 - 1.0)
+    assert offset.item() == pytest.approx(expected)
+
+
+def test_dynamic_cbf_requires_a_configured_jit_when_requested() -> None:
+    term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
+    term.device = "cpu"
+    cfg = SimpleNamespace(velocity_predictor_jit_path=None, require_velocity_predictor=True)
+
+    with pytest.raises(RuntimeError, match="velocity_predictor_jit_path"):
+        term._load_velocity_predictor(cfg)
+
+
+def test_dynamic_predictor_is_cached_per_held_scan() -> None:
+    term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
+    term.num_envs = 2
+    term._velocity_predictor = lambda lidar: torch.full((2, 128, 2), 0.4)
+    term._predicted_velocity_b = torch.zeros(2, 128, 2)
+    term._predictor_capture_index = torch.full((2,), -1, dtype=torch.long)
+    refresh_count = [0]
+    term._refresh_predictor_lidar_history = lambda: refresh_count.__setitem__(0, refresh_count[0] + 1)
+    term._policy_lidar_tensor = lambda: torch.zeros(2, 2, 4, 128)
+    capture = {"capture_index": torch.tensor([4, 7])}
+
+    first = term._predict_velocity_b(capture)
+    second = term._predict_velocity_b(capture)
+
+    assert refresh_count == [1]
+    assert torch.allclose(first, torch.full((2, 128, 2), 0.4))
+    assert torch.equal(first, second)
 
 
 def test_cbf_zoh_mapping_rebases_on_measured_velocity() -> None:

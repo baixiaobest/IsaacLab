@@ -10,6 +10,7 @@ import torch
 from isaaclab.terrains import TerrainImporter
 from isaaclab_tasks.manager_based.navigation.mdp.events import reset_pedestrian_crowd
 
+from .held_scan_lidar_env import forward_lidar_reflection_bins, world_to_body_xy
 from .pedestrian_crowd_env import PedestrianCrowdNavigationEnv
 
 
@@ -71,7 +72,7 @@ def reset_fixed_level_pedestrian_crowd(
 
 
 class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
-    """Crowd environment exposing scan-time per-bin velocity labels to rollout tools."""
+    """Crowd environment exposing scan-time body-frame per-bin velocity labels."""
 
     def __init__(self, cfg, render_mode: str | None = None, **kwargs) -> None:
         super().__init__(cfg, render_mode=render_mode, **kwargs)
@@ -98,7 +99,7 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
             )
 
     def get_point_velocity_labels(self) -> dict[str, torch.Tensor]:
-        """Return labels aligned to the policy's current 128-bin forward LiDAR arc."""
+        """Return body-frame labels aligned to the policy's current 128-bin forward LiDAR arc."""
         collector = self._held_scan_lidar_collector
         if collector is None:
             raise RuntimeError("LiDAR velocity labels require the held scan collector.")
@@ -107,51 +108,23 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         if pedestrian_velocity is None:
             raise RuntimeError("No captured pedestrian velocity is available yet; wait for a live LiDAR capture.")
 
-        hit_xy = capture["hit_xy"]
-        ray_state = capture["ray_state"]
         mesh_ids = capture["ray_mesh_ids"].to(torch.long)
-        # Rollout samples only new captures, so use the pose frozen by the held
-        # collector.  Reading ``sensor.data`` here could force an unintended
-        # ray-caster refresh between the 130 ms scan events.
-        pos_xy = capture["ego_xy"]
-        yaw = capture["ego_yaw"]
-
-        num_bins, fov_bins = 256, 128
-        relative = hit_xy - pos_xy.unsqueeze(1)
-        distance = torch.linalg.vector_norm(relative, dim=-1)
-        ray_angle = torch.atan2(relative[..., 1], relative[..., 0])
-        global_bin = ((ray_angle + math.pi) / (2.0 * math.pi) * num_bins).long() % num_bins
-        center_bin = ((yaw + math.pi) / (2.0 * math.pi) * num_bins).long() % num_bins
-        offsets = torch.arange(-fov_bins // 2, fov_bins - fov_bins // 2, device=self.device)
-        fov_global_bins = (center_bin.unsqueeze(1) + offsets.unsqueeze(0)) % num_bins
-        lookup = torch.full((self.num_envs, num_bins), -1, device=self.device, dtype=torch.long)
-        lookup.scatter_(1, fov_global_bins, torch.arange(fov_bins, device=self.device).expand(self.num_envs, -1))
-        local_bin = torch.gather(lookup, 1, global_bin)
-
-        valid = (ray_state == 2) & torch.isfinite(distance) & (local_bin >= 0)
-        values = torch.where(valid, distance, torch.full_like(distance, float("inf")))
-        per_bin_distance = torch.full((self.num_envs, fov_bins), float("inf"), device=self.device)
-        per_bin_distance.scatter_reduce_(1, local_bin.clamp_min(0), values, reduce="amin", include_self=True)
-        reflection_mask = torch.isfinite(per_bin_distance)
-
-        # Obtain the first nearest ray for each policy bin. Ties are physically
-        # equivalent for distance and extremely rare; argmin makes their label stable.
-        belongs_to_bin = local_bin.unsqueeze(1) == torch.arange(fov_bins, device=self.device).view(1, -1, 1)
-        candidate_distance = torch.where(belongs_to_bin & valid.unsqueeze(1), distance.unsqueeze(1), float("inf"))
-        winner = candidate_distance.argmin(dim=-1)
-        winner_mesh = torch.gather(mesh_ids, 1, winner)
+        binned = forward_lidar_reflection_bins(capture)
+        reflection_mask = binned["reflection_mask"]
+        winner_mesh = torch.gather(mesh_ids, 1, binned["winner_ray"])
         dynamic_mask = reflection_mask & (winner_mesh >= 1) & (winner_mesh <= self.crowd_manager.max_pedestrians)
         slot = (winner_mesh - 1).clamp(0, self.crowd_manager.max_pedestrians - 1)
-        velocity = torch.gather(
+        velocity_w = torch.gather(
             pedestrian_velocity,
             1,
             slot.unsqueeze(-1).expand(-1, -1, 2),
         )
-        velocity = torch.where(dynamic_mask.unsqueeze(-1), velocity, torch.zeros_like(velocity))
+        velocity_b = world_to_body_xy(velocity_w, binned["ego_yaw"])
+        velocity_b = torch.where(dynamic_mask.unsqueeze(-1), velocity_b, torch.zeros_like(velocity_b))
         return {
-            "point_velocity_w": velocity,
+            "point_velocity_b": velocity_b,
             "reflection_mask": reflection_mask,
             "dynamic_mask": dynamic_mask,
-            "range_m": torch.where(reflection_mask, per_bin_distance, torch.zeros_like(per_bin_distance)),
+            "range_m": binned["range_m"],
             "capture_index": capture["capture_index"],
         }

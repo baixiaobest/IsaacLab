@@ -7,7 +7,7 @@ from torch import nn
 
 
 class TemporalLidarVelocityCNN(nn.Module):
-    """Map ``(distance, validity) x history x bins`` to world-XY bin velocity."""
+    """Map ``(distance, validity) x history x bins`` to body-XY bin velocity."""
 
     def __init__(self) -> None:
         super().__init__()

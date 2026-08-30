@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Deployment-only static-obstacle CBF filtering for Kp navigation commands.
+"""Deployment-only static/dynamic-obstacle CBF filtering for Kp navigation commands.
 
 The high-level navigation action stays a body-frame ``(v_x, v_y, yaw_rate)``
 command.  This term holds that target between navigation steps, then recomputes
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -28,6 +29,7 @@ from .kp_pre_trained_policy_action import (
     KpPreTrainedPolicyActionCfg,
     zoh_average_acceleration_gain,
 )
+from isaaclab_tasks.manager_based.navigation.lidar_geometry import body_to_world_xy, forward_lidar_reflection_bins
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -51,16 +53,16 @@ class _OsqpSolveStats:
     status: str
 
 
-class _OsqpStaticObstacleCbf:
+class _OsqpDynamicObstacleCbf:
     """One fixed-sparsity OSQP problem for one vectorized environment."""
 
-    def __init__(self, cfg: StaticObstacleCbfPreTrainedPolicyActionCfg) -> None:
+    def __init__(self, cfg: DynamicObstacleCbfPreTrainedPolicyActionCfg) -> None:
         try:
             import osqp
             import scipy.sparse as sparse
         except ImportError as error:
             raise ImportError(
-                "StaticObstacleCbfPreTrainedPolicyAction requires the optional 'osqp' package. "
+                "DynamicObstacleCbfPreTrainedPolicyAction requires the optional 'osqp' package. "
                 "Install Isaac Lab tasks with its deployment dependencies."
             ) from error
 
@@ -183,8 +185,20 @@ def effective_zoh_acceleration_bounds(
     return torch.maximum(acceleration_lower_b, command_lower), torch.minimum(acceleration_upper_b, command_upper)
 
 
-class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
-    """Kp navigation command filtered by a static-obstacle, soft CBF-QP.
+def dynamic_cbf_barrier_offset(
+    obstacle_vectors_w: torch.Tensor, relative_velocity_w: torch.Tensor, gamma1: float, gamma2: float, d_margin: float
+) -> torch.Tensor:
+    """Return ``b_i`` for relative-degree-two constant-velocity obstacle CBFs."""
+    squared_distance = torch.sum(obstacle_vectors_w.square(), dim=1)
+    return (
+        2.0 * torch.sum(relative_velocity_w.square(), dim=1)
+        + 2.0 * (gamma1 + gamma2) * torch.sum(obstacle_vectors_w * relative_velocity_w, dim=1)
+        + gamma1 * gamma2 * (squared_distance - d_margin**2)
+    )
+
+
+class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
+    """Kp navigation command filtered by a static or learned-dynamic CBF-QP.
 
     ``process_actions`` only stores the latest high-level RL command. At each
     low-level policy update, this term measures the robot velocity, constructs
@@ -192,9 +206,9 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
     first-order locomotion model. The yaw-rate action bypasses both Kp and CBF.
     """
 
-    cfg: StaticObstacleCbfPreTrainedPolicyActionCfg
+    cfg: DynamicObstacleCbfPreTrainedPolicyActionCfg
 
-    def __init__(self, cfg: StaticObstacleCbfPreTrainedPolicyActionCfg, env: ManagerBasedRLEnv) -> None:
+    def __init__(self, cfg: DynamicObstacleCbfPreTrainedPolicyActionCfg, env: ManagerBasedRLEnv) -> None:
         super().__init__(cfg, env)
         if cfg.d_margin <= 0.0 or cfg.d_cbf_active <= 0.0:
             raise ValueError("d_margin and d_cbf_active must be positive.")
@@ -207,7 +221,10 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
 
         self._control_dt = cfg.low_level_decimation * env.physics_dt
         self._zoh_gain_s = zoh_average_acceleration_gain(self._control_dt, cfg.tracking_tau_s)
-        self._solvers = [_OsqpStaticObstacleCbf(cfg) for _ in range(self.num_envs)]
+        self._solvers = [_OsqpDynamicObstacleCbf(cfg) for _ in range(self.num_envs)]
+        self._velocity_predictor = self._load_velocity_predictor(cfg)
+        self._predicted_velocity_b = torch.zeros(self.num_envs, 128, 2, device=self.device)
+        self._predictor_capture_index = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
         self._safe_acceleration_w = torch.zeros(self.num_envs, 2, device=self.device)
         self._slack = torch.zeros(self.num_envs, device=self.device)
         self._mean_slack = torch.zeros(self.num_envs, device=self.device)
@@ -234,6 +251,20 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._solver_dual_residual_max = np.zeros(self.num_envs, dtype=np.float64)
         self._solver_inaccurate_count = np.zeros(self.num_envs, dtype=np.int64)
         self._solver_max_iteration_count = np.zeros(self.num_envs, dtype=np.int64)
+
+    def _load_velocity_predictor(self, cfg: DynamicObstacleCbfPreTrainedPolicyActionCfg):
+        """Load the optional body-frame point-velocity TorchScript module once."""
+        if not cfg.velocity_predictor_jit_path:
+            if cfg.require_velocity_predictor:
+                raise RuntimeError("Dynamic CBF requires velocity_predictor_jit_path, but it was not configured.")
+            return None
+        path = Path(cfg.velocity_predictor_jit_path).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Dynamic CBF velocity predictor was not found: {path}")
+        try:
+            return torch.jit.load(str(path), map_location=self.device).to(self.device).eval()
+        except Exception as error:
+            raise RuntimeError(f"Could not load dynamic CBF velocity predictor: {path}") from error
 
     @property
     def cbf_control_dt(self) -> float:
@@ -324,6 +355,8 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._processed_actions[env_ids] = 0.0
         self._nominal_acceleration[env_ids] = 0.0
         self._safe_acceleration_w[env_ids] = 0.0
+        self._predicted_velocity_b[env_ids] = 0.0
+        self._predictor_capture_index[env_ids] = -1
         self._slack[env_ids] = 0.0
         self._mean_slack[env_ids] = 0.0
         self._minimum_barrier_residual[env_ids] = 0.0
@@ -374,7 +407,10 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             root_quat_w, torch.cat((nominal_acceleration_b, torch.zeros_like(nominal_acceleration_b[:, :1])), dim=1)
         )[:, :2]
 
-        hit_xy_w, ray_state = self._latest_lidar_capture()
+        capture = self._latest_lidar_capture()
+        binned = forward_lidar_reflection_bins(capture)
+        predicted_velocity_b = self._predict_velocity_b(capture)
+        predicted_velocity_w = body_to_world_xy(predicted_velocity_b, binned["ego_yaw"])
         safe_acceleration_w = torch.empty_like(nominal_acceleration_w)
         slack = torch.zeros_like(self._slack)
         mean_slack = torch.zeros_like(self._mean_slack)
@@ -407,12 +443,13 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 self._velocity_feasibility_failures[env_id] += 1
                 continue
 
-            obstacle_vectors_w = root_position_w[env_id].unsqueeze(0) - hit_xy_w[env_id]
+            obstacle_vectors_w = root_position_w[env_id].unsqueeze(0) - binned["hit_xy"][env_id]
             distances = torch.linalg.vector_norm(obstacle_vectors_w, dim=1)
-            valid = (ray_state[env_id] == 2) & torch.isfinite(obstacle_vectors_w).all(dim=1)
+            valid = binned["reflection_mask"][env_id] & torch.isfinite(obstacle_vectors_w).all(dim=1)
             valid &= distances <= self.cfg.d_cbf_active
             valid &= distances > 1.0e-4
             obstacle_vectors_w = obstacle_vectors_w[valid]
+            point_velocity_w = predicted_velocity_w[env_id][valid]
 
             if obstacle_vectors_w.shape[0] == 0:
                 # No active barriers: use the closest command-feasible nominal.
@@ -422,14 +459,12 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 nearest = torch.topk(torch.linalg.vector_norm(obstacle_vectors_w, dim=1), self.cfg.max_lidar_points,
                                      largest=False).indices
                 obstacle_vectors_w = obstacle_vectors_w[nearest]
+                point_velocity_w = point_velocity_w[nearest]
             active_point_count[env_id] = obstacle_vectors_w.shape[0]
 
-            velocity_w = root_velocity_w[env_id]
-            squared_distance = torch.sum(obstacle_vectors_w.square(), dim=1)
-            barrier_offset = (
-                2.0 * torch.dot(velocity_w, velocity_w)
-                + 2.0 * (self.cfg.gamma1 + self.cfg.gamma2) * (obstacle_vectors_w @ velocity_w)
-                + self.cfg.gamma1 * self.cfg.gamma2 * (squared_distance - self.cfg.d_margin**2)
+            relative_velocity_w = root_velocity_w[env_id].unsqueeze(0) - point_velocity_w
+            barrier_offset = dynamic_cbf_barrier_offset(
+                obstacle_vectors_w, relative_velocity_w, self.cfg.gamma1, self.cfg.gamma2, self.cfg.d_margin
             )
             yaw_quat = math_utils.yaw_quat(root_quat_w[env_id].unsqueeze(0))
             x_axis_w = math_utils.quat_apply_yaw(yaw_quat, torch.tensor([[1.0, 0.0, 0.0]], device=self.device))[0, :2]
@@ -490,6 +525,63 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._slack_sum += torch.where(positive, slack, torch.zeros_like(slack))
         self._slack_max = torch.maximum(self._slack_max, slack)
 
+    def _predict_velocity_b(self, capture: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Return cached body-frame velocities, updating exactly once per held scan."""
+        if self._velocity_predictor is None:
+            return torch.zeros_like(self._predicted_velocity_b)
+        capture_index = capture["capture_index"]
+        update = capture_index != self._predictor_capture_index
+        if not torch.any(update):
+            return self._predicted_velocity_b
+
+        self._refresh_predictor_lidar_history()
+        lidar = self._policy_lidar_tensor()
+        with torch.inference_mode():
+            prediction = self._velocity_predictor(lidar)
+        if not isinstance(prediction, torch.Tensor) or prediction.shape != (self.num_envs, 128, 2):
+            shape = tuple(prediction.shape) if isinstance(prediction, torch.Tensor) else type(prediction).__name__
+            raise RuntimeError(
+                "Dynamic CBF velocity predictor must return a tensor with shape "
+                f"({self.num_envs}, 128, 2), received {shape}."
+            )
+        if not torch.isfinite(prediction).all():
+            raise RuntimeError("Dynamic CBF velocity predictor produced non-finite values.")
+        self._predicted_velocity_b[update] = prediction[update]
+        self._predictor_capture_index[update] = capture_index[update]
+        return self._predicted_velocity_b
+
+    def _refresh_predictor_lidar_history(self) -> None:
+        """Consume a scan that completed between low-level CBF updates."""
+        stores = getattr(self._env, "_lidar_history_stores", None)
+        store = stores.get(self.cfg.predictor_history_key) if stores is not None else None
+        collector = getattr(self._env, self.cfg.lidar_collector_name, None)
+        if store is None or collector is None:
+            raise RuntimeError(
+                "Dynamic CBF requires the temporal-LiDAR history store and held-scan collector before predictor use."
+            )
+        store.ensure_collector_updated(self._env, collector, force=True)
+
+    def _policy_lidar_tensor(self) -> torch.Tensor:
+        """Read the exact noisy actor temporal-LiDAR observation term for the JIT."""
+        manager = self._env.observation_manager
+        group = self.cfg.predictor_observation_group
+        term = self.cfg.predictor_observation_term
+        try:
+            term_index = manager.active_terms[group].index(term)
+        except (KeyError, ValueError) as error:
+            raise RuntimeError(f"Dynamic CBF requires observation term '{group}/{term}'.") from error
+        shapes = manager.group_obs_term_dim[group]
+        start = sum(int(np.prod(shape)) for shape in shapes[:term_index])
+        stop = start + int(np.prod(shapes[term_index]))
+        observation = manager.compute_group(group)
+        lidar = observation[:, start:stop]
+        if lidar.numel() != self.num_envs * 2 * 4 * 128:
+            raise RuntimeError(
+                f"Dynamic CBF expected a (2, 4, 128) actor LiDAR term, but '{group}/{term}' has shape "
+                f"{tuple(lidar.shape)}."
+            )
+        return lidar.reshape(self.num_envs, 2, 4, 128).to(dtype=torch.float32)
+
     def _record_solver_stats(self, env_id: int, stats: _OsqpSolveStats) -> None:
         """Accumulate one host-side OSQP result without perturbing GPU timing."""
         self._solver_solve_count[env_id] += 1
@@ -505,22 +597,21 @@ class StaticObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._solver_inaccurate_count[env_id] += "inaccurate" in status
         self._solver_max_iteration_count[env_id] += "maximum iterations reached" in status
 
-    def _latest_lidar_capture(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def _latest_lidar_capture(self) -> dict[str, torch.Tensor]:
         collector = getattr(self._env, self.cfg.lidar_collector_name, None)
         if collector is None:
             raise RuntimeError(
                 f"CBF PLAY requires the held LiDAR collector '{self.cfg.lidar_collector_name}'. "
                 "Use the temporal-LiDAR PLAY environment entry point."
             )
-        capture = collector.latest_capture()
-        return capture["hit_xy"], capture["ray_state"]
+        return collector.latest_capture()
 
 
 @configclass
-class StaticObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
-    """Configuration for the PLAY-only static-obstacle CBF action term."""
+class DynamicObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
+    """Configuration for the PLAY-only static/dynamic-obstacle CBF action term."""
 
-    class_type: type[ActionTerm] = StaticObstacleCbfPreTrainedPolicyAction
+    class_type: type[ActionTerm] = DynamicObstacleCbfPreTrainedPolicyAction
     d_margin: float = 1.0
     """Circular clearance radius around each valid LiDAR reflection, in metres."""
     d_cbf_active: float = 5.0
@@ -535,8 +626,22 @@ class StaticObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
     """Maximum nearest valid active-range reflections retained per QP."""
     lidar_collector_name: str = "_held_scan_lidar_collector"
     """Name of the held-scan collector supplied by the temporal-LiDAR environment."""
+    velocity_predictor_jit_path: str | None = None
+    """Optional body-frame LiDAR velocity TorchScript path; ``None`` is static zero-velocity mode."""
+    require_velocity_predictor: bool = False
+    """Fail startup when no valid predictor is configured (used by the dynamic task)."""
+    predictor_observation_group: str = "policy"
+    predictor_observation_term: str = "obstacle_scan"
+    predictor_history_key: str = "held_full_scan"
     solver_eps_abs: float = 1.0e-3
     solver_eps_rel: float = 1.0e-3
     solver_max_iter: int = 500
     solver_polish: bool = True
     solver_warm_start: bool = True
+
+
+# Compatibility aliases keep existing static task configs and external imports
+# valid while both modes use exactly the same CBF-QP implementation.
+StaticObstacleCbfPreTrainedPolicyAction = DynamicObstacleCbfPreTrainedPolicyAction
+StaticObstacleCbfPreTrainedPolicyActionCfg = DynamicObstacleCbfPreTrainedPolicyActionCfg
+_OsqpStaticObstacleCbf = _OsqpDynamicObstacleCbf

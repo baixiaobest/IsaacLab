@@ -54,11 +54,20 @@ def main() -> None:
 
     for file_path in _files(Path(args.dataset_path).expanduser().resolve()):
         with h5py.File(file_path, "r") as handle:
-            for group in handle["data"].values():
+            data = handle.get("data")
+            if data is None:
+                raise RuntimeError(f"{file_path} is missing its data group.")
+            try:
+                metadata = json.loads(data.attrs.get("metadata", "{}"))
+            except (TypeError, json.JSONDecodeError) as error:
+                raise RuntimeError(f"{file_path} has invalid dataset metadata.") from error
+            if metadata.get("schema_version") != 2 or metadata.get("velocity_frame") != "body_xy":
+                raise RuntimeError(f"{file_path} is not a body-frame schema-v2 LiDAR velocity dataset.")
+            for group in data.values():
                 reflection = np.asarray(group["reflection_mask"], dtype=bool)
                 dynamic = np.asarray(group["dynamic_mask"], dtype=bool)
                 ranges = np.asarray(group["range_m"], dtype=np.float32)
-                velocity = np.asarray(group["point_velocity_w"], dtype=np.float32)
+                velocity = np.asarray(group["point_velocity_b"], dtype=np.float32)
                 static = reflection & ~dynamic
                 counts.update({"total_cells": int(reflection.size), "no_return": int((~reflection).sum()), "static": int(static.sum()), "dynamic": int(dynamic.sum())})
                 key = f"{group.attrs.get('terrain_name', 'unknown')}/level_{int(group.attrs.get('terrain_level', -1))}/scenario_{int(group.attrs.get('scenario_mode', -1))}"
@@ -81,6 +90,8 @@ def main() -> None:
     weight_static = float(distance_weight(torch.from_numpy(static_distance)).sum().item()) if static_distance.size else 0.0
     weight_dynamic = float(distance_weight(torch.from_numpy(dynamic_distance)).sum().item()) if dynamic_distance.size else 0.0
     summary = {
+        "schema_version": 2,
+        "velocity_frame": "body_xy",
         "counts": dict(counts),
         "fractions": {name: value / counts["total_cells"] for name, value in counts.items() if name != "total_cells"},
         "close_dynamic": dict(close),

@@ -43,12 +43,21 @@ class PointVelocityDataset(Dataset):
             with h5py.File(file_path, "r") as handle:
                 data = handle.get("data")
                 if data is None:
-                    continue
+                    raise RuntimeError(f"{file_path} is missing its data group.")
+                try:
+                    metadata = json.loads(data.attrs.get("metadata", "{}"))
+                except (TypeError, json.JSONDecodeError) as error:
+                    raise RuntimeError(f"{file_path} has invalid dataset metadata.") from error
+                if metadata.get("schema_version") != 2 or metadata.get("velocity_frame") != "body_xy":
+                    raise RuntimeError(
+                        f"{file_path} is not a body-frame schema-v2 LiDAR velocity dataset. "
+                        "Do not mix it with the corrected training data."
+                    )
                 for episode_name in sorted(data.keys()):
                     group = data[episode_name]
-                    required = {"lidar_noisy", "lidar_clean", "point_velocity_w", "reflection_mask", "dynamic_mask", "range_m"}
+                    required = {"lidar_noisy", "lidar_clean", "point_velocity_b", "reflection_mask", "dynamic_mask", "range_m"}
                     if not required.issubset(group.keys()):
-                        continue
+                        raise RuntimeError(f"{file_path}:{episode_name} is missing a schema-v2 required dataset.")
                     length = int(group["lidar_noisy"].shape[0])
                     dynamic_indices = tuple(np.flatnonzero(np.asarray(group["dynamic_mask"]).any(axis=1)).tolist())
                     attrs = group.attrs
@@ -102,7 +111,7 @@ class PointVelocityDataset(Dataset):
                         f"{entry.file_path}:{entry.episode_name}/{self.input_name}",
                     )
                 ),
-                "target": torch.from_numpy(np.asarray(group["point_velocity_w"][sample_index], dtype=np.float32)),
+                "target": torch.from_numpy(np.asarray(group["point_velocity_b"][sample_index], dtype=np.float32)),
                 "reflection_mask": torch.from_numpy(np.asarray(group["reflection_mask"][sample_index], dtype=np.bool_)),
                 "dynamic_mask": torch.from_numpy(np.asarray(group["dynamic_mask"][sample_index], dtype=np.bool_)),
                 "range_m": torch.from_numpy(np.asarray(group["range_m"][sample_index], dtype=np.float32)),

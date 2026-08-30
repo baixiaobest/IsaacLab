@@ -10,6 +10,7 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.utils import math as math_utils
 from isaaclab.utils import configclass
+from isaaclab_tasks.manager_based.navigation.lidar_geometry import forward_lidar_reflection_bins, world_to_body_xy
 
 
 @configclass

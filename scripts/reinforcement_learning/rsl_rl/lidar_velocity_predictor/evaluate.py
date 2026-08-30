@@ -26,7 +26,7 @@ def _evaluate(model, dataset, device, batch_size):
                 total[0] += value
                 total[1] += count
     raw = {key: value / count for key, (value, count) in totals.items() if count}
-    output = {}
+    output = {"velocity_frame": "body_xy"}
     for subset in ("all", "static", "dynamic", "within_5m", "within_2m", "dynamic_within_5m", "dynamic_within_2m"):
         if subset in raw:
             output[f"{subset}_rmse"] = raw[subset] ** 0.5

@@ -23,7 +23,7 @@ def main() -> None:
     output = Path(args.output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     scripted.save(str(output))
-    print(f"[INFO] Saved TorchScript predictor to {output}; input=(B,2,4,128), output=(B,128,2)")
+    print(f"[INFO] Saved body-frame TorchScript predictor to {output}; input=(B,2,4,128), output=(B,128,2)")
 
 
 if __name__ == "__main__":

@@ -1017,15 +1017,17 @@ class LidarHistoryStore:
         )
         self._last_owner_step = step
 
-    def ensure_collector_updated(self, env: "ManagerBasedEnv", collector) -> None:
+    def ensure_collector_updated(self, env: "ManagerBasedEnv", collector, force: bool = False) -> None:
         """Consume completed scans made available by a rolling-lidar collector.
 
         The collector is advanced inside the physics loop.  This method is called by
         an observation term at the policy rate and may therefore touch the store while
         intentionally pushing no frame when a scan is still being assembled or delayed.
+        ``force`` lets a faster controller check again after a scan completes in
+        the same outer environment step.
         """
         step = env.common_step_counter
-        if self._last_owner_step == step:
+        if self._last_owner_step == step and not force:
             return
 
         self._scan_updated.zero_()

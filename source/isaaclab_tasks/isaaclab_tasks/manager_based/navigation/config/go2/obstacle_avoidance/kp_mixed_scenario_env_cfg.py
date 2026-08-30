@@ -54,10 +54,10 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObsta
 
 @configclass
 class CbfKpActionsCfg(ActionsCfg):
-    """PLAY-only Kp action container with a static-obstacle CBF-QP filter."""
+    """PLAY-only Kp action container with the shared zero-velocity CBF-QP filter."""
 
-    pre_trained_policy_action: nav_mdp.StaticObstacleCbfPreTrainedPolicyActionCfg = (
-        nav_mdp.StaticObstacleCbfPreTrainedPolicyActionCfg(
+    pre_trained_policy_action: nav_mdp.DynamicObstacleCbfPreTrainedPolicyActionCfg = (
+        nav_mdp.DynamicObstacleCbfPreTrainedPolicyActionCfg(
             asset_name="robot",
             policy_path=LOW_LEVEL_POLICY_PATH,
             low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
@@ -91,3 +91,41 @@ class MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
     """
 
     actions: CbfKpActionsCfg = CbfKpActionsCfg()
+
+
+@configclass
+class DynamicCbfKpActionsCfg(ActionsCfg):
+    """PLAY-only Kp action container with learned body-frame point velocities."""
+
+    pre_trained_policy_action: nav_mdp.DynamicObstacleCbfPreTrainedPolicyActionCfg = (
+        nav_mdp.DynamicObstacleCbfPreTrainedPolicyActionCfg(
+            asset_name="robot",
+            policy_path=LOW_LEVEL_POLICY_PATH,
+            low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
+            low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
+            low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
+            action_scales=(1.0, 1.0, 1.0),
+            kp=(8.0, 8.0),
+            acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
+            velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
+            d_margin=0.70,
+            d_cbf_active=5.0,
+            gamma1=2.0,
+            gamma2=2.0,
+            tracking_tau_s=0.30,
+            slack_penalty=1000.0,
+            max_lidar_points=64,
+            velocity_predictor_jit_path="logs/lidar_velocity_predictor/best_jit.pt",
+            require_velocity_predictor=True,
+            debug_vis=True,
+        )
+    )
+
+
+@configclass
+class MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
+    MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY
+):
+    """PLAY task with body-frame JIT velocities rotated into the world-frame CBF."""
+
+    actions: DynamicCbfKpActionsCfg = DynamicCbfKpActionsCfg()
