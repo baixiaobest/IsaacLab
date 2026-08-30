@@ -18,15 +18,23 @@ def masked_class_balanced_huber(
     reflection_mask: torch.Tensor,
     dynamic_mask: torch.Tensor,
     range_m: torch.Tensor,
+    static_loss_weight: float = 0.5,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """Return equally weighted static/dynamic masked Smooth-L1 loss."""
+    """Return a class-balanced masked Smooth-L1 loss with configurable class weights."""
+    if not 0.0 <= static_loss_weight <= 1.0:
+        raise ValueError("static_loss_weight must be in [0, 1].")
     totals = masked_class_balanced_huber_totals(prediction, target, reflection_mask, dynamic_mask, range_m)
     static_weight = totals["static_weight"]
     dynamic_weight = totals["dynamic_weight"]
     static_loss = totals["static_numerator"] / static_weight.clamp_min(1.0)
     dynamic_loss = totals["dynamic_numerator"] / dynamic_weight.clamp_min(1.0)
-    active = (static_weight > 0).to(torch.float32) + (dynamic_weight > 0).to(torch.float32)
-    total = (static_loss * (static_weight > 0) + dynamic_loss * (dynamic_weight > 0)) / active.clamp_min(1.0)
+    dynamic_loss_weight = 1.0 - static_loss_weight
+    static_active = (static_weight > 0).to(torch.float32)
+    dynamic_active = (dynamic_weight > 0).to(torch.float32)
+    active_weight = static_loss_weight * static_active + dynamic_loss_weight * dynamic_active
+    total = (
+        static_loss_weight * static_loss * static_active + dynamic_loss_weight * dynamic_loss * dynamic_active
+    ) / active_weight.clamp_min(1.0)
     return total, {
         "static_loss": static_loss.detach(),
         "dynamic_loss": dynamic_loss.detach(),
