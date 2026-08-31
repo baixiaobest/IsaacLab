@@ -827,17 +827,25 @@ def classify_speed_interaction(
     """
     if scenario not in INTERACTION_LABELS:
         raise ValueError(f"Unsupported interaction scenario: {scenario}")
-    if not risk_seen:
-        return "non_risky_close", None, None
-    if scenario in {"with_flow", "with_flow_slow_leader"}:
+    if scenario == "with_flow":
+        # Passing is an ordering outcome, not a near-collision outcome.  A robot may
+        # overtake a co-flowing pedestrian with a comfortable CPA, so evaluate the
+        # robust behind-to-ahead transition before considering CPA risk.  Conversely,
+        # a close encounter which begins robustly behind but never reaches the ahead
+        # margin is a non-overtake even when it was comfortable throughout.
         if initial_longitudinal_m is None or final_longitudinal_m is None:
-            return "unclassified", None, None
+            return ("non_risky_close", None, None) if not risk_seen else ("unclassified", None, None)
         margin = INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M
         if initial_longitudinal_m <= -margin and final_longitudinal_m >= margin:
             return "overtake", None, None
         if initial_longitudinal_m <= -margin:
             return "non_overtake", None, None
+        if not risk_seen:
+            return "non_risky_close", None, None
         return "unclassified", None, None
+
+    if not risk_seen:
+        return "non_risky_close", None, None
 
     low_speed, ratio = interaction_speed_diagnostics(duration_s, baseline_speed_mps, event_speeds_mps)
     if low_speed is None or ratio is None:

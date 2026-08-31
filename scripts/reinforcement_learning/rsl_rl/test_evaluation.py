@@ -395,6 +395,10 @@ def test_with_flow_interaction_overtake_and_ordering_labels():
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], 0.1, 0.6)[0] == "unclassified"
+    # Co-flowing passes often have a safe CPA; ordering must still identify them.
+    assert evaluation.classify_speed_interaction("with_flow", False, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
+    assert evaluation.classify_speed_interaction("with_flow", False, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
+    assert evaluation.classify_speed_interaction("with_flow", False, 1.0, 1.0, [], 0.1, 0.6)[0] == "non_risky_close"
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
