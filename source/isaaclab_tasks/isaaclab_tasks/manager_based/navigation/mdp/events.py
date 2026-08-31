@@ -227,6 +227,44 @@ def reset_evaluation_pedestrian_scenario_robot(
     )
 
 
+def reset_evaluation_robot_mixed(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    static_pose_range: dict[str, tuple[float, float]],
+    static_velocity_range: dict[str, tuple[float, float]],
+    flow_pose_range: dict[str, tuple[float, float]],
+    crossing_south_pose_range: dict[str, tuple[float, float]],
+    crossing_north_pose_range: dict[str, tuple[float, float]],
+    pedestrian_velocity_range: dict[str, tuple[float, float]],
+    speed_range: tuple[float, float] = (0.9, 1.5),
+    slow_speed_range: tuple[float, float] | None = None,
+    slow_scenario_codes: tuple[int, ...] = (),
+    crossing_scenario_codes: tuple[int, ...] = (0,),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Reset a static/dynamic benchmark while keeping static terrain entirely crowd-free."""
+    from isaaclab.envs.mdp.events import reset_root_state_uniform
+
+    pedestrian_ids = env_ids[env.is_pedestrian_env[env_ids]]
+    static_ids = env_ids[~env.is_pedestrian_env[env_ids]]
+    if len(static_ids):
+        reset_root_state_uniform(env, static_ids, static_pose_range, static_velocity_range, asset_cfg)
+    if len(pedestrian_ids):
+        reset_evaluation_pedestrian_scenario_robot(
+            env,
+            pedestrian_ids,
+            flow_pose_range,
+            crossing_south_pose_range,
+            crossing_north_pose_range,
+            pedestrian_velocity_range,
+            speed_range=speed_range,
+            slow_speed_range=slow_speed_range,
+            slow_scenario_codes=slow_scenario_codes,
+            crossing_scenario_codes=crossing_scenario_codes,
+            asset_cfg=asset_cfg,
+        )
+
+
 def configure_evaluation_pedestrian_crowd(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,

@@ -16,6 +16,8 @@ density/speed via :func:`isaaclab_tasks.manager_based.navigation.mdp.curriculums
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from isaaclab.terrains import (
     FlatPatchSamplingCfg,
     HfConcentricMazeTerrainCfg,
@@ -23,11 +25,16 @@ from isaaclab.terrains import (
     TerrainGeneratorCfg,
 )
 from isaaclab.terrains.config.rough import FLAT_PATCH_HEIGHT_LIMITTED_CFG
+from isaaclab.terrains.height_field.hf_terrains import discrete_positive_obstacles_terrain
 
 # Number of curriculum difficulty levels (rows). Pedestrian count/speed ranges are
 # linearly interpolated over terrain_levels in [0, PEDESTRIAN_CURRICULUM_MAX_LEVEL].
 PEDESTRIAN_CURRICULUM_NUM_LEVELS = 10
 PEDESTRIAN_CURRICULUM_MAX_LEVEL = PEDESTRIAN_CURRICULUM_NUM_LEVELS - 1
+
+# Fixed benchmark rows shared by the static-obstacle and dynamic-crowd columns.
+EVALUATION_LEVEL_COUNTS = (2, 4, 6, 8, 10, 12, 14, 16)
+EVALUATION_NUM_LEVELS = len(EVALUATION_LEVEL_COUNTS)
 
 # Sparse static obstacles shared by both corridor terrains (lidar remains meaningfully
 # exercised alongside the dynamic pedestrians).
@@ -117,6 +124,19 @@ _CONCENTRIC_MAZE_KWARGS = dict(
     num_openings_range=(1, 3),
 )
 
+
+def _fixed_evaluation_discrete_obstacles_terrain(difficulty: float, cfg) -> object:
+    """Generate one static benchmark row with its exact high-obstacle count.
+
+    Curriculum terrain generation samples a small random offset within each row. Mapping that
+    sampled difficulty back to its row preserves randomized obstacle placement while making the
+    count itself exactly reproducible for every evaluation level.
+    """
+    row = min(int(difficulty * EVALUATION_NUM_LEVELS), EVALUATION_NUM_LEVELS - 1)
+    count = EVALUATION_LEVEL_COUNTS[row]
+    fixed_cfg = replace(cfg, min_num_high_obstacles=count, max_num_high_obstacles=count)
+    return discrete_positive_obstacles_terrain(difficulty, fixed_cfg)
+
 # Flat-patch sampling shared by the "ped_corridor" sub-terrain in PEDESTRIAN_CORRIDOR and in
 # build_mixed_static_pedestrian_corridor (goal regions for the flow/crossing scenarios).
 _PED_CORRIDOR_FLAT_PATCH_SAMPLING = {
@@ -178,6 +198,39 @@ def build_mixed_static_pedestrian_corridor(
             ),
             "ped_corridor": HfDiscretePositiveObstaclesTerrainCfg(
                 proportion=ped_corridor_proportion,
+                **_SPARSE_OBSTACLE_KWARGS,
+                flat_patch_sampling=_PED_CORRIDOR_FLAT_PATCH_SAMPLING,
+            ),
+        },
+    )
+
+
+def build_static_dynamic_evaluation_terrain() -> TerrainGeneratorCfg:
+    """Return the fixed 8-row x 7-column static-plus-dynamic evaluation terrain.
+
+    The first column is the training-compatible discrete-obstacle family. The remaining six
+    columns are identical pedestrian corridors, one assigned to each benchmark scenario by the
+    evaluator. Deliberately omit the maze family from this benchmark.
+    """
+    return TerrainGeneratorCfg(
+        size=(20.0, 14.0),
+        border_width=10.0,
+        num_rows=EVALUATION_NUM_LEVELS,
+        num_cols=7,
+        horizontal_scale=0.1,
+        vertical_scale=0.005,
+        slope_threshold=0.75,
+        use_cache=False,
+        curriculum=True,
+        sub_terrains={
+            "discrete_obstacles": HfDiscretePositiveObstaclesTerrainCfg(
+                proportion=1.0,
+                function=_fixed_evaluation_discrete_obstacles_terrain,
+                **_DISCRETE_OBSTACLES_KWARGS,
+                flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG},
+            ),
+            "ped_corridor": HfDiscretePositiveObstaclesTerrainCfg(
+                proportion=6.0,
                 **_SPARSE_OBSTACLE_KWARGS,
                 flat_patch_sampling=_PED_CORRIDOR_FLAT_PATCH_SAMPLING,
             ),

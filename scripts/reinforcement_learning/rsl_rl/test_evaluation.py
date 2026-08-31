@@ -107,30 +107,38 @@ def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
 
 def test_dynamic_profiles_cover_all_scenarios_and_counts():
     profiles = evaluation.dynamic_crowd_profiles()
-    assert len(profiles) == 48
-    assert [profile.pedestrian_count for profile in profiles[:8]] == list(range(2, 17, 2))
+    assert len(profiles) == 56
+    assert [profile.obstacle_count for profile in profiles[:8]] == list(range(2, 17, 2))
+    assert [profile.pedestrian_count for profile in profiles[8:16]] == list(range(2, 17, 2))
     assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER)
-    assert profiles[24:32] == [
-        evaluation.BenchmarkProfile("with_flow_slow_leader", count)
-        for count in range(2, 17, 2)
-    ]
-    assert profiles[32:40] == [
-        evaluation.BenchmarkProfile("crossing_slow", count)
-        for count in range(2, 17, 2)
-    ]
-    assert profiles[40:48] == [
-        evaluation.BenchmarkProfile("against_flow_slow", count)
-        for count in range(2, 17, 2)
+    assert [profile.scenario for profile in profiles[32:40]] == ["with_flow_slow_leader"] * 8
+    assert [profile.scenario for profile in profiles[40:48]] == ["crossing_slow"] * 8
+    assert [profile.scenario for profile in profiles[48:56]] == ["against_flow_slow"] * 8
+    assert [(profile.terrain_column, profile.terrain_level) for profile in profiles] == [
+        (column, level) for column in range(7) for level in range(8)
     ]
 
 
 def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
     profiles = evaluation.dynamic_crowd_profiles(include_slow_leader=False)
 
-    assert len(profiles) == 40
+    assert len(profiles) == 48
     assert "with_flow_slow_leader" not in {profile.scenario for profile in profiles}
     assert "crossing_slow" in {profile.scenario for profile in profiles}
     assert "against_flow_slow" in {profile.scenario for profile in profiles}
+
+
+def test_fixed_grid_profile_assignment_is_row_column_deterministic():
+    profiles = evaluation.dynamic_crowd_profiles()
+    levels = [row for row in range(8) for _ in range(7)]
+    columns = [column for _ in range(8) for column in range(7)]
+    assigned = evaluation.fixed_grid_profile_indices(profiles, levels, columns)
+
+    assert assigned == [column * 8 + row for row in range(8) for column in range(7)]
+    assert profiles[assigned[0]].scenario == "static_obstacles"
+    assert profiles[assigned[1]].scenario == "crossing"
+    with pytest.raises(ValueError, match="coordinates"):
+        evaluation.fixed_grid_profile_indices(profiles, [8], [0])
 
 
 def test_against_flow_geometry_outcomes_and_front_cross_precedence():
@@ -467,18 +475,24 @@ def test_slow_leader_recycle_cannot_create_false_overtake():
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
-def test_leader_scenarios_are_excluded_from_pairwise_interaction_events():
+def test_leader_and_static_scenarios_are_excluded_from_pairwise_interaction_events():
     collector = evaluation.InteractionEventCollector(
-        [evaluation.BenchmarkProfile("with_flow", 2), evaluation.BenchmarkProfile("with_flow_slow_leader", 2)], [0, 1], step_dt_s=0.1
+        [
+            evaluation.BenchmarkProfile("with_flow", 2),
+            evaluation.BenchmarkProfile("with_flow_slow_leader", 2),
+            evaluation.BenchmarkProfile("static_obstacles", 0, obstacle_count=2),
+        ],
+        [0, 1, 2],
+        step_dt_s=0.1,
     )
-    env = _FakeEnv(num_envs=2)
+    env = _FakeEnv(num_envs=3)
     env.crowd_manager.active[:, 0] = True
     env.crowd_manager.pos[:, 0] = torch.tensor([0.4, 0.0])
     env.crowd_manager.vel[:, 0] = torch.tensor([0.3, 0.0])
     collector.record_pre_step(env)
-    collector.finalize_terminal([0, 1])
+    collector.finalize_terminal([0, 1, 2])
 
-    assert collector.resolve_terminal([0, 1], [0, 1]) == []
+    assert collector.resolve_terminal([0, 1, 2], [0, 1, 2]) == []
     assert not collector.events
     assert all(row["scenario"] not in evaluation.LEADER_OUTCOME_SCENARIOS for row in collector.summary_rows())
 

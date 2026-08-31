@@ -1,7 +1,7 @@
 # Copyright (c) 2022-2026, The Isaac Lab Project Developers.
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Evaluate a mixed Go2 policy on the standardized dynamic-crowd benchmark."""
+"""Evaluate a mixed Go2 policy on the fixed static-plus-dynamic benchmark."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from evaluation import (  # isort: skip
     LeaderOutcomeCollector,
     _json_safe,
     dynamic_crowd_profiles,
+    fixed_grid_profile_indices,
     print_leader_outcomes,
     print_results,
     save_artifacts,
@@ -38,15 +39,14 @@ from evaluation import (  # isort: skip
 )
 
 
-parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy in the dynamic-crowd benchmark.")
+parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy on the fixed static-plus-dynamic benchmark.")
 parser.add_argument("--task", type=str, required=True, help="Existing mixed obstacle-avoidance task ID.")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
 parser.add_argument(
-    "--num_envs", type=int, default=48,
+    "--num_envs", type=int, default=56,
     help=(
-        "Vector environments (must be at least one per benchmark profile). "
-        "Defaults to the full 48-cell grid (3 ordinary + slow-leader + 2 slow-crowd "
-        "scenarios x 8 pedestrian counts)."
+        "Vector environments. The static-plus-dynamic benchmark requires a positive multiple of "
+        "56 (7 scenario columns x 8 count rows); defaults to one replica per cell."
     ),
 )
 parser.add_argument("--seed", type=int, default=42, help="Benchmark random seed.")
@@ -154,6 +154,7 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed
     EVALUATION_GOAL_REACHED_VELOCITY_THRESHOLD,
     EVALUATION_SCENARIO_CODES,
     configure_dynamic_crowd_evaluation,
+    configure_static_dynamic_evaluation,
     install_dynamic_crowd_evaluation_profiles,
 )
 from isaaclab_tasks.utils import get_checkpoint_path  # noqa: E402
@@ -216,6 +217,16 @@ SLOW_CROWD_AVAILABLE = (
     and "against_flow_slow" in EVALUATION_SCENARIO_CODES
     and EVALUATION_CROWD_SLOW_SPEED_RANGE is not None
 )
+
+STATIC_DYNAMIC_GRID_CELLS = 56
+
+
+def _fixed_grid_profile_indices(env, profiles) -> list[int]:
+    """Map row-major fixed terrain cells to column-major benchmark profiles."""
+    terrain = env.scene["terrain"]
+    levels = terrain.terrain_levels.detach().cpu().tolist()
+    columns = terrain.terrain_types.detach().cpu().tolist()
+    return fixed_grid_profile_indices(profiles, levels, columns)
 
 
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
@@ -479,13 +490,24 @@ class EvaluationProgressReporter:
 
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
-    """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
+    """Run all static-plus-dynamic profiles in parallel until every profile reaches its quota."""
     profiles = dynamic_crowd_profiles(
+        include_static=not RVO2_CROWD_EVAL,
         include_slow_leader=LEADER_OUTCOMES_AVAILABLE,
         include_slow_crowd=SLOW_CROWD_AVAILABLE,
     )
-    if args_cli.num_envs < len(profiles):
-        raise ValueError(f"--num_envs must be at least {len(profiles)} for the benchmark profiles.")
+    if RVO2_CROWD_EVAL:
+        if args_cli.num_envs < len(profiles):
+            raise ValueError(f"--num_envs must be at least {len(profiles)} for the benchmark profiles.")
+    elif args_cli.num_envs <= 0 or args_cli.num_envs % STATIC_DYNAMIC_GRID_CELLS:
+        raise ValueError(
+            f"--num_envs must be a positive multiple of {STATIC_DYNAMIC_GRID_CELLS} "
+            "for the 7-column x 8-row static-plus-dynamic benchmark."
+        )
+    elif len(profiles) != STATIC_DYNAMIC_GRID_CELLS:
+        raise RuntimeError(
+            "The static-plus-dynamic benchmark requires all six dynamic scenario columns plus the static column."
+        )
 
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, INSTALLED_RSL_RL_VERSION)
@@ -495,7 +517,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if RVO2_CROWD_EVAL:
         configure_rvo2_dynamic_crowd_evaluation(env_cfg)
     else:
-        configure_dynamic_crowd_evaluation(env_cfg)
+        configure_static_dynamic_evaluation(env_cfg)
 
     checkpoint, log_dir = _resolve_checkpoint(agent_cfg)
     output_root = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / "dynamic_crowd"
@@ -526,7 +548,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             else runner.alg.actor_critic
         )
 
-    env_profile_indices = [index % len(profiles) for index in range(args_cli.num_envs)]
+    env_profile_indices = (
+        [index % len(profiles) for index in range(args_cli.num_envs)]
+        if RVO2_CROWD_EVAL
+        else _fixed_grid_profile_indices(env.unwrapped, profiles)
+    )
     if RVO2_CROWD_EVAL:
         install_rvo2_dynamic_crowd_evaluation_profiles(
             env.unwrapped,
@@ -537,7 +563,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         install_dynamic_crowd_evaluation_profiles(
             env.unwrapped,
             [profiles[index].pedestrian_count for index in env_profile_indices],
-            [EVALUATION_SCENARIO_CODES[profiles[index].scenario] for index in env_profile_indices],
+            [EVALUATION_SCENARIO_CODES.get(profiles[index].scenario, -1) for index in env_profile_indices],
         )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
@@ -649,7 +675,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     raw_env._reset_idx = _tracked_reset_idx
 
     print(
-        f"[INFO] Evaluating {checkpoint} on {len(profiles)} dynamic-crowd profiles "
+        f"[INFO] Evaluating {checkpoint} on {len(profiles)} static-plus-dynamic profiles "
         f"with {args_cli.episodes_per_profile} episodes each"
         + (f" across {seed_count} consecutive seeds ({seeds[0]}..{seeds[-1]})." if seed_count > 1 else ".")
     )
@@ -789,6 +815,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     rows = collector.rows()
     aggregates = collector.aggregate_rows()
+    if not RVO2_CROWD_EVAL:
+        replicas = args_cli.num_envs // STATIC_DYNAMIC_GRID_CELLS
+        for row in [*rows, *aggregates]:
+            row["terrain_replicas"] = replicas
     leader_summary = _leader_condition_summary(leader_records)
     leader_outcome_summary = leader_outcome_collector.summary_rows()
     artifact_dir = save_artifacts(
@@ -816,8 +846,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "crossing_yield": "total planar robot speed reduction without a front crossing",
                 "speed_measurement": "robot total planar speed",
             },
-            "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
-            "scenarios": list(RVO2_SCENARIO_CODES) if RVO2_CROWD_EVAL else list(EVALUATION_SCENARIO_CODES),
+            "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles if profile.pedestrian_count}),
+            "static_obstacle_counts": sorted({profile.obstacle_count for profile in profiles if profile.obstacle_count is not None}),
+            "scenarios": (
+                list(RVO2_SCENARIO_CODES)
+                if RVO2_CROWD_EVAL
+                else ["static_obstacles", *EVALUATION_SCENARIO_CODES]
+            ),
+            "terrain_grid": (
+                None if RVO2_CROWD_EVAL else {
+                    "columns": 7,
+                    "rows": 8,
+                    "cells": STATIC_DYNAMIC_GRID_CELLS,
+                    "replicas": args_cli.num_envs // STATIC_DYNAMIC_GRID_CELLS,
+                    "static_column": 0,
+                    "dynamic_columns": 6,
+                    "count_levels": [2, 4, 6, 8, 10, 12, 14, 16],
+                }
+            ),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
             "leaders": {
                 "available": LEADER_OUTCOMES_AVAILABLE,
@@ -937,7 +983,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print("[INFO] Wrote per-seed breakdown to per_seed_aggregates.json")
     print_results(rows, aggregates)
     print_leader_outcomes(leader_outcome_summary)
-    print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
+    print(f"[INFO] Wrote static-plus-dynamic evaluation artifacts to: {artifact_dir}")
     if replay_recorder is not None:
         print(
             f"[INFO] Wrote {replay_recorder.collision_case_count} collision replay(s) and "

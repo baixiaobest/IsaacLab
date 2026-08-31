@@ -29,7 +29,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg
-from isaaclab.terrains import TerrainImporterCfg
+from isaaclab.terrains import TerrainImporter, TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
@@ -67,6 +67,7 @@ from .pedestrian_scenario_mixins import (
 from .pedestrian_terrains import (
     PEDESTRIAN_CURRICULUM_MAX_LEVEL,
     PEDESTRIAN_CORRIDOR,
+    build_static_dynamic_evaluation_terrain,
     build_mixed_static_pedestrian_corridor,
 )
 from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
@@ -529,6 +530,27 @@ normal band.  The codes are stable benchmark identifiers — never reuse or renu
 """
 
 
+class FixedCoverageEvaluationTerrainImporter(TerrainImporter):
+    """Pin every static/dynamic evaluation environment to one terrain-grid cell."""
+
+    def _compute_env_origins_curriculum(self, num_envs: int, origins):
+        import torch
+
+        num_rows, num_cols = origins.shape[:2]
+        cells = num_rows * num_cols
+        if num_envs <= 0 or num_envs % cells:
+            raise ValueError(
+                "Static/dynamic evaluation requires --num_envs to be a positive multiple of "
+                f"{cells} ({num_cols} columns x {num_rows} rows), got {num_envs}."
+            )
+        cell_ids = torch.arange(num_envs, device=self.device) % cells
+        self.terrain_levels = torch.div(cell_ids, num_cols, rounding_mode="floor").to(torch.long)
+        self.terrain_types = (cell_ids % num_cols).to(torch.long)
+        self.tile_replicas = torch.div(torch.arange(num_envs, device=self.device), cells, rounding_mode="floor")
+        self.max_terrain_level = num_rows
+        return origins[self.terrain_levels, self.terrain_types].clone()
+
+
 def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
     """Overlay a mixed configuration with the deterministic dynamic-crowd benchmark setup.
 
@@ -614,6 +636,37 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     return env_cfg
 
 
+def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
+    """Overlay the 7-column static-plus-dynamic benchmark without changing PLAY tasks."""
+    configure_dynamic_crowd_evaluation(env_cfg)
+    env_cfg.scene.terrain.class_type = FixedCoverageEvaluationTerrainImporter
+    env_cfg.scene.terrain.terrain_generator = build_static_dynamic_evaluation_terrain()
+    env_cfg.scene.terrain.max_init_terrain_level = None
+    env_cfg.events.reset_base = EventTerm(
+        func=nav_mdp.reset_evaluation_robot_mixed,
+        mode="reset",
+        params={
+            "static_pose_range": _STATIC_SPAWN_POSE_RANGE,
+            "static_velocity_range": _ZERO_VELOCITY_RANGE,
+            "flow_pose_range": _FLOW_SPAWN_POSE_RANGE,
+            "crossing_south_pose_range": _CROSSING_SOUTH_SPAWN_POSE_RANGE,
+            "crossing_north_pose_range": _CROSSING_NORTH_SPAWN_POSE_RANGE,
+            "pedestrian_velocity_range": _ZERO_VELOCITY_RANGE,
+            "speed_range": EVALUATION_CROWD_SPEED_RANGE,
+            "slow_speed_range": EVALUATION_CROWD_SLOW_SPEED_RANGE,
+            "slow_scenario_codes": (
+                EVALUATION_SCENARIO_CODES["crossing_slow"],
+                EVALUATION_SCENARIO_CODES["against_flow_slow"],
+            ),
+            "crossing_scenario_codes": (
+                EVALUATION_SCENARIO_CODES["crossing"],
+                EVALUATION_SCENARIO_CODES["crossing_slow"],
+            ),
+        },
+    )
+    return env_cfg
+
+
 def install_dynamic_crowd_evaluation_profiles(
     env,
     pedestrian_counts,
@@ -632,14 +685,20 @@ def install_dynamic_crowd_evaluation_profiles(
     scenarios = torch.as_tensor(scenario_codes, device=env.device, dtype=torch.long)
     if counts.numel() != env.num_envs or scenarios.numel() != env.num_envs:
         raise ValueError("Evaluation profiles must provide exactly one count and scenario per environment.")
-    if torch.any((counts < 1) | (counts > env.crowd_manager.max_pedestrians)):
+    pedestrian_mask = env.is_pedestrian_env if hasattr(env, "is_pedestrian_env") else torch.ones_like(counts, dtype=torch.bool)
+    static_mask = ~pedestrian_mask
+    if torch.any((counts[pedestrian_mask] < 1) | (counts[pedestrian_mask] > env.crowd_manager.max_pedestrians)):
         raise ValueError("Evaluation pedestrian counts must fit the configured crowd capacity.")
+    if torch.any(counts[static_mask] != 0):
+        raise ValueError("Static evaluation terrain cells must have zero active pedestrians.")
     max_scenario_code = max(EVALUATION_SCENARIO_CODES.values())
-    if torch.any((scenarios < 0) | (scenarios > max_scenario_code)):
+    if torch.any((scenarios[pedestrian_mask] < 0) | (scenarios[pedestrian_mask] > max_scenario_code)):
         raise ValueError(
             "Evaluation scenario codes must be 0 (crossing), 1 (with), 2 (against), "
             "3 (with slow leader), 4 (crossing slow), or 5 (against slow)."
         )
+    if torch.any(scenarios[static_mask] != -1):
+        raise ValueError("Static evaluation terrain cells must use scenario code -1.")
 
     env.evaluation_pedestrian_count = counts
     env.evaluation_scenario = scenarios

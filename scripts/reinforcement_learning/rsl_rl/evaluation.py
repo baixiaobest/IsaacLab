@@ -21,6 +21,7 @@ import numpy as np
 
 
 SCENARIO_ORDER = (
+    "static_obstacles",
     "crossing",
     "with_flow",
     "against_flow",
@@ -29,6 +30,7 @@ SCENARIO_ORDER = (
     "against_flow_slow",
 )
 SCENARIO_LABELS = {
+    "static_obstacles": "Static obstacles",
     "crossing": "Crossing",
     "with_flow": "With flow",
     "against_flow": "Against flow",
@@ -36,6 +38,9 @@ SCENARIO_LABELS = {
     "crossing_slow": "Crossing — slow crowd",
     "against_flow_slow": "Against flow — slow crowd",
 }
+
+STATIC_OBSTACLE_SCENARIO = "static_obstacles"
+EVALUATION_LEVEL_COUNTS = (2, 4, 6, 8, 10, 12, 14, 16)
 
 GOAL_REGION_COLLISION_RADIUS_M = 0.75
 """Terminal-goal buffer used to report goal-region collisions separately."""
@@ -98,6 +103,9 @@ class BenchmarkProfile:
 
     scenario: str
     pedestrian_count: int
+    obstacle_count: int | None = None
+    terrain_column: int | None = None
+    terrain_level: int | None = None
 
 
 def _json_safe(value: Any) -> Any:
@@ -607,6 +615,9 @@ class CollisionReplayRecorder:
             "case_id": case_id,
             "scenario": profile.scenario,
             "pedestrian_count": profile.pedestrian_count,
+            "obstacle_count": profile.obstacle_count,
+            "terrain_column": profile.terrain_column,
+            "terrain_level": profile.terrain_level,
             "environment_id": env_id,
             "outcome": outcome,
             "terminal_time_s": float(frames["time_s"][-1]),
@@ -780,10 +791,10 @@ def _sample_standard_deviation(values: Iterable[float]) -> float:
 
 
 def dynamic_crowd_profiles(
-    counts: Iterable[int] = range(2, 17, 2), *, include_slow_leader: bool = True,
-    include_slow_crowd: bool = True,
+    counts: Iterable[int] = EVALUATION_LEVEL_COUNTS, *, include_static: bool = True,
+    include_slow_leader: bool = True, include_slow_crowd: bool = True,
 ) -> list[BenchmarkProfile]:
-    """Return the normal crowd grid plus the slow-leader and slow-crowd grids.
+    """Return the fixed static-plus-dynamic benchmark grid.
 
     The normal grid covers ``crossing``/``with_flow``/``against_flow`` for every count.
     Every slow-leader cell uses the same total pedestrian count as its regular
@@ -798,19 +809,47 @@ def dynamic_crowd_profiles(
     counts = tuple(counts)
     ordinary_scenarios = ("crossing", "with_flow", "against_flow")
     profiles = [
-        BenchmarkProfile(scenario, count)
-        for scenario in ordinary_scenarios
-        for count in counts
-    ]
+        BenchmarkProfile(STATIC_OBSTACLE_SCENARIO, 0, obstacle_count=count, terrain_column=0, terrain_level=row)
+        for row, count in enumerate(counts)
+    ] if include_static else []
+    column = 1 if include_static else 0
+    profiles.extend(
+        BenchmarkProfile(scenario, count, terrain_column=column + scenario_index, terrain_level=row)
+        for scenario_index, scenario in enumerate(ordinary_scenarios)
+        for row, count in enumerate(counts)
+    )
     if include_slow_leader:
-        profiles.extend(BenchmarkProfile("with_flow_slow_leader", count) for count in counts)
+        profiles.extend(
+            BenchmarkProfile("with_flow_slow_leader", count, terrain_column=column + 3, terrain_level=row)
+            for row, count in enumerate(counts)
+        )
     if include_slow_crowd:
         profiles.extend(
-            BenchmarkProfile(scenario, count)
-            for scenario in ("crossing_slow", "against_flow_slow")
-            for count in counts
+            BenchmarkProfile(scenario, count, terrain_column=column + 4 + scenario_index, terrain_level=row)
+            for scenario_index, scenario in enumerate(("crossing_slow", "against_flow_slow"))
+            for row, count in enumerate(counts)
         )
     return profiles
+
+
+def fixed_grid_profile_indices(
+    profiles: list[BenchmarkProfile], terrain_levels: Iterable[int], terrain_columns: Iterable[int]
+) -> list[int]:
+    """Return the column-major profile index for each row-major 7x8 terrain cell."""
+    levels = [int(value) for value in terrain_levels]
+    columns = [int(value) for value in terrain_columns]
+    if len(levels) != len(columns) or len(profiles) != 56:
+        raise ValueError("Fixed static/dynamic evaluation requires 56 profiles and matched terrain coordinates.")
+    indices = []
+    for level, column in zip(levels, columns):
+        if not 0 <= level < 8 or not 0 <= column < 7:
+            raise ValueError("Fixed static/dynamic evaluation terrain coordinates must fit the 7x8 grid.")
+        index = column * 8 + level
+        profile = profiles[index]
+        if profile.terrain_column != column or profile.terrain_level != level:
+            raise ValueError("Fixed static/dynamic evaluation terrain/profile mapping is inconsistent.")
+        indices.append(index)
+    return indices
 
 
 def classify_speed_interaction(
@@ -1150,9 +1189,8 @@ class InteractionEventCollector:
         for env_id, profile_index in enumerate(self.env_profile_indices):
             time_s = self._times[env_id]
             scenario = self.profiles[profile_index].scenario
-            # With-flow variants are deliberately evaluated as one slot-zero episode
-            # outcome, not as a collection of pairwise crowd interactions.
-            if scenario in LEADER_OUTCOME_SCENARIOS:
+            # Static terrain and with-flow variants have no pairwise interaction protocol.
+            if scenario not in INTERACTION_LABELS:
                 self._times[env_id] += self.step_dt_s
                 continue
             # Yield measures translational accommodation, not progress toward the goal: a
@@ -2057,12 +2095,13 @@ def save_artifacts(
     aggregate_rows: list[dict[str, Any]],
     metadata: dict[str, Any],
 ) -> Path:
-    """Write CSV, JSON, and the dynamic-crowd summary plot."""
+    """Write CSV, JSON, and the static-plus-dynamic summary plot."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     all_rows = [*rows, *aggregate_rows]
     fieldnames = [
-        "scenario", "pedestrian_count", "episodes", "successes", "collisions", "goal_region_collisions",
+        "scenario", "pedestrian_count", "obstacle_count", "terrain_column", "terrain_level", "terrain_replicas",
+        "episodes", "successes", "collisions", "goal_region_collisions",
         "all_collisions", "timeouts", "base_contacts", "success_rate", "navigation_success_rate", "collision_rate",
         "goal_region_collision_rate", "all_collision_rate", "timeout_rate", "base_contact_rate",
         "mean_xy_speed_mps", "std_xy_speed_mps",
