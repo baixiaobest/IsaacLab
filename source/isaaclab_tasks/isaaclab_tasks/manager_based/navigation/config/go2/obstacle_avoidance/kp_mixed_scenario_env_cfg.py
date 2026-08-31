@@ -42,6 +42,11 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg(MixedTemporalLidarObstacleAvoi
 
     actions: KpActionsCfg = KpActionsCfg()
 
+    def __post_init__(self):
+        super().__post_init__()
+        # Training variant: all active pedestrians remain responsive to the robot.
+        self.social_force.robot_ignore_probability = 0.0
+
 
 @configclass
 class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
