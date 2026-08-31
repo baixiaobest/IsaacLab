@@ -347,18 +347,21 @@ def reset_evaluation_pedestrian_crowd(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     flow_dir: float = 1.0,
+    with_flow_leader_scenario_code: int = 1,
+    with_flow_leader_speed_range_mps: tuple[float, float] = (0.9, 1.5),
+    with_flow_leader_start_ahead_range_m: tuple[float, float] = (2.0, 4.0),
+    with_flow_leader_lateral_offset_range_m: tuple[float, float] = (-0.25, 0.25),
     slow_leader_scenario_code: int = 3,
     slow_leader_speed_range_mps: tuple[float, float] = (0.25, 0.45),
     slow_leader_start_ahead_range_m: tuple[float, float] = (1.5, 3.0),
     slow_leader_lateral_offset_range_m: tuple[float, float] = (-0.25, 0.25),
 ):
-    """Reset an evaluation crowd and install its bounded-random slow leader when requested.
+    """Reset an evaluation crowd and install its bounded-random with-flow leader when requested.
 
     The base reset still supplies the randomized crowd used by all existing benchmark profiles.
-    For the dedicated slow-leader profile, pedestrian slot 0 is placed directly ahead of the
-    robot's lane, travels in the same ``+x`` direction, and samples its speed and relative
-    pose from narrow benchmark ranges.  That makes overtaking deliberate without teaching a
-    policy one fixed initial condition.
+    For each with-flow profile, pedestrian slot 0 is placed directly ahead of the robot's
+    lane and travels in the same ``+x`` direction. The ordinary profile samples from the
+    normal crowd band; the dedicated slow-leader profile uses its lower benchmark band.
     """
     reset_pedestrian_crowd(env, env_ids, flow_dir=flow_dir)
 
@@ -370,6 +373,9 @@ def reset_evaluation_pedestrian_crowd(
             qualifier = "positive and ordered" if strictly_positive else "ordered"
             raise ValueError(f"{name} must be a two-value {qualifier} range.")
 
+    _validate_range("With-flow leader speed", with_flow_leader_speed_range_mps, strictly_positive=True)
+    _validate_range("With-flow leader starting distance", with_flow_leader_start_ahead_range_m, strictly_positive=True)
+    _validate_range("With-flow leader lateral offset", with_flow_leader_lateral_offset_range_m)
     _validate_range("Slow-leader speed", slow_leader_speed_range_mps, strictly_positive=True)
     _validate_range("Slow-leader starting distance", slow_leader_start_ahead_range_m, strictly_positive=True)
     _validate_range("Slow-leader lateral offset", slow_leader_lateral_offset_range_m)
@@ -377,8 +383,9 @@ def reset_evaluation_pedestrian_crowd(
     pedestrian_env_ids = env_ids[env.is_pedestrian_env[env_ids]]
     if len(pedestrian_env_ids) == 0:
         return
+    scenarios = env.evaluation_scenario[pedestrian_env_ids]
     leader_env_ids = pedestrian_env_ids[
-        env.evaluation_scenario[pedestrian_env_ids] == slow_leader_scenario_code
+        (scenarios == with_flow_leader_scenario_code) | (scenarios == slow_leader_scenario_code)
     ]
     if len(leader_env_ids) == 0:
         return
@@ -399,13 +406,22 @@ def reset_evaluation_pedestrian_crowd(
     ).clamp(min=0.0)
 
     sample_count = len(leader_env_ids)
-    leader_speed = torch.empty(sample_count, device=env.device).uniform_(*slow_leader_speed_range_mps)
-    leader_start_ahead = torch.empty(sample_count, device=env.device).uniform_(
-        *slow_leader_start_ahead_range_m
-    )
+    leader_scenarios = env.evaluation_scenario[leader_env_ids]
+    is_slow_leader = leader_scenarios == slow_leader_scenario_code
+    leader_speed = torch.empty(sample_count, device=env.device).uniform_(*with_flow_leader_speed_range_mps)
+    leader_start_ahead = torch.empty(sample_count, device=env.device).uniform_(*with_flow_leader_start_ahead_range_m)
     leader_lateral_offset = torch.empty(sample_count, device=env.device).uniform_(
-        *slow_leader_lateral_offset_range_m
+        *with_flow_leader_lateral_offset_range_m
     )
+    slow_count = int(is_slow_leader.sum().item())
+    if slow_count:
+        leader_speed[is_slow_leader] = torch.empty(slow_count, device=env.device).uniform_(*slow_leader_speed_range_mps)
+        leader_start_ahead[is_slow_leader] = torch.empty(slow_count, device=env.device).uniform_(
+            *slow_leader_start_ahead_range_m
+        )
+        leader_lateral_offset[is_slow_leader] = torch.empty(slow_count, device=env.device).uniform_(
+            *slow_leader_lateral_offset_range_m
+        )
 
     # Keep the leader approximately in the robot's lane, but inside the corridor and before
     # the downstream boundary. In this evaluation profile the robot's goal and crowd both
@@ -429,7 +445,7 @@ def reset_evaluation_pedestrian_crowd(
     crowd_manager.desired_speed[leader_env_ids, 0] = leader_speed
     crowd_manager.vel[leader_env_ids, 0] = leader_direction * leader_speed.unsqueeze(-1)
     # Retain the exact reset samples for per-episode evaluation artifacts.
-    if hasattr(env, "evaluation_slow_leader_speed_mps"):
-        env.evaluation_slow_leader_speed_mps[leader_env_ids] = leader_speed
-        env.evaluation_slow_leader_start_ahead_m[leader_env_ids] = leader_start_ahead
-        env.evaluation_slow_leader_lateral_offset_m[leader_env_ids] = leader_lateral_offset
+    if hasattr(env, "evaluation_leader_speed_mps"):
+        env.evaluation_leader_speed_mps[leader_env_ids] = leader_speed
+        env.evaluation_leader_start_ahead_m[leader_env_ids] = leader_start_ahead
+        env.evaluation_leader_lateral_offset_m[leader_env_ids] = leader_lateral_offset

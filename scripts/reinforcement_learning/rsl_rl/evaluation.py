@@ -73,18 +73,23 @@ INTERACTION_AGAINST_FLOW_REAR_PASS_MARGIN_M = 0.5
 INTERACTION_LABELS = {
     "crossing": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
     "against_flow": ("sidestep", "straight_pass", "front_crossing"),
-    "with_flow": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
     "crossing_slow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
     "against_flow_slow": ("sidestep", "straight_pass", "front_crossing"),
 }
-"""Pairwise interaction labels. Slow-leader evaluation uses episode outcomes instead."""
+"""Pairwise interaction labels. With-flow variants use slot-zero episode outcomes instead."""
 
 INTERACTION_SCENARIO_ORDER = tuple(scenario for scenario in SCENARIO_ORDER if scenario in INTERACTION_LABELS)
 
+LEADER_OUTCOME_SCENARIOS = ("with_flow", "with_flow_slow_leader")
+LEADER_SLOT = 0
+LEADER_OVERTAKE_MARGIN_M = 0.5
+LEADER_OUTCOME_LABELS = ("Follow", "Overtake")
+
+# Compatibility aliases for callers and historical artifact documentation.
 SLOW_LEADER_SCENARIO = "with_flow_slow_leader"
-SLOW_LEADER_SLOT = 0
-SLOW_LEADER_OVERTAKE_MARGIN_M = 0.5
-SLOW_LEADER_OUTCOME_LABELS = ("Follow", "Overtake")
+SLOW_LEADER_SLOT = LEADER_SLOT
+SLOW_LEADER_OVERTAKE_MARGIN_M = LEADER_OVERTAKE_MARGIN_M
+SLOW_LEADER_OUTCOME_LABELS = LEADER_OUTCOME_LABELS
 
 
 @dataclass(frozen=True)
@@ -693,10 +698,10 @@ class InteractionEventReplayRecorder:
         candidates: list[tuple[dict[str, Any], dict[str, np.ndarray]]] = []
         last_time = float(frames["time_s"][-1])
         for raw_event in events:
-            # Slow-leader evaluation exports only robust slot-zero passes. Follow is an
-            # outcome report, not an interaction replay candidate.
+            # Designated-leader evaluation exports only robust slot-zero passes. Follow
+            # is an outcome report, not an interaction replay candidate.
             if (
-                raw_event.get("scenario") == SLOW_LEADER_SCENARIO
+                raw_event.get("scenario") in LEADER_OUTCOME_SCENARIOS
                 and raw_event.get("canonical_label") != "overtake"
             ):
                 continue
@@ -820,30 +825,11 @@ def classify_speed_interaction(
 ) -> tuple[str, float | None, float | None]:
     """Return the canonical event label plus low speed and speed ratio.
 
-    This pure helper is also the canonical implementation mirrored by the viewer's live
-    reclassification.  This is the speed-based protocol retained for against-flow and
-    with-flow interactions.  Crossing scenarios use :func:`classify_crossing_interaction`
-    so their yield label is determined by pedestrian-frame geometry instead.
+    This is retained for diagnostic compatibility with the event collector. With-flow
+    is intentionally absent: both with-flow variants use slot-zero episode outcomes.
     """
     if scenario not in INTERACTION_LABELS:
         raise ValueError(f"Unsupported interaction scenario: {scenario}")
-    if scenario == "with_flow":
-        # Passing is an ordering outcome, not a near-collision outcome.  A robot may
-        # overtake a co-flowing pedestrian with a comfortable CPA, so evaluate the
-        # robust behind-to-ahead transition before considering CPA risk.  Conversely,
-        # a close encounter which begins robustly behind but never reaches the ahead
-        # margin is a non-overtake even when it was comfortable throughout.
-        if initial_longitudinal_m is None or final_longitudinal_m is None:
-            return ("non_risky_close", None, None) if not risk_seen else ("unclassified", None, None)
-        margin = INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M
-        if initial_longitudinal_m <= -margin and final_longitudinal_m >= margin:
-            return "overtake", None, None
-        if initial_longitudinal_m <= -margin:
-            return "non_overtake", None, None
-        if not risk_seen:
-            return "non_risky_close", None, None
-        return "unclassified", None, None
-
     if not risk_seen:
         return "non_risky_close", None, None
 
@@ -1164,9 +1150,9 @@ class InteractionEventCollector:
         for env_id, profile_index in enumerate(self.env_profile_indices):
             time_s = self._times[env_id]
             scenario = self.profiles[profile_index].scenario
-            # Slow-leader is deliberately evaluated as one slot-zero episode outcome,
-            # not as a collection of pairwise crowd interactions.
-            if scenario == SLOW_LEADER_SCENARIO:
+            # With-flow variants are deliberately evaluated as one slot-zero episode
+            # outcome, not as a collection of pairwise crowd interactions.
+            if scenario in LEADER_OUTCOME_SCENARIOS:
                 self._times[env_id] += self.step_dt_s
                 continue
             # Yield measures translational accommodation, not progress toward the goal: a
@@ -1429,10 +1415,10 @@ class InteractionEventCollector:
         return rows
 
 
-class SlowLeaderOutcomeCollector:
-    """Classify accepted successful slow-leader episodes as Follow or Overtake.
+class LeaderOutcomeCollector:
+    """Classify accepted successful designated-leader episodes as Follow or Overtake.
 
-    The fixed slow leader is pedestrian slot zero.  Unlike the ordinary interaction
+    The fixed leader is pedestrian slot zero. Unlike the ordinary interaction
     protocol, this tracker intentionally ignores all other pedestrians and produces
     exactly one outcome for a successful slow-leader episode.
     """
@@ -1452,8 +1438,8 @@ class SlowLeaderOutcomeCollector:
         self._pending_terminal: dict[int, dict[str, Any]] = {}
         self.outcomes: list[dict[str, Any]] = []
 
-    def _is_slow_leader_env(self, env_id: int) -> bool:
-        return self.profiles[self.env_profile_indices[env_id]].scenario == SLOW_LEADER_SCENARIO
+    def _is_leader_env(self, env_id: int) -> bool:
+        return self.profiles[self.env_profile_indices[env_id]].scenario in LEADER_OUTCOME_SCENARIOS
 
     @staticmethod
     def _flow_direction(crowd: Any, env_id: int) -> float:
@@ -1488,20 +1474,20 @@ class SlowLeaderOutcomeCollector:
         return length > 0.0 and progress < previous_progress - 0.5 * length
 
     def _observe(self, env: Any, env_id: int, conditions: Mapping[str, float] | None = None) -> None:
-        if not self._is_slow_leader_env(env_id):
+        if not self._is_leader_env(env_id):
             return
         crowd = env.crowd_manager
         robot_position = env.scene["robot"].data.root_pos_w[env_id, :2].detach().cpu().numpy()
-        leader_position = crowd.get_world_positions()[env_id, SLOW_LEADER_SLOT].detach().cpu().numpy()
-        leader_active = bool(crowd.get_active_mask()[env_id, SLOW_LEADER_SLOT].detach().cpu().item())
+        leader_position = crowd.get_world_positions()[env_id, LEADER_SLOT].detach().cpu().numpy()
+        leader_active = bool(crowd.get_active_mask()[env_id, LEADER_SLOT].detach().cpu().item())
         flow_direction = self._flow_direction(crowd, env_id)
         time_s = self._times[env_id]
 
         state = self._active[env_id]
         if state is None:
             state = {
-                "scenario": SLOW_LEADER_SCENARIO,
-                "pedestrian_id": SLOW_LEADER_SLOT,
+                "scenario": self.profiles[self.env_profile_indices[env_id]].scenario,
+                "pedestrian_id": LEADER_SLOT,
                 "start_time_s": time_s,
                 "saw_behind_margin": False,
                 "pass_start_time_s": None,
@@ -1535,11 +1521,11 @@ class SlowLeaderOutcomeCollector:
 
         radii = crowd.radius[env_id]
         robot_radius = float(crowd.cfg.robot_radius)
-        leader_radius = float(radii[SLOW_LEADER_SLOT].detach().cpu().item())
+        leader_radius = float(radii[LEADER_SLOT].detach().cpu().item())
         clearance = float(np.linalg.norm(robot_position - leader_position) - robot_radius - leader_radius)
         state["minimum_clearance_m"] = min(float(state["minimum_clearance_m"]), clearance)
 
-        margin = SLOW_LEADER_OVERTAKE_MARGIN_M
+        margin = LEADER_OVERTAKE_MARGIN_M
         if longitudinal <= -margin:
             state["saw_behind_margin"] = True
         if state["saw_behind_margin"] and state["pass_start_time_s"] is None and longitudinal > -margin:
@@ -1557,7 +1543,7 @@ class SlowLeaderOutcomeCollector:
     def finalize_terminal(self, env: Any, env_ids: Any) -> None:
         """Capture final pre-reset state and stage one potential outcome per terminating episode."""
         for env_id in _ids(env_ids):
-            if not self._is_slow_leader_env(env_id):
+            if not self._is_leader_env(env_id):
                 continue
             self._observe(env, env_id)
             state = self._active[env_id]
@@ -1584,13 +1570,13 @@ class SlowLeaderOutcomeCollector:
             self._active[env_id] = None
 
     def pending_outcome(self, env_id: int) -> dict[str, Any] | None:
-        """Return a terminal-staged slow-leader outcome before quota admission."""
+        """Return a terminal-staged leader outcome before quota admission."""
         return self._pending_terminal.get(int(env_id))
 
     def resolve_terminal(
         self, completed_env_ids: Any, accepted_success_ids: Iterable[int], *, seed: int | None = None
     ) -> list[dict[str, Any]]:
-        """Admit only successful, profile-quota-counted slow-leader outcomes."""
+        """Admit only successful, profile-quota-counted leader outcomes."""
         successful = {int(env_id) for env_id in accepted_success_ids}
         admitted: list[dict[str, Any]] = []
         for env_id in _ids(completed_env_ids):
@@ -1611,24 +1597,32 @@ class SlowLeaderOutcomeCollector:
         return admitted
 
     def summary_rows(self) -> list[dict[str, Any]]:
-        """Return Follow/Overtake totals and rates for each slow-leader crowd count."""
-        counts = sorted({profile.pedestrian_count for profile in self.profiles if profile.scenario == SLOW_LEADER_SCENARIO})
+        """Return Follow/Overtake totals and rates for each leader scenario and crowd count."""
         rows = []
-        for count in counts:
-            outcomes = [row for row in self.outcomes if row["pedestrian_count"] == count]
-            follows = sum(row["outcome"] == "Follow" for row in outcomes)
-            overtakes = sum(row["outcome"] == "Overtake" for row in outcomes)
-            total = len(outcomes)
-            rows.append({
-                "scenario": SLOW_LEADER_SCENARIO,
-                "pedestrian_count": count,
-                "successful_episodes": total,
-                "follow": follows,
-                "overtake": overtakes,
-                "follow_rate": follows / total if total else None,
-                "overtake_rate": overtakes / total if total else None,
-            })
+        for scenario in LEADER_OUTCOME_SCENARIOS:
+            counts = sorted({profile.pedestrian_count for profile in self.profiles if profile.scenario == scenario})
+            for count in counts:
+                outcomes = [
+                    row for row in self.outcomes
+                    if row["scenario"] == scenario and row["pedestrian_count"] == count
+                ]
+                follows = sum(row["outcome"] == "Follow" for row in outcomes)
+                overtakes = sum(row["outcome"] == "Overtake" for row in outcomes)
+                total = len(outcomes)
+                rows.append({
+                    "scenario": scenario,
+                    "pedestrian_count": count,
+                    "successful_episodes": total,
+                    "follow": follows,
+                    "overtake": overtakes,
+                    "follow_rate": follows / total if total else None,
+                    "overtake_rate": overtakes / total if total else None,
+                })
         return rows
+
+
+# Existing callers retain the old import while the tracker supports both variants.
+SlowLeaderOutcomeCollector = LeaderOutcomeCollector
 
 
 def _flat_list(value: Any) -> list[Any]:
@@ -2165,12 +2159,12 @@ def save_interaction_event_artifacts(
     return output_path
 
 
-def save_slow_leader_outcome_artifacts(
+def save_leader_outcome_artifacts(
     output_dir: str | Path,
     outcomes: list[dict[str, Any]],
     summary_rows: list[dict[str, Any]],
 ) -> Path:
-    """Write success-only slot-zero Follow/Overtake outcomes and their aggregates."""
+    """Write success-only slot-zero Follow/Overtake outcomes for both leader variants."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     outcome_fields = [
@@ -2179,26 +2173,26 @@ def save_slow_leader_outcome_artifacts(
         "initial_longitudinal_m", "final_longitudinal_m", "leader_recycled", "speed_mps",
         "start_ahead_m", "lateral_offset_m",
     ]
-    with (output_path / "slow_leader_outcomes.csv").open("w", newline="", encoding="utf-8") as file:
+    with (output_path / "leader_outcomes.csv").open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=outcome_fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(outcomes)
     summary_fields = [
         "scenario", "pedestrian_count", "successful_episodes", "follow", "overtake", "follow_rate", "overtake_rate",
     ]
-    with (output_path / "slow_leader_outcome_summary.csv").open("w", newline="", encoding="utf-8") as file:
+    with (output_path / "leader_outcome_summary.csv").open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=summary_fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(summary_rows)
-    with (output_path / "slow_leader_outcomes.json").open("w", encoding="utf-8") as file:
+    with (output_path / "leader_outcomes.json").open("w", encoding="utf-8") as file:
         json.dump(
             _json_safe(
                 {
-                    "schema_version": 1,
-                    "scenario": SLOW_LEADER_SCENARIO,
-                    "pedestrian_slot": SLOW_LEADER_SLOT,
-                    "overtake_margin_m": SLOW_LEADER_OVERTAKE_MARGIN_M,
-                    "labels": list(SLOW_LEADER_OUTCOME_LABELS),
+                    "schema_version": 2,
+                    "scenarios": list(LEADER_OUTCOME_SCENARIOS),
+                    "pedestrian_slot": LEADER_SLOT,
+                    "overtake_margin_m": LEADER_OVERTAKE_MARGIN_M,
+                    "labels": list(LEADER_OUTCOME_LABELS),
                     "outcomes": outcomes,
                     "summary": summary_rows,
                 }
@@ -2207,15 +2201,15 @@ def save_slow_leader_outcome_artifacts(
             indent=2,
             allow_nan=False,
         )
-    _save_slow_leader_outcome_plot(output_path / "slow_leader_outcomes.png", summary_rows)
+    _save_leader_outcome_plot(output_path / "leader_outcomes.png", summary_rows)
     return output_path
 
 
-def print_slow_leader_outcomes(summary_rows: list[dict[str, Any]]) -> None:
-    """Print the episode-level slow-leader outcome table when the profile is enabled."""
+def print_leader_outcomes(summary_rows: list[dict[str, Any]]) -> None:
+    """Print the episode-level designated-leader outcome table when profiles are enabled."""
     if not summary_rows:
         return
-    print("slow-leader outcomes  crowd  successful  follow  overtake  follow%  overtake%")
+    print("leader outcomes       crowd  successful  follow  overtake  follow%  overtake%")
     print("-" * 76)
     for row in summary_rows:
         follow_rate = row["follow_rate"]
@@ -2223,7 +2217,7 @@ def print_slow_leader_outcomes(summary_rows: list[dict[str, Any]]) -> None:
         follow_percent = "n/a" if follow_rate is None else f"{100.0 * follow_rate:.1f}"
         overtake_percent = "n/a" if overtake_rate is None else f"{100.0 * overtake_rate:.1f}"
         print(
-            f"{SLOW_LEADER_SCENARIO:<21} {row['pedestrian_count']:>5} "
+            f"{row['scenario']:<21} {row['pedestrian_count']:>5} "
             f"{row['successful_episodes']:>11} {row['follow']:>7} {row['overtake']:>9} "
             f"{follow_percent:>7} {overtake_percent:>10}"
         )
@@ -2256,32 +2250,41 @@ def _save_interaction_histogram(path: Path, summary_rows: list[dict[str, Any]]) 
     plt.close(figure)
 
 
-def _save_slow_leader_outcome_plot(path: Path, summary_rows: list[dict[str, Any]]) -> None:
-    """Save a compact Follow/Overtake count chart by crowd count."""
+def _save_leader_outcome_plot(path: Path, summary_rows: list[dict[str, Any]]) -> None:
+    """Save compact Follow/Overtake count charts by leader scenario and crowd count."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    figure, axis = plt.subplots(figsize=(8, 4.5))
-    counts = [int(row["pedestrian_count"]) for row in summary_rows]
-    follows = [int(row["follow"]) for row in summary_rows]
-    overtakes = [int(row["overtake"]) for row in summary_rows]
-    x = np.arange(len(counts))
-    width = 0.38
-    follow_bars = axis.bar(x - width / 2.0, follows, width, label="Follow", color="#60a5fa")
-    overtake_bars = axis.bar(x + width / 2.0, overtakes, width, label="Overtake", color="#f59e0b")
-    axis.bar_label(follow_bars, padding=3)
-    axis.bar_label(overtake_bars, padding=3)
-    axis.set_xticks(x, [str(count) for count in counts])
-    axis.set_xlabel("Pedestrians")
-    axis.set_ylabel("Successful episodes")
-    axis.set_title("Slow-leader episode outcomes")
-    axis.grid(axis="y", alpha=0.3)
-    axis.legend()
+    scenarios = [scenario for scenario in LEADER_OUTCOME_SCENARIOS if any(row["scenario"] == scenario for row in summary_rows)]
+    figure, axes = plt.subplots(1, max(1, len(scenarios)), figsize=(8 * max(1, len(scenarios)), 4.5), squeeze=False)
+    for axis, scenario in zip(axes[0], scenarios):
+        rows = [row for row in summary_rows if row["scenario"] == scenario]
+        counts = [int(row["pedestrian_count"]) for row in rows]
+        follows = [int(row["follow"]) for row in rows]
+        overtakes = [int(row["overtake"]) for row in rows]
+        x = np.arange(len(counts))
+        width = 0.38
+        follow_bars = axis.bar(x - width / 2.0, follows, width, label="Follow", color="#60a5fa")
+        overtake_bars = axis.bar(x + width / 2.0, overtakes, width, label="Overtake", color="#f59e0b")
+        axis.bar_label(follow_bars, padding=3)
+        axis.bar_label(overtake_bars, padding=3)
+        axis.set_xticks(x, [str(count) for count in counts])
+        axis.set_xlabel("Pedestrians")
+        axis.set_ylabel("Successful episodes")
+        axis.set_title(SCENARIO_LABELS[scenario])
+        axis.grid(axis="y", alpha=0.3)
+        axis.legend()
     figure.tight_layout()
     figure.savefig(path, dpi=180)
     plt.close(figure)
+
+
+# Compatibility exports for out-of-tree users. New evaluations write only the
+# generic leader artifacts; ResearchAgent reads both old and new forms.
+save_slow_leader_outcome_artifacts = save_leader_outcome_artifacts
+print_slow_leader_outcomes = print_leader_outcomes
 
 
 def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:

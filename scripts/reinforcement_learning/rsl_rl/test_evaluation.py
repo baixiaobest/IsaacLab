@@ -391,26 +391,21 @@ def test_against_flow_encounters_clear_on_inactive_and_terminal_reset():
     assert not collector._encounters[0]
 
 
-def test_with_flow_interaction_overtake_and_ordering_labels():
-    assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
-    assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
-    assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], 0.1, 0.6)[0] == "unclassified"
-    # Co-flowing passes often have a safe CPA; ordering must still identify them.
-    assert evaluation.classify_speed_interaction("with_flow", False, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
-    assert evaluation.classify_speed_interaction("with_flow", False, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
-    assert evaluation.classify_speed_interaction("with_flow", False, 1.0, 1.0, [], 0.1, 0.6)[0] == "non_risky_close"
+def test_with_flow_uses_designated_leader_outcomes_not_pairwise_labels():
+    assert "with_flow" in evaluation.LEADER_OUTCOME_SCENARIOS
+    assert "with_flow" not in evaluation.INTERACTION_LABELS
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
-def test_slow_leader_outcomes_are_slot_zero_episode_classifications():
-    profiles = [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)]
-    collector = evaluation.SlowLeaderOutcomeCollector(profiles, [0], step_dt_s=0.1)
+def test_with_flow_leader_outcomes_are_slot_zero_episode_classifications():
+    profiles = [evaluation.BenchmarkProfile("with_flow", 2)]
+    collector = evaluation.LeaderOutcomeCollector(profiles, [0], step_dt_s=0.1)
     env = _FakeEnv(num_envs=1)
     env.crowd_manager.active[0, :] = True
     env.crowd_manager.pos[0, 0] = torch.tensor([2.0, 0.0])
     env.crowd_manager.pos[0, 1] = torch.tensor([-5.0, 0.0])
 
-    collector.record_pre_step(env, {0: {"speed_mps": 0.3, "start_ahead_m": 2.0, "lateral_offset_m": 0.0}})
+    collector.record_pre_step(env, {0: {"speed_mps": 1.2, "start_ahead_m": 2.0, "lateral_offset_m": 0.0}})
     # Slot 1 is deliberately far ahead, but only the slot-zero leader can affect the outcome.
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([2.1, 0.0])
     collector.record_pre_step(env)
@@ -425,7 +420,8 @@ def test_slow_leader_outcomes_are_slot_zero_episode_classifications():
     assert outcome["pedestrian_id"] == 0
     assert outcome["pass_time_s"] == pytest.approx(0.2)
     assert outcome["start_time_s"] == pytest.approx(0.1)
-    assert outcome["speed_mps"] == pytest.approx(0.3)
+    assert outcome["scenario"] == "with_flow"
+    assert outcome["speed_mps"] == pytest.approx(1.2)
     assert outcome["seed"] == 42
 
 
@@ -471,25 +467,25 @@ def test_slow_leader_recycle_cannot_create_false_overtake():
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
-def test_slow_leader_is_excluded_from_pairwise_interaction_events():
+def test_leader_scenarios_are_excluded_from_pairwise_interaction_events():
     collector = evaluation.InteractionEventCollector(
-        [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)], [0], step_dt_s=0.1
+        [evaluation.BenchmarkProfile("with_flow", 2), evaluation.BenchmarkProfile("with_flow_slow_leader", 2)], [0, 1], step_dt_s=0.1
     )
-    env = _FakeEnv(num_envs=1)
-    env.crowd_manager.active[0, 0] = True
-    env.crowd_manager.pos[0, 0] = torch.tensor([0.4, 0.0])
-    env.crowd_manager.vel[0, 0] = torch.tensor([0.3, 0.0])
+    env = _FakeEnv(num_envs=2)
+    env.crowd_manager.active[:, 0] = True
+    env.crowd_manager.pos[:, 0] = torch.tensor([0.4, 0.0])
+    env.crowd_manager.vel[:, 0] = torch.tensor([0.3, 0.0])
     collector.record_pre_step(env)
-    collector.finalize_terminal([0])
+    collector.finalize_terminal([0, 1])
 
-    assert collector.resolve_terminal([0], [0]) == []
+    assert collector.resolve_terminal([0, 1], [0, 1]) == []
     assert not collector.events
-    assert all(row["scenario"] != "with_flow_slow_leader" for row in collector.summary_rows())
+    assert all(row["scenario"] not in evaluation.LEADER_OUTCOME_SCENARIOS for row in collector.summary_rows())
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
-def test_slow_leader_replays_admit_only_overtake_outcomes(tmp_path):
-    profiles = [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)]
+def test_leader_replays_admit_only_overtake_outcomes(tmp_path):
+    profiles = [evaluation.BenchmarkProfile("with_flow", 2)]
     source = evaluation.CollisionReplayRecorder(profiles, [0], tmp_path, step_dt_s=0.1, history_seconds=1.0)
     recorder = evaluation.InteractionEventReplayRecorder(tmp_path / "interaction_events", source, 2, 0.1)
     env = _FakeEnv(num_envs=1)
@@ -498,12 +494,12 @@ def test_slow_leader_replays_admit_only_overtake_outcomes(tmp_path):
         source.record_pre_step(env, torch.zeros(1, 3))
     outcomes = [
         {
-            "scenario": "with_flow_slow_leader", "pedestrian_id": 0, "canonical_label": "follow",
+            "scenario": "with_flow", "pedestrian_id": 0, "canonical_label": "follow",
             "outcome": "Follow", "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
             "minimum_clearance_m": 0.4,
         },
         {
-            "scenario": "with_flow_slow_leader", "pedestrian_id": 0, "canonical_label": "overtake",
+            "scenario": "with_flow", "pedestrian_id": 0, "canonical_label": "overtake",
             "outcome": "Overtake", "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
             "minimum_clearance_m": 0.2,
         },
@@ -518,7 +514,7 @@ def test_slow_leader_replays_admit_only_overtake_outcomes(tmp_path):
     assert index["cases"][0]["outcome"] == "Overtake"
 
 
-def test_slow_leader_outcome_artifacts_include_follow_overtake_and_plot(tmp_path):
+def test_leader_outcome_artifacts_include_follow_overtake_and_plot(tmp_path):
     outcomes = [{
         "scenario": "with_flow_slow_leader", "pedestrian_count": 2, "environment_id": 0, "seed": 42,
         "pedestrian_id": 0, "outcome": "Overtake", "start_time_s": 0.5, "end_time_s": 1.0,
@@ -530,12 +526,12 @@ def test_slow_leader_outcome_artifacts_include_follow_overtake_and_plot(tmp_path
         "scenario": "with_flow_slow_leader", "pedestrian_count": 2, "successful_episodes": 1,
         "follow": 0, "overtake": 1, "follow_rate": 0.0, "overtake_rate": 1.0,
     }]
-    evaluation.save_slow_leader_outcome_artifacts(tmp_path, outcomes, summary)
+    evaluation.save_leader_outcome_artifacts(tmp_path, outcomes, summary)
 
-    assert (tmp_path / "slow_leader_outcomes.csv").is_file()
-    assert (tmp_path / "slow_leader_outcome_summary.csv").is_file()
-    assert (tmp_path / "slow_leader_outcomes.json").is_file()
-    assert (tmp_path / "slow_leader_outcomes.png").is_file()
+    assert (tmp_path / "leader_outcomes.csv").is_file()
+    assert (tmp_path / "leader_outcome_summary.csv").is_file()
+    assert (tmp_path / "leader_outcomes.json").is_file()
+    assert (tmp_path / "leader_outcomes.png").is_file()
 
 
 def test_interaction_artifacts_include_zero_categories_and_raw_events(tmp_path):
@@ -633,7 +629,7 @@ def test_interaction_replay_adds_profile_metadata_before_event_admission(tmp_pat
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
 def test_interaction_replay_samples_non_primary_canonical_labels(tmp_path):
     """Every canonical label is eligible for a separately quota-limited replay."""
-    profiles = [evaluation.BenchmarkProfile("with_flow", 2)]
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
     source = evaluation.CollisionReplayRecorder(profiles, [0], tmp_path, step_dt_s=0.1, history_seconds=1.0)
     recorder = evaluation.InteractionEventReplayRecorder(tmp_path / "interaction_events", source, 1, 0.1)
     env = _FakeEnv(num_envs=1)
@@ -641,7 +637,7 @@ def test_interaction_replay_samples_non_primary_canonical_labels(tmp_path):
         env.scene["robot"].data.root_pos_w[0, 0] = float(step)
         source.record_pre_step(env, torch.zeros(1, 3))
     event = {
-        "scenario": "with_flow", "pedestrian_id": 0, "canonical_label": "non_overtake",
+        "scenario": "crossing", "pedestrian_id": 0, "canonical_label": "ambiguous",
         "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
         "minimum_clearance_m": 0.2, "baseline_speed_mps": 1.0,
         "low_event_speed_mps": 1.0, "speed_ratio": 1.0,
@@ -652,7 +648,7 @@ def test_interaction_replay_samples_non_primary_canonical_labels(tmp_path):
     recorder.resolve_terminal([0], [0])
 
     index = json.loads((tmp_path / "interaction_events" / "interaction_event_cases.json").read_text())
-    assert index["cases"][0]["canonical_label"] == "non_overtake"
+    assert index["cases"][0]["canonical_label"] == "ambiguous"
 
 
 def test_collector_applies_collision_precedence_and_profile_quota():

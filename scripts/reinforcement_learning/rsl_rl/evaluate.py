@@ -26,14 +26,14 @@ from evaluation import (  # isort: skip
     GOAL_REGION_COLLISION_RADIUS_M,
     InteractionEventCollector,
     InteractionEventReplayRecorder,
-    SlowLeaderOutcomeCollector,
+    LeaderOutcomeCollector,
     _json_safe,
     dynamic_crowd_profiles,
-    print_slow_leader_outcomes,
+    print_leader_outcomes,
     print_results,
     save_artifacts,
     save_interaction_event_artifacts,
-    save_slow_leader_outcome_artifacts,
+    save_leader_outcome_artifacts,
     terminal_goal_region_collision_ids,
 )
 
@@ -170,12 +170,18 @@ try:
         EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
         EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
         EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
+        EVALUATION_WITH_FLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+        EVALUATION_WITH_FLOW_LEADER_SPEED_RANGE_MPS,
+        EVALUATION_WITH_FLOW_LEADER_START_AHEAD_RANGE_M,
     )
 except ImportError:
     EVALUATION_CROWD_SLOW_SPEED_RANGE = None
     EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M = None
     EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS = None
     EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M = None
+    EVALUATION_WITH_FLOW_LEADER_LATERAL_OFFSET_RANGE_M = None
+    EVALUATION_WITH_FLOW_LEADER_SPEED_RANGE_MPS = None
+    EVALUATION_WITH_FLOW_LEADER_START_AHEAD_RANGE_M = None
 
 # The RVO2/occupancy task evaluates on its benchmark environment (social-force
 # crowd, 16 person slots, corridor terrain) registered by
@@ -192,9 +198,13 @@ if RVO2_CROWD_EVAL:
     register_rvo2_eval_task()
 
 
-SLOW_LEADER_AVAILABLE = (
+LEADER_OUTCOMES_AVAILABLE = (
     not RVO2_CROWD_EVAL
+    and "with_flow" in EVALUATION_SCENARIO_CODES
     and "with_flow_slow_leader" in EVALUATION_SCENARIO_CODES
+    and EVALUATION_WITH_FLOW_LEADER_SPEED_RANGE_MPS is not None
+    and EVALUATION_WITH_FLOW_LEADER_START_AHEAD_RANGE_M is not None
+    and EVALUATION_WITH_FLOW_LEADER_LATERAL_OFFSET_RANGE_M is not None
     and EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS is not None
     and EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M is not None
     and EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M is not None
@@ -242,18 +252,18 @@ def _create_timestamped_run_dir(output_root: Path) -> Path:
     raise RuntimeError(f"Could not create a unique evaluation run directory in {output_root}.")
 
 
-def _slow_leader_conditions_by_env(raw_env, profiles, env_profile_indices) -> dict[int, dict[str, float]]:
-    """Snapshot the current slow-leader reset samples before an evaluation step."""
+def _leader_conditions_by_env(raw_env, profiles, env_profile_indices) -> dict[int, dict[str, float]]:
+    """Snapshot designated-leader reset samples before an evaluation step."""
     required = (
-        "evaluation_slow_leader_speed_mps",
-        "evaluation_slow_leader_start_ahead_m",
-        "evaluation_slow_leader_lateral_offset_m",
+        "evaluation_leader_speed_mps",
+        "evaluation_leader_start_ahead_m",
+        "evaluation_leader_lateral_offset_m",
     )
-    if not SLOW_LEADER_AVAILABLE or not all(hasattr(raw_env, name) for name in required):
+    if not LEADER_OUTCOMES_AVAILABLE or not all(hasattr(raw_env, name) for name in required):
         return {}
-    speeds = raw_env.evaluation_slow_leader_speed_mps.detach().cpu().tolist()
-    aheads = raw_env.evaluation_slow_leader_start_ahead_m.detach().cpu().tolist()
-    offsets = raw_env.evaluation_slow_leader_lateral_offset_m.detach().cpu().tolist()
+    speeds = raw_env.evaluation_leader_speed_mps.detach().cpu().tolist()
+    aheads = raw_env.evaluation_leader_start_ahead_m.detach().cpu().tolist()
+    offsets = raw_env.evaluation_leader_lateral_offset_m.detach().cpu().tolist()
     return {
         env_id: {
             "speed_mps": float(speeds[env_id]),
@@ -261,12 +271,12 @@ def _slow_leader_conditions_by_env(raw_env, profiles, env_profile_indices) -> di
             "lateral_offset_m": float(offsets[env_id]),
         }
         for env_id, profile_index in enumerate(env_profile_indices)
-        if profiles[profile_index].scenario == "with_flow_slow_leader"
+        if profiles[profile_index].scenario in ("with_flow", "with_flow_slow_leader")
     }
 
 
-def _slow_leader_condition_summary(records: list[dict[str, float]]) -> dict[str, float | int | None]:
-    """Produce compact artifact metadata for the sampled slow-leader conditions."""
+def _leader_condition_summary(records: list[dict[str, float]]) -> dict[str, float | int | None]:
+    """Produce compact artifact metadata for sampled designated-leader conditions."""
     summary: dict[str, float | int | None] = {"episodes": len(records)}
     for key in ("speed_mps", "start_ahead_m", "lateral_offset_m"):
         values = [record[key] for record in records]
@@ -471,7 +481,7 @@ class EvaluationProgressReporter:
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all dynamic-crowd profiles in parallel until every profile reaches its quota."""
     profiles = dynamic_crowd_profiles(
-        include_slow_leader=SLOW_LEADER_AVAILABLE,
+        include_slow_leader=LEADER_OUTCOMES_AVAILABLE,
         include_slow_crowd=SLOW_CROWD_AVAILABLE,
     )
     if args_cli.num_envs < len(profiles):
@@ -531,7 +541,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     obs, _ = env.reset()
     collector = EpisodeMetricsCollector(profiles, env_profile_indices, args_cli.episodes_per_profile)
-    slow_leader_records: list[dict[str, float | int]] = []
+    leader_records: list[dict[str, float | int]] = []
     seed_count = args_cli.seeds
     if seed_count < 1:
         raise ValueError("--seeds must be at least 1.")
@@ -556,7 +566,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     step_dt_s = env.unwrapped.step_dt
     episode_length_s = env.unwrapped.cfg.episode_length_s
     interaction_collector = InteractionEventCollector(profiles, env_profile_indices, step_dt_s)
-    slow_leader_outcome_collector = SlowLeaderOutcomeCollector(profiles, env_profile_indices, step_dt_s)
+    leader_outcome_collector = LeaderOutcomeCollector(profiles, env_profile_indices, step_dt_s)
     replay_recorder = None
     if (
         not args_cli.disable_failure_recording
@@ -611,7 +621,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
         )
         interaction_collector.finalize_terminal(env_ids)
-        slow_leader_outcome_collector.finalize_terminal(raw_env, env_ids)
+        leader_outcome_collector.finalize_terminal(raw_env, env_ids)
         try:
             action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
         except KeyError:
@@ -628,9 +638,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     interaction_replay_recorder.stage_terminal_success(
                         raw_env, int(env_id), interaction_collector.pending_events(int(env_id))
                     )
-                    slow_leader_outcome = slow_leader_outcome_collector.pending_outcome(int(env_id))
-                    if slow_leader_outcome is not None:
-                        interaction_replay_recorder.stage_terminal_success(raw_env, int(env_id), [slow_leader_outcome])
+                    leader_outcome = leader_outcome_collector.pending_outcome(int(env_id))
+                    if leader_outcome is not None:
+                        interaction_replay_recorder.stage_terminal_success(raw_env, int(env_id), [leader_outcome])
         _record_cbf_replay_state()
         if replay_recorder is not None:
             replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
@@ -677,7 +687,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             while simulation_app.is_running() and not collector.stage_complete:
                 step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
                 velocity_accumulator.record_step(step_speed)
-                slow_leader_conditions = _slow_leader_conditions_by_env(
+                leader_conditions = _leader_conditions_by_env(
                     raw_env, profiles, env_profile_indices
                 )
                 with torch.inference_mode():
@@ -693,7 +703,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                             raw_env, submitted_actions * action_scales, cbf_filtered_command=cbf_command
                         )
                     interaction_collector.record_pre_step(raw_env)
-                    slow_leader_outcome_collector.record_pre_step(raw_env, slow_leader_conditions)
+                    leader_outcome_collector.record_pre_step(raw_env, leader_conditions)
                     obs, _, dones, extras = env.step(actions)
                     _record_cbf_replay_state()
                 if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
@@ -717,11 +727,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 for env_id in completed_ids.detach().cpu().tolist():
                     cbf_solver_terminal_metrics.pop(int(env_id), None)
                 for env_id in sorted(collector.last_accepted_ids):
-                    condition = slow_leader_conditions.get(env_id)
+                    condition = leader_conditions.get(env_id)
                     if condition is None:
                         continue
                     profile = profiles[env_profile_indices[env_id]]
-                    slow_leader_records.append(
+                    leader_records.append(
                         {
                             **condition,
                             "seed": seed,
@@ -735,7 +745,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     status="running",
                 )
                 interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
-                slow_leader_outcome_collector.resolve_terminal(
+                leader_outcome_collector.resolve_terminal(
                     completed_ids, collector.last_accepted_success_ids, seed=seed
                 )
                 if interaction_replay_recorder is not None:
@@ -779,8 +789,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     rows = collector.rows()
     aggregates = collector.aggregate_rows()
-    slow_leader_summary = _slow_leader_condition_summary(slow_leader_records)
-    slow_leader_outcome_summary = slow_leader_outcome_collector.summary_rows()
+    leader_summary = _leader_condition_summary(leader_records)
+    leader_outcome_summary = leader_outcome_collector.summary_rows()
     artifact_dir = save_artifacts(
         output_dir,
         rows,
@@ -809,20 +819,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "pedestrian_counts": sorted({profile.pedestrian_count for profile in profiles}),
             "scenarios": list(RVO2_SCENARIO_CODES) if RVO2_CROWD_EVAL else list(EVALUATION_SCENARIO_CODES),
             "crowd_speed_range_mps": EVALUATION_CROWD_SPEED_RANGE,
-            "slow_leader": {
-                "available": SLOW_LEADER_AVAILABLE,
-                "scenario": "with_flow_slow_leader",
-                "pedestrian_counts": [
+            "leaders": {
+                "available": LEADER_OUTCOMES_AVAILABLE,
+                "scenarios": ["with_flow", "with_flow_slow_leader"],
+                "pedestrian_counts": sorted({
                     profile.pedestrian_count for profile in profiles
-                    if profile.scenario == "with_flow_slow_leader"
-                ],
+                    if profile.scenario in ("with_flow", "with_flow_slow_leader")
+                }),
                 "pedestrian_slot": 0,
-                "speed_range_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
-                "start_ahead_range_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
-                "lateral_offset_range_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
-                "sampled_conditions_file": "slow_leader_conditions.json",
-                "outcomes_file": "slow_leader_outcomes.json",
-                "outcome_summary_file": "slow_leader_outcome_summary.csv",
+                "with_flow": {
+                    "speed_range_mps": EVALUATION_WITH_FLOW_LEADER_SPEED_RANGE_MPS,
+                    "start_ahead_range_m": EVALUATION_WITH_FLOW_LEADER_START_AHEAD_RANGE_M,
+                    "lateral_offset_range_m": EVALUATION_WITH_FLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                },
+                "with_flow_slow_leader": {
+                    "speed_range_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
+                    "start_ahead_range_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
+                    "lateral_offset_range_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                },
+                "sampled_conditions_file": "leader_conditions.json",
+                "outcomes_file": "leader_outcomes.json",
+                "outcome_summary_file": "leader_outcome_summary.csv",
                 "outcome_protocol": {
                     "success_only": True,
                     "labels": ["Follow", "Overtake"],
@@ -830,7 +847,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     "overtake_margin_m": 0.5,
                     "recycle_handling": "A slot-zero recycle freezes the encounter; only a prior pass is Overtake.",
                 },
-                "sampled_conditions": slow_leader_summary,
+                "sampled_conditions": leader_summary,
             },
             "slow_crowd": {
                 "available": SLOW_CROWD_AVAILABLE,
@@ -880,26 +897,33 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             },
         },
     )
-    with (artifact_dir / "slow_leader_conditions.json").open("w", encoding="utf-8") as file:
+    with (artifact_dir / "leader_conditions.json").open("w", encoding="utf-8") as file:
         json.dump(
             {
-                "schema_version": 1,
-                "scenario": "with_flow_slow_leader",
+                "schema_version": 2,
+                "scenarios": ["with_flow", "with_flow_slow_leader"],
                 "configured_ranges": {
-                    "speed_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
-                    "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
-                    "lateral_offset_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                    "with_flow": {
+                        "speed_mps": EVALUATION_WITH_FLOW_LEADER_SPEED_RANGE_MPS,
+                        "start_ahead_m": EVALUATION_WITH_FLOW_LEADER_START_AHEAD_RANGE_M,
+                        "lateral_offset_m": EVALUATION_WITH_FLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                    },
+                    "with_flow_slow_leader": {
+                        "speed_mps": EVALUATION_SLOW_LEADER_SPEED_RANGE_MPS,
+                        "start_ahead_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
+                        "lateral_offset_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
+                    },
                 },
-                "summary": slow_leader_summary,
-                "episodes": slow_leader_records,
+                "summary": leader_summary,
+                "episodes": leader_records,
             },
             file,
             indent=2,
             allow_nan=False,
         )
     save_interaction_event_artifacts(artifact_dir, interaction_collector.events, interaction_collector.summary_rows())
-    save_slow_leader_outcome_artifacts(
-        artifact_dir, slow_leader_outcome_collector.outcomes, slow_leader_outcome_summary
+    save_leader_outcome_artifacts(
+        artifact_dir, leader_outcome_collector.outcomes, leader_outcome_summary
     )
     if seed_count > 1:
         per_seed_breakdown = {
@@ -912,7 +936,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             json.dump(_json_safe(per_seed_breakdown), file, indent=2, allow_nan=False)
         print("[INFO] Wrote per-seed breakdown to per_seed_aggregates.json")
     print_results(rows, aggregates)
-    print_slow_leader_outcomes(slow_leader_outcome_summary)
+    print_leader_outcomes(leader_outcome_summary)
     print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
     if replay_recorder is not None:
         print(
