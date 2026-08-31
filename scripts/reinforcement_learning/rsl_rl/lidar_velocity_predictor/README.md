@@ -14,6 +14,13 @@ Audit before training:
   --dataset_path datasets/lidar_point_velocity --output_dir datasets/lidar_point_velocity/audit
 ```
 
+The audit also writes four sampled static and four sampled dynamic labelled-scan plots by default to
+`audit/scan_samples/`, with their source file, episode, capture index, and plot path recorded in
+`audit/scan_samples.json`. They use robot-body coordinates (forward +X, left +Y): grey returns are
+static zero-velocity labels, and red arrows show body-frame pedestrian velocity labels. Adjust the
+number, range, or arrow scale with `--num_scan_samples`, `--scan_plot_range_m`, and
+`--velocity_arrow_seconds`.
+
 Train, evaluate, and export:
 
 ```bash
