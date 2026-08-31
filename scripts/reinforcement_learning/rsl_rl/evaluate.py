@@ -26,11 +26,14 @@ from evaluation import (  # isort: skip
     GOAL_REGION_COLLISION_RADIUS_M,
     InteractionEventCollector,
     InteractionEventReplayRecorder,
+    SlowLeaderOutcomeCollector,
     _json_safe,
     dynamic_crowd_profiles,
+    print_slow_leader_outcomes,
     print_results,
     save_artifacts,
     save_interaction_event_artifacts,
+    save_slow_leader_outcome_artifacts,
     terminal_goal_region_collision_ids,
 )
 
@@ -553,6 +556,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     step_dt_s = env.unwrapped.step_dt
     episode_length_s = env.unwrapped.cfg.episode_length_s
     interaction_collector = InteractionEventCollector(profiles, env_profile_indices, step_dt_s)
+    slow_leader_outcome_collector = SlowLeaderOutcomeCollector(profiles, env_profile_indices, step_dt_s)
     replay_recorder = None
     if (
         not args_cli.disable_failure_recording
@@ -570,6 +574,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             episode_length_s=episode_length_s,
             record_collisions=not args_cli.disable_failure_recording,
             interesting_interaction_distance_m=args_cli.interesting_interaction_distance_m,
+            # Event clips are admitted only after terminal success. Retaining each episode
+            # ensures a slow-leader pass that occurs well before goal reach remains available.
+            retain_full_episode=bool(args_cli.interaction_event_cases_per_label),
         )
     interaction_replay_recorder = (
         InteractionEventReplayRecorder(
@@ -604,6 +611,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
         )
         interaction_collector.finalize_terminal(env_ids)
+        slow_leader_outcome_collector.finalize_terminal(raw_env, env_ids)
         try:
             action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
         except KeyError:
@@ -614,11 +622,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             raw_env.termination_manager.get_term("goal_reached"), as_tuple=False
         ).reshape(-1)
         if interaction_replay_recorder is not None:
+            resetting_env_ids = set(env_ids.detach().cpu().tolist())
             for env_id in success_env_ids.detach().cpu().tolist():
-                if env_id in set(env_ids.detach().cpu().tolist()):
+                if env_id in resetting_env_ids:
                     interaction_replay_recorder.stage_terminal_success(
                         raw_env, int(env_id), interaction_collector.pending_events(int(env_id))
                     )
+                    slow_leader_outcome = slow_leader_outcome_collector.pending_outcome(int(env_id))
+                    if slow_leader_outcome is not None:
+                        interaction_replay_recorder.stage_terminal_success(raw_env, int(env_id), [slow_leader_outcome])
         _record_cbf_replay_state()
         if replay_recorder is not None:
             replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
@@ -681,6 +693,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                             raw_env, submitted_actions * action_scales, cbf_filtered_command=cbf_command
                         )
                     interaction_collector.record_pre_step(raw_env)
+                    slow_leader_outcome_collector.record_pre_step(raw_env, slow_leader_conditions)
                     obs, _, dones, extras = env.step(actions)
                     _record_cbf_replay_state()
                 if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
@@ -722,6 +735,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     status="running",
                 )
                 interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+                slow_leader_outcome_collector.resolve_terminal(
+                    completed_ids, collector.last_accepted_success_ids, seed=seed
+                )
                 if interaction_replay_recorder is not None:
                     interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
                 velocity_accumulator.reset(completed_ids)
@@ -764,6 +780,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     rows = collector.rows()
     aggregates = collector.aggregate_rows()
     slow_leader_summary = _slow_leader_condition_summary(slow_leader_records)
+    slow_leader_outcome_summary = slow_leader_outcome_collector.summary_rows()
     artifact_dir = save_artifacts(
         output_dir,
         rows,
@@ -804,6 +821,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "start_ahead_range_m": EVALUATION_SLOW_LEADER_START_AHEAD_RANGE_M,
                 "lateral_offset_range_m": EVALUATION_SLOW_LEADER_LATERAL_OFFSET_RANGE_M,
                 "sampled_conditions_file": "slow_leader_conditions.json",
+                "outcomes_file": "slow_leader_outcomes.json",
+                "outcome_summary_file": "slow_leader_outcome_summary.csv",
+                "outcome_protocol": {
+                    "success_only": True,
+                    "labels": ["Follow", "Overtake"],
+                    "pedestrian_slot": 0,
+                    "overtake_margin_m": 0.5,
+                    "recycle_handling": "A slot-zero recycle freezes the encounter; only a prior pass is Overtake.",
+                },
                 "sampled_conditions": slow_leader_summary,
             },
             "slow_crowd": {
@@ -872,6 +898,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             allow_nan=False,
         )
     save_interaction_event_artifacts(artifact_dir, interaction_collector.events, interaction_collector.summary_rows())
+    save_slow_leader_outcome_artifacts(
+        artifact_dir, slow_leader_outcome_collector.outcomes, slow_leader_outcome_summary
+    )
     if seed_count > 1:
         per_seed_breakdown = {
             "seeds": seeds,
@@ -883,6 +912,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             json.dump(_json_safe(per_seed_breakdown), file, indent=2, allow_nan=False)
         print("[INFO] Wrote per-seed breakdown to per_seed_aggregates.json")
     print_results(rows, aggregates)
+    print_slow_leader_outcomes(slow_leader_outcome_summary)
     print(f"[INFO] Wrote dynamic-crowd evaluation artifacts to: {artifact_dir}")
     if replay_recorder is not None:
         print(

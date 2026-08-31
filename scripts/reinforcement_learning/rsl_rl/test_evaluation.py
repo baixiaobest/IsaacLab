@@ -61,6 +61,9 @@ class _FakeCrowd:
         self.vel = torch.zeros(num_envs, max_pedestrians, 2)
         self.active = torch.zeros(num_envs, max_pedestrians, dtype=torch.bool)
         self.radius = torch.full((num_envs, max_pedestrians), 0.25)
+        self.flow_dir = torch.ones(num_envs)
+        self.corridor_origin = torch.zeros(num_envs, 2)
+        self.corridor_length = torch.full((num_envs,), 20.0)
 
     def get_world_positions(self):
         return self.pos
@@ -130,38 +133,40 @@ def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
     assert "against_flow_slow" in {profile.scenario for profile in profiles}
 
 
-def test_speed_interaction_labels_cover_yield_assert_ambiguous_and_non_risky():
-    label, low_speed, ratio = evaluation.classify_speed_interaction(
-        "crossing", True, 0.5, 1.0, [0.2, 0.3, 0.4]
-    )
-    assert (label, low_speed, ratio) == ("yield", pytest.approx(0.22), pytest.approx(0.22))
+def test_speed_interaction_labels_remain_for_non_crossing_scenarios():
     assert evaluation.classify_speed_interaction("against_flow", True, 0.5, 1.0, [0.95, 1.0])[0] == "assert"
-    assert evaluation.classify_speed_interaction("crossing", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
-    assert evaluation.classify_speed_interaction("crossing", False, 0.5, 1.0, [0.1])[0] == "non_risky_close"
-    assert evaluation.classify_speed_interaction("crossing", True, 0.1, 1.0, [0.1])[0] == "unclassified"
+    assert evaluation.classify_speed_interaction("against_flow", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
+    assert evaluation.classify_speed_interaction("against_flow", False, 0.5, 1.0, [0.1])[0] == "non_risky_close"
+    assert evaluation.classify_speed_interaction("against_flow", True, 0.1, 1.0, [0.1])[0] == "unclassified"
 
 
 def test_slow_crowd_scenarios_follow_base_scenario_classification():
-    # crossing_slow inherits the crossing protocol (geometric assert on front crossing).
-    assert evaluation.classify_speed_interaction(
-        "crossing_slow", True, 0.5, 1.0, [0.1, 0.2], front_crossed=True
-    ) == ("assert", None, None)
-    assert evaluation.classify_speed_interaction("crossing_slow", True, 0.5, 1.0, [0.2, 0.3, 0.4])[0] == "yield"
-    assert evaluation.classify_speed_interaction("crossing_slow", True, 0.5, 1.0, [0.95, 1.0])[0] == "ambiguous"
+    # crossing_slow inherits crossing's geometry protocol.
+    assert evaluation.classify_crossing_interaction(True, True, True, [-1, 1], False) == "assert"
+    assert evaluation.classify_crossing_interaction(True, False, True, [-1, -1], False) == "yield"
+    assert evaluation.classify_crossing_interaction(True, False, True, [-1, 1], False) == "ambiguous"
     # against_flow_slow inherits the against-flow protocol (assert on maintained speed).
     assert evaluation.classify_speed_interaction("against_flow_slow", True, 0.5, 1.0, [0.95, 1.0])[0] == "assert"
     assert evaluation.classify_speed_interaction("against_flow_slow", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
 
 
 def test_crossing_assert_requires_pedestrian_frame_front_crossing():
-    assert evaluation.classify_speed_interaction(
-        "crossing", True, 0.5, 1.0, [0.1, 0.2], front_crossed=True
-    ) == ("assert", None, None)
-    # Maintaining speed alone is no longer assertion in a crossing scenario.
-    assert evaluation.classify_speed_interaction("crossing", True, 0.5, 1.0, [0.95, 1.0])[0] == "ambiguous"
+    assert evaluation.classify_crossing_interaction(True, True, True, [-1, 1], True) == "assert"
     assert evaluation.front_crossing_longitudinal_m(0.8, -0.4, 1.0, 0.4, 0.6) == pytest.approx(0.9)
     assert evaluation.front_crossing_longitudinal_m(-0.8, -0.4, 0.2, 0.4, 0.6) is None
     assert evaluation.front_crossing_longitudinal_m(1.0, -0.1, 1.0, 0.1, 0.6) is None
+
+
+def test_crossing_geometry_labels_cover_rear_pass_side_yield_and_incomplete_data():
+    assert evaluation.classify_crossing_interaction(True, False, True, [-1, 1], True) == "yield"
+    # Staying on one side remains yield even while the robot advances from behind to front.
+    assert evaluation.classify_crossing_interaction(True, False, True, [-1, -1, -1], False) == "yield"
+    assert evaluation.classify_crossing_interaction(True, False, True, [-1, 1], False) == "ambiguous"
+    assert evaluation.classify_crossing_interaction(True, False, False, [-1, -1], False) == "unclassified"
+    assert evaluation.classify_crossing_interaction(True, False, True, [-1], False) == "unclassified"
+    assert evaluation.classify_crossing_interaction(False, False, True, [-1, 1], True) == "non_risky_close"
+    assert evaluation.rear_crossing_longitudinal_m(-1.0, -0.4, -1.0, 0.4, 0.6) == pytest.approx(-1.0)
+    assert evaluation.rear_crossing_longitudinal_m(-0.2, -0.4, -0.2, 0.4, 0.6) is None
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
@@ -192,13 +197,209 @@ def test_crossing_event_collector_detects_front_region_side_to_side_assertion():
     assert event["front_cross_longitudinal_m"] == pytest.approx(1.0)
 
 
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_crossing_event_collector_detects_rear_pass_and_same_side_yield():
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("crossing", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([1.5, 0.0])
+
+    # Side-to-side traversal one metre behind the pedestrian is a rear-pass yield.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-1.0, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-1.0, 0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-3.0, 0.4])
+    collector.record_pre_step(env)
+
+    rear_event = collector._completed[0][0]
+    assert rear_event["canonical_label"] == "yield"
+    assert rear_event["rear_crossed"]
+    assert rear_event["rear_cross_longitudinal_m"] == pytest.approx(-1.0)
+
+    # A new event can move from rear to front while retaining its lateral side.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-1.0, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([3.0, -0.4])
+    collector.record_pre_step(env)
+
+    same_side_event = collector._completed[0][1]
+    assert same_side_event["canonical_label"] == "yield"
+    assert same_side_event["core_resolved_sides"] == [-1, -1, -1]
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_crossing_yield_geometry_counts_rear_pass_in_exit_hysteresis():
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("crossing", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([1.5, 0.0])
+
+    # The side-to-side rear traversal completes inside the 1.5--1.75 m exit hysteresis.
+    # The event is still active, so it remains a valid rear-pass yield.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-1.0, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-0.9, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-2.27, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-2.27, 0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-3.0, 0.4])
+    collector.record_pre_step(env)
+
+    event = collector._completed[0][0]
+    assert event["canonical_label"] == "yield"
+    assert event["rear_crossed"]
+    assert event["rear_cross_longitudinal_m"] == pytest.approx(-2.27)
+    assert event["core_resolved_sides"] == [-1, -1, -1, 1, 1]
+
+
 def test_with_flow_interaction_overtake_and_ordering_labels():
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, 0.6)[0] == "overtake"
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], -0.6, -0.1)[0] == "non_overtake"
     assert evaluation.classify_speed_interaction("with_flow", True, 1.0, 1.0, [], 0.1, 0.6)[0] == "unclassified"
-    assert evaluation.classify_speed_interaction(
-        "with_flow_slow_leader", True, 1.0, 1.0, [], -0.6, 0.6
-    )[0] == "overtake"
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_slow_leader_outcomes_are_slot_zero_episode_classifications():
+    profiles = [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)]
+    collector = evaluation.SlowLeaderOutcomeCollector(profiles, [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, :] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([2.0, 0.0])
+    env.crowd_manager.pos[0, 1] = torch.tensor([-5.0, 0.0])
+
+    collector.record_pre_step(env, {0: {"speed_mps": 0.3, "start_ahead_m": 2.0, "lateral_offset_m": 0.0}})
+    # Slot 1 is deliberately far ahead, but only the slot-zero leader can affect the outcome.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([2.1, 0.0])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([2.6, 0.0])
+    collector.record_pre_step(env)
+    collector.finalize_terminal(env, [0])
+    admitted = collector.resolve_terminal([0], [0], seed=42)
+
+    assert len(admitted) == 1
+    outcome = admitted[0]
+    assert outcome["outcome"] == "Overtake"
+    assert outcome["pedestrian_id"] == 0
+    assert outcome["pass_time_s"] == pytest.approx(0.2)
+    assert outcome["start_time_s"] == pytest.approx(0.1)
+    assert outcome["speed_mps"] == pytest.approx(0.3)
+    assert outcome["seed"] == 42
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_slow_leader_follow_requires_no_robust_pass_and_unsuccessful_episodes_are_omitted():
+    profiles = [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)]
+    collector = evaluation.SlowLeaderOutcomeCollector(profiles, [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([2.0, 0.0])
+
+    collector.record_pre_step(env)
+    # The robot moves slightly ahead of the -0.5 m behind threshold but never reaches +0.5 m.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.51, 0.0])
+    collector.record_pre_step(env)
+    collector.finalize_terminal(env, [0])
+    assert collector.resolve_terminal([0], []) == []
+    assert not collector.outcomes
+
+    collector.record_pre_step(env)
+    collector.finalize_terminal(env, [0])
+    admitted = collector.resolve_terminal([0], [0])
+    assert admitted[0]["outcome"] == "Follow"
+    assert admitted[0]["pass_time_s"] is None
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_slow_leader_recycle_cannot_create_false_overtake():
+    profiles = [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)]
+    collector = evaluation.SlowLeaderOutcomeCollector(profiles, [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([8.0, 0.0])
+    collector.record_pre_step(env)
+    # This is the recycler's discontinuous upstream jump, not a physical robot pass.
+    env.crowd_manager.pos[0, 0] = torch.tensor([-9.0, 0.0])
+    collector.record_pre_step(env)
+    collector.finalize_terminal(env, [0])
+    outcome = collector.resolve_terminal([0], [0])[0]
+
+    assert outcome["outcome"] == "Follow"
+    assert outcome["leader_recycled"]
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_slow_leader_is_excluded_from_pairwise_interaction_events():
+    collector = evaluation.InteractionEventCollector(
+        [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)], [0], step_dt_s=0.1
+    )
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.pos[0, 0] = torch.tensor([0.4, 0.0])
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.3, 0.0])
+    collector.record_pre_step(env)
+    collector.finalize_terminal([0])
+
+    assert collector.resolve_terminal([0], [0]) == []
+    assert not collector.events
+    assert all(row["scenario"] != "with_flow_slow_leader" for row in collector.summary_rows())
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_slow_leader_replays_admit_only_overtake_outcomes(tmp_path):
+    profiles = [evaluation.BenchmarkProfile("with_flow_slow_leader", 2)]
+    source = evaluation.CollisionReplayRecorder(profiles, [0], tmp_path, step_dt_s=0.1, history_seconds=1.0)
+    recorder = evaluation.InteractionEventReplayRecorder(tmp_path / "interaction_events", source, 2, 0.1)
+    env = _FakeEnv(num_envs=1)
+    for step in range(4):
+        env.scene["robot"].data.root_pos_w[0, 0] = float(step)
+        source.record_pre_step(env, torch.zeros(1, 3))
+    outcomes = [
+        {
+            "scenario": "with_flow_slow_leader", "pedestrian_id": 0, "canonical_label": "follow",
+            "outcome": "Follow", "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
+            "minimum_clearance_m": 0.4,
+        },
+        {
+            "scenario": "with_flow_slow_leader", "pedestrian_id": 0, "canonical_label": "overtake",
+            "outcome": "Overtake", "start_time_s": 0.0, "end_time_s": 0.2, "duration_s": 0.2,
+            "minimum_clearance_m": 0.2,
+        },
+    ]
+
+    recorder.stage_terminal_success(env, 0, outcomes)
+    recorder.resolve_terminal([0], [0])
+    index = json.loads((tmp_path / "interaction_events" / "interaction_event_cases.json").read_text())
+
+    assert len(index["cases"]) == 1
+    assert index["cases"][0]["canonical_label"] == "overtake"
+    assert index["cases"][0]["outcome"] == "Overtake"
+
+
+def test_slow_leader_outcome_artifacts_include_follow_overtake_and_plot(tmp_path):
+    outcomes = [{
+        "scenario": "with_flow_slow_leader", "pedestrian_count": 2, "environment_id": 0, "seed": 42,
+        "pedestrian_id": 0, "outcome": "Overtake", "start_time_s": 0.5, "end_time_s": 1.0,
+        "duration_s": 0.5, "pass_time_s": 1.0, "minimum_clearance_m": 0.2,
+        "initial_longitudinal_m": -2.0, "final_longitudinal_m": 0.5, "leader_recycled": False,
+        "speed_mps": 0.3, "start_ahead_m": 2.0, "lateral_offset_m": 0.0,
+    }]
+    summary = [{
+        "scenario": "with_flow_slow_leader", "pedestrian_count": 2, "successful_episodes": 1,
+        "follow": 0, "overtake": 1, "follow_rate": 0.0, "overtake_rate": 1.0,
+    }]
+    evaluation.save_slow_leader_outcome_artifacts(tmp_path, outcomes, summary)
+
+    assert (tmp_path / "slow_leader_outcomes.csv").is_file()
+    assert (tmp_path / "slow_leader_outcome_summary.csv").is_file()
+    assert (tmp_path / "slow_leader_outcomes.json").is_file()
+    assert (tmp_path / "slow_leader_outcomes.png").is_file()
 
 
 def test_interaction_artifacts_include_zero_categories_and_raw_events(tmp_path):
