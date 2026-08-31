@@ -133,11 +133,23 @@ def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
     assert "against_flow_slow" in {profile.scenario for profile in profiles}
 
 
-def test_speed_interaction_labels_remain_for_non_crossing_scenarios():
-    assert evaluation.classify_speed_interaction("against_flow", True, 0.5, 1.0, [0.95, 1.0])[0] == "assert"
-    assert evaluation.classify_speed_interaction("against_flow", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
-    assert evaluation.classify_speed_interaction("against_flow", False, 0.5, 1.0, [0.1])[0] == "non_risky_close"
-    assert evaluation.classify_speed_interaction("against_flow", True, 0.1, 1.0, [0.1])[0] == "unclassified"
+def test_against_flow_geometry_outcomes_and_front_cross_precedence():
+    sidestep = {
+        "front_cone_qualified": True,
+        "robust_pass_seen": True,
+        "passing_side": 1,
+        "pass_robot_lateral_displacement_m": 0.4,
+    }
+    assert evaluation.classify_against_flow_interaction(False, sidestep) == "sidestep"
+    assert evaluation.classify_against_flow_interaction(True, sidestep) == "front_crossing"
+    assert evaluation.classify_against_flow_interaction(False, {**sidestep, "passing_side": -1}) == "straight_pass"
+    assert evaluation.classify_against_flow_interaction(
+        False, {**sidestep, "pass_robot_lateral_displacement_m": 0.39}
+    ) == "straight_pass"
+    assert evaluation.classify_against_flow_interaction(
+        False, {**sidestep, "robust_pass_seen": False}
+    ) == "straight_pass"
+    assert evaluation.classify_against_flow_interaction(False, None) == "straight_pass"
 
 
 def test_slow_crowd_scenarios_follow_base_scenario_classification():
@@ -145,9 +157,14 @@ def test_slow_crowd_scenarios_follow_base_scenario_classification():
     assert evaluation.classify_crossing_interaction(True, True, True, [-1, 1], False) == "assert"
     assert evaluation.classify_crossing_interaction(True, False, True, [-1, -1], False) == "yield"
     assert evaluation.classify_crossing_interaction(True, False, True, [-1, 1], False) == "ambiguous"
-    # against_flow_slow inherits the against-flow protocol (assert on maintained speed).
-    assert evaluation.classify_speed_interaction("against_flow_slow", True, 0.5, 1.0, [0.95, 1.0])[0] == "assert"
-    assert evaluation.classify_speed_interaction("against_flow_slow", True, 0.5, 1.0, [0.75, 0.8])[0] == "ambiguous"
+    # against_flow_slow inherits the same encounter-geometry protocol.
+    encounter = {
+        "front_cone_qualified": True,
+        "robust_pass_seen": True,
+        "passing_side": -1,
+        "pass_robot_lateral_displacement_m": -0.5,
+    }
+    assert evaluation.classify_against_flow_interaction(False, encounter) == "sidestep"
 
 
 def test_crossing_assert_requires_pedestrian_frame_front_crossing():
@@ -257,6 +274,77 @@ def test_crossing_yield_geometry_counts_rear_pass_in_exit_hysteresis():
     assert event["rear_crossed"]
     assert event["rear_cross_longitudinal_m"] == pytest.approx(-2.27)
     assert event["core_resolved_sides"] == [-1, -1, -1, 1, 1]
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_against_flow_sidestep_credits_motion_before_close_event_entry():
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("against_flow", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([-1.0, 0.0])
+
+    # The robot is in the pedestrian's forward cone for 0.2 s at 3 m, then moves
+    # 0.4 m aside before first entering the ordinary 1.5 m interaction event.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([3.0, 0.0])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([2.8, 0.0])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.3, 0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-0.6, 0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-3.0, 0.4])
+    collector.record_pre_step(env)
+
+    event = collector._completed[0][0]
+    assert event["canonical_label"] == "sidestep"
+    assert event["forward_cone_qualified"]
+    assert event["encounter_acquisition_time_s"] == pytest.approx(0.0)
+    assert event["start_time_s"] == pytest.approx(0.2)
+    assert event["robust_pass_seen"]
+    assert event["passing_side"] == 1
+    assert event["pass_robot_lateral_displacement_m"] == pytest.approx(0.4)
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_against_flow_initial_lateral_offset_without_observed_motion_is_straight_pass():
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("against_flow", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([-1.0, 0.0])
+
+    for position in ((3.0, 0.5), (2.8, 0.5), (1.0, 0.5), (-0.6, 0.5), (-3.0, 0.5)):
+        env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor(position)
+        collector.record_pre_step(env)
+
+    event = collector._completed[0][0]
+    assert event["canonical_label"] == "straight_pass"
+    assert event["forward_cone_qualified"]
+    assert event["robust_pass_seen"]
+    assert event["pass_robot_lateral_displacement_m"] == pytest.approx(0.0)
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_against_flow_encounters_clear_on_inactive_and_terminal_reset():
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("against_flow", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([3.0, 0.0])
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([-1.0, 0.0])
+    collector.record_pre_step(env)
+    assert 0 in collector._encounters[0]
+
+    env.crowd_manager.active[0, 0] = False
+    collector.record_pre_step(env)
+    assert not collector._encounters[0]
+
+    env.crowd_manager.active[0, 0] = True
+    collector.record_pre_step(env)
+    collector.finalize_terminal([0])
+    assert not collector._encounters[0]
 
 
 def test_with_flow_interaction_overtake_and_ordering_labels():

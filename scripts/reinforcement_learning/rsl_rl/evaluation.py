@@ -63,13 +63,19 @@ INTERACTION_ASSERT_SPEED_RATIO = 0.85
 INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M = 0.5
 INTERACTION_FRONT_CROSS_CLEARANCE_MARGIN_M = 0.15
 INTERACTION_FRONT_CROSS_LATERAL_HYSTERESIS_M = 0.25
+INTERACTION_AGAINST_FLOW_ENCOUNTER_RANGE_M = 4.0
+INTERACTION_AGAINST_FLOW_CONE_HALF_ANGLE_RAD = math.radians(30.0)
+INTERACTION_AGAINST_FLOW_CONE_LATERAL_BUFFER_M = 0.3
+INTERACTION_AGAINST_FLOW_CONE_PERSISTENCE_S = 0.2
+INTERACTION_AGAINST_FLOW_SIDESTEP_LATERAL_M = 0.4
+INTERACTION_AGAINST_FLOW_REAR_PASS_MARGIN_M = 0.5
 
 INTERACTION_LABELS = {
     "crossing": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
-    "against_flow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
+    "against_flow": ("sidestep", "straight_pass", "front_crossing"),
     "with_flow": ("overtake", "non_overtake", "non_risky_close", "unclassified"),
     "crossing_slow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
-    "against_flow_slow": ("yield", "assert", "ambiguous", "non_risky_close", "unclassified"),
+    "against_flow_slow": ("sidestep", "straight_pass", "front_crossing"),
 }
 """Pairwise interaction labels. Slow-leader evaluation uses episode outcomes instead."""
 
@@ -954,6 +960,32 @@ def front_lateral_side(lateral_m: float | None) -> int:
     return 0
 
 
+def classify_against_flow_interaction(
+    front_crossed: bool, encounter: Mapping[str, Any] | None,
+) -> str:
+    """Classify an against-flow event from its pre-encounter geometry.
+
+    Front-region lateral traversal intentionally reuses the crossing assertion detector,
+    but is reported as ``front_crossing`` rather than assertion.  A sidestep needs both
+    an observed forward-cone approach and robot-owned lateral motion; relative lateral
+    separation alone could have been caused by the pedestrian.
+    """
+    if front_crossed:
+        return "front_crossing"
+    if encounter is None or not bool(encounter["front_cone_qualified"]):
+        return "straight_pass"
+    passing_side = int(encounter["passing_side"])
+    robot_lateral = float(encounter["pass_robot_lateral_displacement_m"])
+    if (
+        bool(encounter["robust_pass_seen"])
+        and passing_side in {-1, 1}
+        and abs(robot_lateral) >= INTERACTION_AGAINST_FLOW_SIDESTEP_LATERAL_M
+        and (robot_lateral > 0.0) == (passing_side > 0)
+    ):
+        return "sidestep"
+    return "straight_pass"
+
+
 class InteractionEventCollector:
     """Collect pairwise close/risky interactions and admit only successful episodes.
 
@@ -971,6 +1003,9 @@ class InteractionEventCollector:
         self.step_dt_s = float(step_dt_s)
         self._times = [0.0] * len(self.env_profile_indices)
         self._speed_history: list[list[tuple[float, float]]] = [[] for _ in self.env_profile_indices]
+        # Against-flow behavior begins before the 1.5 m interaction event.  This map
+        # preserves that lead-in without changing the close/risky event lifecycle.
+        self._encounters: list[dict[int, dict[str, Any]]] = [{} for _ in self.env_profile_indices]
         self._active: list[dict[int, dict[str, Any]]] = [{} for _ in self.env_profile_indices]
         self._completed: list[list[dict[str, Any]]] = [[] for _ in self.env_profile_indices]
         self._pending_terminal: dict[int, list[dict[str, Any]]] = {}
@@ -992,6 +1027,100 @@ class InteractionEventCollector:
         cpa_position = relative_position - relative_velocity * time_to_cpa
         cpa_clearance = float(np.linalg.norm(cpa_position) - surface_radius)
         return clearance, cpa_clearance <= INTERACTION_RISK_CLEARANCE_M
+
+    @staticmethod
+    def _encounter_coordinates(
+        encounter: Mapping[str, Any], robot_position: np.ndarray, pedestrian_position: np.ndarray,
+    ) -> tuple[float, float, float]:
+        """Return frozen-heading longitudinal, relative lateral, and robot lateral motion."""
+        direction = np.asarray(encounter["pedestrian_direction_xy"], dtype=float)
+        lateral_axis = np.array([-direction[1], direction[0]])
+        relative_position = robot_position - pedestrian_position
+        robot_displacement = robot_position - np.asarray(encounter["robot_position_at_acquisition_xy"], dtype=float)
+        return (
+            float(np.dot(relative_position, direction)),
+            float(np.dot(relative_position, lateral_axis)),
+            float(np.dot(robot_displacement, lateral_axis)),
+        )
+
+    def _start_or_update_against_flow_encounter(
+        self,
+        env_id: int,
+        pedestrian_id: int,
+        time_s: float,
+        robot_position: np.ndarray,
+        robot_velocity: np.ndarray,
+        pedestrian_position: np.ndarray,
+        pedestrian_velocity: np.ndarray,
+        has_active_event: bool,
+    ) -> dict[str, Any] | None:
+        """Maintain one early-approach tracker for an against-flow pedestrian slot."""
+        encounters = self._encounters[env_id]
+        encounter = encounters.get(pedestrian_id)
+        center_distance = float(np.linalg.norm(pedestrian_position - robot_position))
+        relative_position = pedestrian_position - robot_position
+        relative_velocity = robot_velocity - pedestrian_velocity
+        approaching = float(np.dot(relative_position, relative_velocity)) > 0.0
+        pedestrian_speed = float(np.linalg.norm(pedestrian_velocity))
+        if encounter is None:
+            if (
+                center_distance > INTERACTION_AGAINST_FLOW_ENCOUNTER_RANGE_M
+                or not approaching
+                or pedestrian_speed < INTERACTION_MIN_BASELINE_SPEED_MPS
+            ):
+                return None
+            direction = pedestrian_velocity / pedestrian_speed
+            encounter = {
+                "acquisition_time_s": time_s,
+                "pedestrian_direction_xy": (float(direction[0]), float(direction[1])),
+                "robot_position_at_acquisition_xy": (float(robot_position[0]), float(robot_position[1])),
+                "front_cone_duration_s": 0.0,
+                "front_cone_qualified": False,
+                "front_cone_qualified_time_s": None,
+                "robot_lateral_displacement_m": 0.0,
+                "robust_pass_seen": False,
+                "robust_pass_time_s": None,
+                "passing_side": 0,
+                "pass_lateral_m": None,
+                "pass_robot_lateral_displacement_m": 0.0,
+            }
+            encounters[pedestrian_id] = encounter
+
+        # A live close/risky event owns the tracker until it finishes.  Before event
+        # entry, a pedestrian that has cleanly separated can begin a fresh encounter.
+        if center_distance > INTERACTION_AGAINST_FLOW_ENCOUNTER_RANGE_M and not has_active_event:
+            del encounters[pedestrian_id]
+            return None
+
+        longitudinal, lateral, robot_lateral = self._encounter_coordinates(
+            encounter, robot_position, pedestrian_position
+        )
+        encounter["robot_lateral_displacement_m"] = robot_lateral
+        cone_half_width = (
+            longitudinal * math.tan(INTERACTION_AGAINST_FLOW_CONE_HALF_ANGLE_RAD)
+            + INTERACTION_AGAINST_FLOW_CONE_LATERAL_BUFFER_M
+        )
+        in_front_cone = 0.0 < longitudinal <= INTERACTION_AGAINST_FLOW_ENCOUNTER_RANGE_M and abs(lateral) <= cone_half_width
+        if in_front_cone:
+            encounter["front_cone_duration_s"] = float(encounter["front_cone_duration_s"]) + self.step_dt_s
+            if (
+                not encounter["front_cone_qualified"]
+                and float(encounter["front_cone_duration_s"]) >= INTERACTION_AGAINST_FLOW_CONE_PERSISTENCE_S
+            ):
+                encounter["front_cone_qualified"] = True
+                encounter["front_cone_qualified_time_s"] = time_s
+        else:
+            encounter["front_cone_duration_s"] = 0.0
+
+        if not encounter["robust_pass_seen"] and longitudinal <= -INTERACTION_AGAINST_FLOW_REAR_PASS_MARGIN_M:
+            passing_side = front_lateral_side(lateral)
+            if passing_side:
+                encounter["robust_pass_seen"] = True
+                encounter["robust_pass_time_s"] = time_s
+                encounter["passing_side"] = int(passing_side)
+                encounter["pass_lateral_m"] = lateral
+                encounter["pass_robot_lateral_displacement_m"] = robot_lateral
+        return encounter
 
     def record_pre_step(self, env: Any) -> None:
         """Sample all active robot-pedestrian pairs before the next physics step."""
@@ -1024,20 +1153,36 @@ class InteractionEventCollector:
             history.append((time_s, speed))
 
             active_pairs = self._active[env_id]
+            encounters = self._encounters[env_id]
             active_slots = set(np.flatnonzero(active_mask[env_id]).tolist())
             # A slot becoming inactive cannot form a complete event; drop it rather than
             # inventing an exit classification at recycle/reset.
             for slot in list(active_pairs):
                 if slot not in active_slots:
                     del active_pairs[slot]
+            for slot in list(encounters):
+                if slot not in active_slots:
+                    del encounters[slot]
 
             for pedestrian_id in active_slots:
+                state = active_pairs.get(pedestrian_id)
+                encounter = None
+                if scenario in {"against_flow", "against_flow_slow"}:
+                    encounter = self._start_or_update_against_flow_encounter(
+                        env_id,
+                        pedestrian_id,
+                        time_s,
+                        robot_pos[env_id],
+                        robot_vel[env_id],
+                        pedestrian_pos[env_id, pedestrian_id],
+                        pedestrian_vel[env_id, pedestrian_id],
+                        state is not None,
+                    )
                 clearance, risky = self._risk(
                     robot_pos[env_id], robot_vel[env_id], pedestrian_pos[env_id, pedestrian_id],
                     pedestrian_vel[env_id, pedestrian_id], robot_radius + radii[env_id, pedestrian_id],
                 )
                 close = clearance <= INTERACTION_ENTER_CLEARANCE_M
-                state = active_pairs.get(pedestrian_id)
                 if state is None and (close or risky):
                     pedestrian_speed = float(np.linalg.norm(pedestrian_vel[env_id, pedestrian_id]))
                     initial_longitudinal = None
@@ -1090,6 +1235,9 @@ class InteractionEventCollector:
                             robot_radius + radii[env_id, pedestrian_id] + INTERACTION_FRONT_CROSS_CLEARANCE_MARGIN_M
                         ),
                         "yield_geometry_available": pedestrian_direction_xy is not None,
+                        # Store the mutable tracker rather than a snapshot: early movement
+                        # before event entry and the pass itself both inform one outcome.
+                        "against_flow_encounter": encounter,
                     }
                     continue
                 if state is None:
@@ -1147,6 +1295,35 @@ class InteractionEventCollector:
                 bool(state["risk_seen"]), bool(state["front_crossed"]), bool(state["yield_geometry_available"]),
                 state["core_resolved_sides"], bool(state["rear_crossed"]),
             )
+        elif state["scenario"] in {"against_flow", "against_flow_slow"}:
+            encounter = state["against_flow_encounter"]
+            label = classify_against_flow_interaction(bool(state["front_crossed"]), encounter)
+            if encounter is None:
+                state.update({
+                    "encounter_acquisition_time_s": None,
+                    "encounter_pedestrian_direction_xy": None,
+                    "forward_cone_qualified": False,
+                    "forward_cone_qualified_time_s": None,
+                    "robot_lateral_displacement_m": None,
+                    "robust_pass_seen": False,
+                    "robust_pass_time_s": None,
+                    "passing_side": 0,
+                    "pass_lateral_m": None,
+                    "pass_robot_lateral_displacement_m": None,
+                })
+            else:
+                state.update({
+                    "encounter_acquisition_time_s": encounter["acquisition_time_s"],
+                    "encounter_pedestrian_direction_xy": encounter["pedestrian_direction_xy"],
+                    "forward_cone_qualified": encounter["front_cone_qualified"],
+                    "forward_cone_qualified_time_s": encounter["front_cone_qualified_time_s"],
+                    "robot_lateral_displacement_m": encounter["robot_lateral_displacement_m"],
+                    "robust_pass_seen": encounter["robust_pass_seen"],
+                    "robust_pass_time_s": encounter["robust_pass_time_s"],
+                    "passing_side": encounter["passing_side"],
+                    "pass_lateral_m": encounter["pass_lateral_m"],
+                    "pass_robot_lateral_displacement_m": encounter["pass_robot_lateral_displacement_m"],
+                })
         else:
             label, _, _ = classify_speed_interaction(
                 state["scenario"], bool(state["risk_seen"]), duration_s, float(state["baseline_speed_mps"]),
@@ -1167,6 +1344,7 @@ class InteractionEventCollector:
         del state["previous_front_lateral_m"]
         del state["previous_rear_longitudinal_m"]
         del state["previous_rear_lateral_m"]
+        del state["against_flow_encounter"]
         state["core_resolved_side_count"] = len(state["core_resolved_sides"])
         self._completed[env_id].append(state)
 
@@ -1175,6 +1353,7 @@ class InteractionEventCollector:
         for env_id in _ids(env_ids):
             # Open events are deliberately censored: they have no full post-event context.
             self._active[env_id].clear()
+            self._encounters[env_id].clear()
             self._pending_terminal[env_id] = self._completed[env_id]
             self._completed[env_id] = []
 
@@ -1891,6 +2070,9 @@ def save_interaction_event_artifacts(
         "front_cross_margin_m", "core_sample_count", "core_resolved_side_count", "core_resolved_sides",
         "rear_crossed", "rear_cross_time_s", "rear_cross_longitudinal_m", "rear_cross_margin_m",
         "yield_geometry_available", "yield_speed_ratio", "assert_speed_ratio",
+        "encounter_acquisition_time_s", "encounter_pedestrian_direction_xy", "forward_cone_qualified",
+        "forward_cone_qualified_time_s", "robot_lateral_displacement_m", "robust_pass_seen",
+        "robust_pass_time_s", "passing_side", "pass_lateral_m", "pass_robot_lateral_displacement_m",
     ]
     with (output_path / "interaction_events.csv").open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=event_fields, extrasaction="ignore")
@@ -1901,7 +2083,7 @@ def save_interaction_event_artifacts(
         writer.writeheader()
         writer.writerows(summary_rows)
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "detector": {
             "enter_clearance_m": INTERACTION_ENTER_CLEARANCE_M,
             "exit_clearance_m": INTERACTION_EXIT_CLEARANCE_M,
@@ -1922,6 +2104,19 @@ def save_interaction_event_artifacts(
                 "robot speed is diagnostic only"
             ),
             "crossing_unclassified_definition": "missing entry heading or fewer than two resolved core-side samples",
+            "against_flow_outcomes": ["sidestep", "straight_pass", "front_crossing"],
+            "against_flow_encounter_range_m": INTERACTION_AGAINST_FLOW_ENCOUNTER_RANGE_M,
+            "against_flow_cone_full_angle_degrees": math.degrees(2.0 * INTERACTION_AGAINST_FLOW_CONE_HALF_ANGLE_RAD),
+            "against_flow_cone_lateral_buffer_m": INTERACTION_AGAINST_FLOW_CONE_LATERAL_BUFFER_M,
+            "against_flow_cone_persistence_s": INTERACTION_AGAINST_FLOW_CONE_PERSISTENCE_S,
+            "against_flow_sidestep_lateral_m": INTERACTION_AGAINST_FLOW_SIDESTEP_LATERAL_M,
+            "against_flow_rear_pass_margin_m": INTERACTION_AGAINST_FLOW_REAR_PASS_MARGIN_M,
+            "against_flow_sidestep_definition": (
+                "persistent pedestrian-forward-cone approach, then same-side robot lateral motion "
+                "of at least the sidestep threshold at a robust rear pass"
+            ),
+            "against_flow_front_crossing_definition": "existing active-event front-region lateral crossing",
+            "against_flow_straight_pass_definition": "all remaining accepted against-flow interactions",
             "overtake_longitudinal_margin_m": INTERACTION_OVERTAKE_LONGITUDINAL_MARGIN_M,
         },
         "labels": {scenario: list(labels) for scenario, labels in INTERACTION_LABELS.items()},
