@@ -42,6 +42,11 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg(MixedTemporalLidarObstacleAvoi
 
     actions: KpActionsCfg = KpActionsCfg()
 
+    def __post_init__(self):
+        super().__post_init__()
+        # Training variant: half of active pedestrians ignore robot repulsion.
+        self.social_force.robot_ignore_probability = 0.5
+
 
 @configclass
 class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObstacleAvoidanceEnvCfg):
