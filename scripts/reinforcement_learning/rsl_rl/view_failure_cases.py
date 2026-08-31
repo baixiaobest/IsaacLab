@@ -114,7 +114,10 @@ def load_interaction_results(evaluation_dir: str | Path) -> dict[str, Any]:
     path = Path(evaluation_dir) / INTERACTION_RESULTS_FILENAME
     with path.open(encoding="utf-8") as file:
         payload = json.load(file)
-    if payload.get("schema_version") != 1 or not isinstance(payload.get("events"), list):
+    # Schema 2 introduced geometry-based crossing diagnostics and schema 3 added
+    # against-flow sidestep diagnostics.  The viewer consumes the stable event
+    # identity fields only, so all released schemas remain display-compatible.
+    if payload.get("schema_version") not in (1, 2, 3) or not isinstance(payload.get("events"), list):
         raise ValueError(f"Unsupported interaction-event results: {path}")
     return payload
 

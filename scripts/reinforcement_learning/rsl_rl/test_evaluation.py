@@ -205,6 +205,8 @@ def test_crossing_event_collector_detects_front_region_side_to_side_assertion():
     collector.record_pre_step(env)
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, 0.4])
     collector.record_pre_step(env)
+    # The final sample represents separation, not the previous crossing velocity.
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([1.5, 0.0])
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([3.0, 0.4])
     collector.record_pre_step(env)
 
@@ -212,6 +214,45 @@ def test_crossing_event_collector_detects_front_region_side_to_side_assertion():
     assert event["front_crossed"]
     assert event["canonical_label"] == "assert"
     assert event["front_cross_longitudinal_m"] == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_crossing_event_remains_open_through_non_risky_closing_gap():
+    """A CPA-warning prelude and its later front cross are one pairwise event."""
+    collector = evaluation.InteractionEventCollector([evaluation.BenchmarkProfile("crossing", 2)], [0], step_dt_s=0.1)
+    env = _FakeEnv(num_envs=1)
+    env.crowd_manager.active[0, 0] = True
+    env.crowd_manager.vel[0, 0] = torch.tensor([0.5, 0.0])
+    # Keep the robot moving toward the pedestrian through a brief interval that is
+    # outside the exit clearance and beyond the 1.5 s CPA horizon.
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([0.0, 1.5])
+
+    # Opens from CPA risk while the robot is on the pedestrian's right side.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -1.6])
+    collector.record_pre_step(env)
+    # This would have closed the old event: not CPA-risky and clearance > 1.75 m.
+    # The pair is nevertheless still closing, so the event must remain open.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -2.5])
+    collector.record_pre_step(env)
+    assert collector._active[0]
+
+    # The continued maneuver returns close and traverses to the opposite side in
+    # the pedestrian's forward region.
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -0.4])
+    collector.record_pre_step(env)
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, 0.4])
+    collector.record_pre_step(env)
+
+    # Now the pair is genuinely separating beyond the exit distance.
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([1.5, 0.0])
+    env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([3.0, 0.4])
+    collector.record_pre_step(env)
+
+    assert len(collector._completed[0]) == 1
+    event = collector._completed[0][0]
+    assert event["risk_seen"]
+    assert event["front_crossed"]
+    assert event["canonical_label"] == "assert"
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
@@ -227,6 +268,7 @@ def test_crossing_event_collector_detects_rear_pass_and_same_side_yield():
     collector.record_pre_step(env)
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-1.0, 0.4])
     collector.record_pre_step(env)
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([-1.0, 0.0])
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-3.0, 0.4])
     collector.record_pre_step(env)
 
@@ -236,6 +278,7 @@ def test_crossing_event_collector_detects_rear_pass_and_same_side_yield():
     assert rear_event["rear_cross_longitudinal_m"] == pytest.approx(-1.0)
 
     # A new event can move from rear to front while retaining its lateral side.
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([1.5, 0.0])
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-1.0, -0.4])
     collector.record_pre_step(env)
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([1.0, -0.4])
@@ -266,6 +309,7 @@ def test_crossing_yield_geometry_counts_rear_pass_in_exit_hysteresis():
     collector.record_pre_step(env)
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-2.27, 0.4])
     collector.record_pre_step(env)
+    env.scene["robot"].data.root_lin_vel_w[0, :2] = torch.tensor([-1.0, 0.0])
     env.scene["robot"].data.root_pos_w[0, :2] = torch.tensor([-3.0, 0.4])
     collector.record_pre_step(env)
 
@@ -985,6 +1029,37 @@ def test_failure_viewer_filters_tags_and_rotates_body_commands(tmp_path):
     assert failure_viewer.available_tags(cases, tags) == ["crossing", "goal-region", "late brake"]
     assert failure_viewer.filter_cases(cases, tags, tag_filter="missing") == []
     assert np.allclose(failure_viewer.body_velocity_to_world(np.array([1.0, 0.0]), np.pi / 2), [0.0, 1.0])
+
+
+@pytest.mark.parametrize("schema_version", (1, 2, 3))
+def test_failure_viewer_accepts_all_released_interaction_artifact_schemas(tmp_path, schema_version):
+    payload = {
+        "schema_version": schema_version,
+        "labels": {"against_flow": ["sidestep", "straight_pass", "front_crossing"]},
+        "events": [{"scenario": "against_flow", "canonical_label": "sidestep"}],
+    }
+    (tmp_path / "interaction_events.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    assert failure_viewer.load_interaction_results(tmp_path) == payload
+    server = failure_viewer.FailureCaseWebServer(
+        ("127.0.0.1", 0), tmp_path, view_radius=5.0, evaluation_dir=tmp_path
+    )
+    try:
+        assert server.index_payload()["interaction"] == payload
+    finally:
+        server.server_close()
+
+
+def test_failure_viewer_client_uses_canonical_labels_and_interaction_target_highlight():
+    source = (Path(__file__).with_name("failure_case_viewer.html")).read_text(encoding="utf-8")
+
+    assert "function availableInteractionLabels(scenario)" in source
+    assert 'return event.canonical_label || "unclassified";' in source
+    assert 'interactionTarget = state.mode === "interaction" ? Number(state.case.pedestrian_id) : -1' in source
+    assert 'if (agent === interactionTarget)' in source
+    assert '"No interaction events"' in source
+    assert "yield-ratio" not in source
+    assert "assert-ratio" not in source
 
 
 def test_failure_viewer_discovers_and_selects_timestamped_evaluation_runs(tmp_path):

@@ -1029,6 +1029,25 @@ class InteractionEventCollector:
         return clearance, cpa_clearance <= INTERACTION_RISK_CLEARANCE_M
 
     @staticmethod
+    def _pair_is_closing(
+        robot_pos: np.ndarray,
+        robot_vel: np.ndarray,
+        pedestrian_pos: np.ndarray,
+        pedestrian_vel: np.ndarray,
+    ) -> bool:
+        """Whether this specific robot--pedestrian pair is still approaching.
+
+        The CPA-risk threshold is deliberately stricter than the interaction exit
+        clearance.  Therefore, loss of CPA risk alone cannot establish that an
+        interaction is over: a pair can still be closing and become close again a
+        few control steps later.  This predicate is pairwise and uses the same
+        relative-position/velocity convention as :meth:`_risk`.
+        """
+        relative_position = pedestrian_pos - robot_pos
+        relative_velocity = robot_vel - pedestrian_vel
+        return float(np.dot(relative_position, relative_velocity)) > 0.0
+
+    @staticmethod
     def _encounter_coordinates(
         encounter: Mapping[str, Any], robot_position: np.ndarray, pedestrian_position: np.ndarray,
     ) -> tuple[float, float, float]:
@@ -1280,7 +1299,15 @@ class InteractionEventCollector:
                                 state["rear_cross_longitudinal_m"] = rear_crossing
                         state["previous_rear_longitudinal_m"] = longitudinal
                         state["previous_rear_lateral_m"] = lateral
-                if clearance > INTERACTION_EXIT_CLEARANCE_M and not risky:
+                # A temporary loss of CPA risk must not split one physical maneuver into
+                # two events while this same pair is still approaching.  In particular,
+                # the early CPA-warning segment and the later front-side traversal must
+                # share one crossing label.
+                pair_is_closing = self._pair_is_closing(
+                    robot_pos[env_id], robot_vel[env_id],
+                    pedestrian_pos[env_id, pedestrian_id], pedestrian_vel[env_id, pedestrian_id],
+                )
+                if clearance > INTERACTION_EXIT_CLEARANCE_M and not risky and not pair_is_closing:
                     self._finish_event(env_id, pedestrian_id, time_s)
             self._times[env_id] += self.step_dt_s
 
@@ -2087,6 +2114,7 @@ def save_interaction_event_artifacts(
         "detector": {
             "enter_clearance_m": INTERACTION_ENTER_CLEARANCE_M,
             "exit_clearance_m": INTERACTION_EXIT_CLEARANCE_M,
+            "exit_requires_pair_not_closing": True,
             "risk_clearance_m": INTERACTION_RISK_CLEARANCE_M,
             "risk_horizon_s": INTERACTION_RISK_HORIZON_S,
             "pre_speed_window_s": INTERACTION_PRE_SPEED_WINDOW_S,
