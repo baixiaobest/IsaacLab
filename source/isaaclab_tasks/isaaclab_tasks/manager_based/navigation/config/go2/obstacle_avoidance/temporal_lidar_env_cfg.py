@@ -233,9 +233,9 @@ class TemporalLidarObstacleAvoidanceEnvCfg(ObstacleAvoidanceEnvCfg):
         super().__post_init__()
         # The held-scan collector reads sensor data only on 130 ms boundaries.
         self.scene.obstacle_scanner.update_period = 0.0
-        # lidar_pattern includes both FOV endpoints.  Use 255 intervals to obtain
-        # the planned 256 full-fan rays (rather than the base task's 257 rays).
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        # lidar_pattern drops the overlapping endpoint for a 360-degree scan, so
+        # 256 intervals produce the planned 256 unique full-circle rays.
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / NUM_LIDAR_RAYS
         # With lazy sensor updates this prevents debug visualization from forcing a
         # RayCaster recompute every 5 ms.  The collector explicitly reads .data only
         # at a 130 ms boundary.

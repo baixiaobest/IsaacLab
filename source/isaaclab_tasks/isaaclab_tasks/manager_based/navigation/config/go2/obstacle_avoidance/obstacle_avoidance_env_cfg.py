@@ -1,8 +1,8 @@
 """Obstacle-avoidance navigation environment for Unitree Go2.
 
-The high-level navigation policy observes a front-facing lidar fan and a
-relative goal pose, then emits velocity commands for a pre-trained low-level
-locomotion controller.
+The high-level navigation policy observes a lidar scan and a relative goal
+pose, then emits velocity commands for a pre-trained low-level locomotion
+controller.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
 LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_policy_jit.pt"
 
 NUM_LIDAR_RAYS = 256
-LIDAR_FOV_DEG = 180.0
+LIDAR_FOV_DEG = 360.0
 LIDAR_MAX_DISTANCE = 20.0
 COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
