@@ -382,7 +382,9 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        # A full-circle LidarPatternCfg removes its duplicated endpoint.  Use
+        # NUM_LIDAR_RAYS intervals so the resulting scan still has 256 rays.
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / NUM_LIDAR_RAYS
         self.scene.obstacle_scanner.debug_vis = False
 
 
@@ -397,7 +399,9 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
     def __post_init__(self):
         super().__post_init__()
         self.scene.obstacle_scanner.update_period = 0.0
-        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
+        # A full-circle LidarPatternCfg removes its duplicated endpoint.  Use
+        # NUM_LIDAR_RAYS intervals so the resulting scan still has 256 rays.
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / NUM_LIDAR_RAYS
         self.scene.obstacle_scanner.debug_vis = False
 
 
