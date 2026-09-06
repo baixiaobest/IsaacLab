@@ -138,8 +138,14 @@ def terminal_goal_region_collision_ids(
     reset_env_ids: Any,
     radius_m: float = GOAL_REGION_COLLISION_RADIUS_M,
     command_name: str = "pose_2d_command",
+    collision_env_ids: Iterable[int] | None = None,
 ) -> set[int]:
-    """Return resetting environments that collide within ``radius_m`` of their world-frame goal."""
+    """Return resetting collision environments within ``radius_m`` of their world-frame goal.
+
+    When ``collision_env_ids`` is omitted, preserve the historical pedestrian-capsule
+    query.  Supplying the terminal collision IDs lets the static-obstacle benchmark use
+    its ``base_contact`` termination without pretending static terrain is a pedestrian.
+    """
     if radius_m <= 0.0:
         raise ValueError("radius_m must be positive.")
     import torch
@@ -149,9 +155,54 @@ def terminal_goal_region_collision_ids(
         return set()
     robot_positions = env.scene["robot"].data.root_pos_w[:, :2]
     goal_positions = env.command_manager.get_term(command_name).pos_command_w[:, :2]
-    collision_mask = env.crowd_manager.get_robot_collision(robot_positions)
     within_goal_region = torch.linalg.vector_norm(robot_positions - goal_positions, dim=1) <= radius_m
-    return set(env_ids[collision_mask[env_ids] & within_goal_region[env_ids]].detach().cpu().tolist())
+    if collision_env_ids is None:
+        collision_mask = env.crowd_manager.get_robot_collision(robot_positions)
+        return set(env_ids[collision_mask[env_ids] & within_goal_region[env_ids]].detach().cpu().tolist())
+    collisions = torch.as_tensor(list(collision_env_ids), device=env.device, dtype=torch.long).reshape(-1)
+    if collisions.numel() == 0:
+        return set()
+    resetting = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+    resetting[env_ids] = True
+    collision_mask = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+    collision_mask[collisions] = True
+    return set(torch.nonzero(collision_mask & resetting & within_goal_region, as_tuple=False).reshape(-1).cpu().tolist())
+
+
+def terminal_collision_ids(
+    env: Any,
+    reset_env_ids: Any,
+    profiles: list[BenchmarkProfile],
+    env_profile_indices: Iterable[int],
+    pedestrian_collision_term: str = "pedestrian_collision",
+    static_collision_term: str = "base_contact",
+) -> set[int]:
+    """Return the benchmark collision IDs for terminal environments.
+
+    Dynamic profiles use the pedestrian-capsule termination.  Static profiles have no
+    active pedestrians, so their corresponding physical collision signal is the
+    task's existing ``base_contact`` termination.  Keeping this selection here makes
+    metrics, goal-region classification, and collision replays share one definition.
+    """
+    import torch
+
+    indices = [int(index) for index in env_profile_indices]
+    if len(indices) != env.num_envs:
+        raise ValueError("Profile assignment does not match env.num_envs.")
+    env_ids = torch.as_tensor(reset_env_ids, device=env.device, dtype=torch.long).reshape(-1)
+    if env_ids.numel() == 0:
+        return set()
+    pedestrian_mask = env.termination_manager.get_term(pedestrian_collision_term)
+    static_contact_mask = env.termination_manager.get_term(static_collision_term)
+    result = set()
+    for env_id in env_ids.detach().cpu().tolist():
+        profile = profiles[indices[env_id]]
+        is_static = profile.scenario == STATIC_OBSTACLE_SCENARIO
+        if (is_static and bool(static_contact_mask[env_id])) or (
+            not is_static and bool(pedestrian_mask[env_id])
+        ):
+            result.add(int(env_id))
+    return result
 
 
 class CollisionReplayRecorder:
@@ -242,7 +293,7 @@ class CollisionReplayRecorder:
 
     @property
     def collision_case_count(self) -> int:
-        """Return the number of pedestrian-collision replay artifacts."""
+        """Return the number of pedestrian or static-obstacle collision replays."""
         return sum(case.get("outcome", "collision") == "collision" for case in self._cases)
 
     @property
@@ -540,7 +591,7 @@ class CollisionReplayRecorder:
         return self.capture_terminal_episodes(env, reset_env_ids, success_env_ids=[])
 
     def capture_terminal_episodes(
-        self, env: Any, reset_env_ids: Any, success_env_ids: Any
+        self, env: Any, reset_env_ids: Any, success_env_ids: Any, collision_env_ids: Iterable[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Export collision context and quota-limited complete successful episodes before reset."""
         import torch
@@ -550,10 +601,18 @@ class CollisionReplayRecorder:
         env_ids = torch.as_tensor(reset_env_ids, device=self._env_ids.device, dtype=torch.long).reshape(-1)
         if env_ids.numel() == 0:
             return []
-        robot_positions = env.scene["robot"].data.root_pos_w[:, :2]
-        collision_mask = env.crowd_manager.get_robot_collision(robot_positions)
-        collision_env_ids = env_ids[collision_mask[env_ids]]
-        collision_ids = set(collision_env_ids.detach().cpu().tolist())
+        if collision_env_ids is None:
+            robot_positions = env.scene["robot"].data.root_pos_w[:, :2]
+            collision_mask = env.crowd_manager.get_robot_collision(robot_positions)
+            terminal_collision_env_ids = env_ids[collision_mask[env_ids]]
+        else:
+            requested_collision_ids = torch.as_tensor(
+                list(collision_env_ids), device=self._env_ids.device, dtype=torch.long
+            ).reshape(-1)
+            reset_mask = torch.zeros(env.num_envs, device=self._env_ids.device, dtype=torch.bool)
+            reset_mask[env_ids] = True
+            terminal_collision_env_ids = requested_collision_ids[reset_mask[requested_collision_ids]]
+        collision_ids = set(terminal_collision_env_ids.detach().cpu().tolist())
         assert self._minimum_agent_distances is not None
         episode_minimum_distances = torch.minimum(
             self._minimum_agent_distances, self._minimum_active_pedestrian_distances(env)
@@ -564,7 +623,7 @@ class CollisionReplayRecorder:
 
         exported = []
         if self.record_collisions:
-            for env_id in collision_env_ids.detach().cpu().tolist():
+            for env_id in terminal_collision_env_ids.detach().cpu().tolist():
                 exported.append(
                     self._export_case(
                         env,
@@ -598,7 +657,14 @@ class CollisionReplayRecorder:
         terminal_frame = self._terminal_frame(env, env_id)
         frames = {name: np.concatenate([values, terminal_frame[name]], axis=0) for name, values in frames.items()}
         profile = self.profiles[self.env_profile_indices[env_id]]
-        colliding_agent_ids = self._collision_indices(env, env_id) if outcome == "collision" else []
+        collision_source = (
+            "static_obstacle_contact" if profile.scenario == STATIC_OBSTACLE_SCENARIO else "pedestrian_capsule"
+        )
+        colliding_agent_ids = (
+            self._collision_indices(env, env_id)
+            if outcome == "collision" and collision_source == "pedestrian_capsule"
+            else []
+        )
         case_id = f"{outcome}_{self._next_case_numbers[outcome]:06d}"
         self._next_case_numbers[outcome] += 1
         filename = f"{case_id}.npz"
@@ -622,6 +688,7 @@ class CollisionReplayRecorder:
             "outcome": outcome,
             "terminal_time_s": float(frames["time_s"][-1]),
             "collision_time_s": float(frames["time_s"][-1]) if outcome == "collision" else None,
+            "collision_source": collision_source if outcome == "collision" else None,
             "colliding_agent_ids": colliding_agent_ids,
             "minimum_agent_distance_m": float(minimum_agent_distance_m.item()),
             "interesting_interaction": outcome == "success",
@@ -1759,6 +1826,7 @@ class EpisodeMetricsCollector:
         collision_term: str = "pedestrian_collision",
         timeout_term: str = "time_out",
         base_contact_term: str = "base_contact",
+        static_collision_term: str = "base_contact",
     ):
         if episodes_per_profile <= 0:
             raise ValueError("episodes_per_profile must be positive.")
@@ -1773,6 +1841,7 @@ class EpisodeMetricsCollector:
         self.collision_ids_key = f"Episode_Termination/Envs/Ids/{collision_term}"
         self.timeout_ids_key = f"Episode_Termination/Envs/Ids/{timeout_term}"
         self.base_contact_ids_key = f"Episode_Termination/Envs/Ids/{base_contact_term}"
+        self.static_collision_ids_key = f"Episode_Termination/Envs/Ids/{static_collision_term}"
         self.metric_ids_key = f"Metrics/{command_name}/{velocity_metric}/Ids"
         self.metric_values_key = f"Metrics/{command_name}/{velocity_metric}/Envs"
         self.fallback_metric_ids_key = (
@@ -1873,6 +1942,7 @@ class EpisodeMetricsCollector:
         collision_ids = _ids(log.get(self.collision_ids_key))
         timeout_ids = _ids(log.get(self.timeout_ids_key))
         base_contact_ids = _ids(log.get(self.base_contact_ids_key))
+        static_collision_ids = _ids(log.get(self.static_collision_ids_key))
         goal_region_collision_ids = _ids(goal_region_collision_env_ids)
         accepted = 0
         for env_id in sorted(completed_ids):
@@ -1887,7 +1957,11 @@ class EpisodeMetricsCollector:
             self._episodes[profile_index] += 1
             self._velocity_sums[profile_index] += metric_by_env[env_id]
             # Collision takes precedence when both terms trigger on the same final step.
-            if env_id in collision_ids:
+            is_static_collision = (
+                self.profiles[profile_index].scenario == STATIC_OBSTACLE_SCENARIO
+                and env_id in static_collision_ids
+            )
+            if env_id in collision_ids or is_static_collision:
                 if env_id in goal_region_collision_ids:
                     self._goal_region_collisions[profile_index] += 1
                 else:

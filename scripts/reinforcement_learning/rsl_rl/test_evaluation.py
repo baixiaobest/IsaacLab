@@ -90,6 +90,16 @@ class _FakeEnv:
             "CommandManager",
             (), {"get_term": lambda _, __: self.command},
         )()
+        self.termination_manager = type(
+            "TerminationManager",
+            (), {
+                "terms": {
+                    "pedestrian_collision": torch.zeros(num_envs, dtype=torch.bool),
+                    "base_contact": torch.zeros(num_envs, dtype=torch.bool),
+                },
+                "get_term": lambda manager, name: manager.terms[name],
+            },
+        )()
 
 
 def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
@@ -684,6 +694,53 @@ def test_collector_applies_collision_precedence_and_profile_quota():
     assert rows[1]["successes"] == 1
     assert rows[1]["collisions"] == 0
     assert collector.complete
+
+
+def test_static_profiles_report_base_contacts_as_collisions_with_dynamic_metric_fields():
+    profiles = [evaluation.BenchmarkProfile("static_obstacles", 0, obstacle_count=4)]
+    collector = evaluation.EpisodeMetricsCollector(profiles, [0], episodes_per_profile=2)
+
+    assert collector.consume(
+        _extras([0], base_contact=[0], velocity=[0.4]), goal_region_collision_env_ids=[0]
+    ) == 1
+    assert collector.consume(_extras([0], base_contact=[0], velocity=[0.6])) == 1
+
+    row = collector.rows()[0]
+    assert row["collisions"] == 1
+    assert row["goal_region_collisions"] == 1
+    assert row["all_collisions"] == 2
+    assert row["collision_rate"] == 0.5
+    assert row["goal_region_collision_rate"] == 0.5
+    assert row["all_collision_rate"] == 1.0
+    assert row["base_contacts"] == 2
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_terminal_collision_ids_select_static_contacts_and_dynamic_pedestrian_hits():
+    env = _FakeEnv(num_envs=2)
+    profiles = [
+        evaluation.BenchmarkProfile("static_obstacles", 0, obstacle_count=4),
+        evaluation.BenchmarkProfile("crossing", 2),
+    ]
+    env.termination_manager.terms["base_contact"][0] = True
+    env.termination_manager.terms["pedestrian_collision"][1] = True
+
+    assert evaluation.terminal_collision_ids(env, torch.tensor([0, 1]), profiles, [0, 1]) == {0, 1}
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="The active Isaac Sim Python environment has no PyTorch installation.")
+def test_static_contact_collision_replay_has_no_pedestrian_ids_and_identifies_its_source(tmp_path):
+    env = _FakeEnv(num_envs=1)
+    recorder = evaluation.CollisionReplayRecorder(
+        [evaluation.BenchmarkProfile("static_obstacles", 0, obstacle_count=4)], [0], tmp_path, step_dt_s=0.1
+    )
+    recorder.record_pre_step(env, torch.zeros(1, 3))
+
+    entry = recorder.capture_terminal_episodes(
+        env, torch.tensor([0]), success_env_ids=[], collision_env_ids=[0]
+    )[0]
+    assert entry["collision_source"] == "static_obstacle_contact"
+    assert entry["colliding_agent_ids"] == []
 
 
 def test_collector_accepts_scalar_environment_logs():

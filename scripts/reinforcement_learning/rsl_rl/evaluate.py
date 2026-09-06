@@ -35,6 +35,7 @@ from evaluation import (  # isort: skip
     save_artifacts,
     save_interaction_event_artifacts,
     save_leader_outcome_artifacts,
+    terminal_collision_ids,
     terminal_goal_region_collision_ids,
 )
 
@@ -643,8 +644,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     def _tracked_reset_idx(env_ids):
         terminal_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
         velocity_accumulator.record_terminal(terminal_speed, env_ids)
+        collision_ids = terminal_collision_ids(raw_env, env_ids, profiles, env_profile_indices)
         goal_region_collision_ids.update(
-            terminal_goal_region_collision_ids(raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M)
+            terminal_goal_region_collision_ids(
+                raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M, collision_env_ids=collision_ids
+            )
         )
         interaction_collector.finalize_terminal(env_ids)
         leader_outcome_collector.finalize_terminal(raw_env, env_ids)
@@ -669,7 +673,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         interaction_replay_recorder.stage_terminal_success(raw_env, int(env_id), [leader_outcome])
         _record_cbf_replay_state()
         if replay_recorder is not None:
-            replay_recorder.capture_terminal_episodes(raw_env, env_ids, success_env_ids)
+            replay_recorder.capture_terminal_episodes(
+                raw_env, env_ids, success_env_ids, collision_env_ids=collision_ids
+            )
         return original_reset_idx(env_ids)
 
     raw_env._reset_idx = _tracked_reset_idx
@@ -914,11 +920,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "metrics": {
                 "success_rate": "goal_reached term; collisions take precedence when simultaneous",
                 "navigation_success_rate": "successes divided by episodes outside the terminal-goal buffer",
-                "collision_rate": "pedestrian collisions outside the terminal-goal buffer",
-                "goal_region_collision_rate": (
-                    f"pedestrian collisions within {GOAL_REGION_COLLISION_RADIUS_M:.2f} m of the goal"
+                "collision_rate": (
+                    "pedestrian collisions outside the terminal-goal buffer for dynamic scenarios; "
+                    "base-contact static-obstacle collisions for static_obstacles"
                 ),
-                "all_collision_rate": "all pedestrian collisions before goal-region classification",
+                "goal_region_collision_rate": (
+                    f"benchmark collisions within {GOAL_REGION_COLLISION_RADIUS_M:.2f} m of the goal"
+                ),
+                "all_collision_rate": "all benchmark collisions before goal-region classification",
                 "timeout_rate": "episodes terminated by the time_out term",
                 "base_contact_rate": "episodes terminated by the base_contact term",
                 "mean_xy_speed_mps": "episode-average world-frame horizontal robot speed over all episodes",
