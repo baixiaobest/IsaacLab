@@ -2,7 +2,7 @@
 
 Run after evaluation, for example::
 
-    ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/view_failure_cases.py \
+    ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/diagnostics/view_failure_cases.py \
         logs/rsl_rl/<experiment>/evaluations/dynamic_crowd
 
 The server binds to localhost and opens a browser-based viewer with a selector
@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import tempfile
 import webbrowser
 from dataclasses import dataclass
@@ -25,6 +26,12 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
+
+# The viewer is a standalone diagnostic, but shares scenario labels with the
+# evaluator at the rsl_rl script root.
+RSL_RL_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(RSL_RL_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(RSL_RL_SCRIPTS_DIR))
 
 from evaluation import SCENARIO_LABELS, SCENARIO_ORDER
 

@@ -19,6 +19,12 @@ from typing import Any
 
 from isaaclab.app import AppLauncher
 
+# This local diagnostic now lives below rsl_rl/, while the shared command-line
+# helper remains at that root for train/play/evaluate entry points.
+RSL_RL_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(RSL_RL_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(RSL_RL_SCRIPTS_DIR))
+
 import cli_args  # isort: skip
 
 

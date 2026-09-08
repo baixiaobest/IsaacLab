@@ -19,6 +19,12 @@ from typing import Any
 
 from isaaclab.app import AppLauncher
 
+# Keep the shared RSL-RL command-line helper importable when this local-only
+# diagnostic is launched directly from its dedicated subdirectory.
+RSL_RL_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(RSL_RL_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(RSL_RL_SCRIPTS_DIR))
+
 import cli_args  # isort: skip
 
 

@@ -33,7 +33,7 @@ sys.modules[SPEC.name] = evaluation
 SPEC.loader.exec_module(evaluation)
 sys.modules["evaluation"] = evaluation
 
-VIEWER_PATH = Path(__file__).with_name("view_failure_cases.py")
+VIEWER_PATH = Path(__file__).parent / "diagnostics" / "view_failure_cases.py"
 VIEWER_SPEC = importlib.util.spec_from_file_location("rsl_rl_failure_viewer", VIEWER_PATH)
 assert VIEWER_SPEC and VIEWER_SPEC.loader
 failure_viewer = importlib.util.module_from_spec(VIEWER_SPEC)
@@ -1122,7 +1122,7 @@ def test_failure_viewer_accepts_all_released_interaction_artifact_schemas(tmp_pa
 
 
 def test_failure_viewer_client_uses_canonical_labels_and_interaction_target_highlight():
-    source = (Path(__file__).with_name("failure_case_viewer.html")).read_text(encoding="utf-8")
+    source = (Path(__file__).parent / "diagnostics" / "failure_case_viewer.html").read_text(encoding="utf-8")
 
     assert "function availableInteractionLabels(scenario)" in source
     assert 'return event.canonical_label || "unclassified";' in source
