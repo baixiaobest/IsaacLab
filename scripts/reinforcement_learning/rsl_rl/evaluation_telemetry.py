@@ -176,11 +176,20 @@ class ParquetTelemetryRecorder:
 
     @staticmethod
     def _ids(value: Any) -> set[int]:
+        """Normalize terminal environment IDs from tensors and Python containers.
+
+        Isaac Lab's reset hooks commonly provide tensors, but our evaluator's
+        derived contact helpers deliberately return Python sets.  ``torch``
+        cannot construct a tensor directly from a set, so normalize ordinary
+        containers before using the tensor fast path.
+        """
+        if isinstance(value, (set, frozenset)):
+            return {int(item) for item in value}
         try:
             import torch
 
             return set(torch.as_tensor(value).reshape(-1).detach().cpu().tolist())
-        except (ImportError, TypeError, ValueError):
+        except (ImportError, RuntimeError, TypeError, ValueError):
             return {int(item) for item in value}
 
     def stage_terminal(

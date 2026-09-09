@@ -208,6 +208,12 @@ def test_parquet_telemetry_resume_uses_server_episode_watermark(monkeypatch, tmp
     assert recorder.close()["status"] == "complete"
 
 
+def test_parquet_telemetry_normalizes_set_terminal_ids():
+    """Derived contact helpers return sets, which must not reach torch.as_tensor."""
+    assert evaluation_telemetry.ParquetTelemetryRecorder._ids({0, 2}) == {0, 2}
+    assert evaluation_telemetry.ParquetTelemetryRecorder._ids(frozenset({1, 3})) == {1, 3}
+
+
 def test_dynamic_profiles_cover_all_scenarios_and_counts():
     profiles = evaluation.dynamic_crowd_profiles()
     assert len(profiles) == 56
