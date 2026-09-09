@@ -40,7 +40,32 @@ failure_viewer = importlib.util.module_from_spec(VIEWER_SPEC)
 sys.modules[VIEWER_SPEC.name] = failure_viewer
 VIEWER_SPEC.loader.exec_module(failure_viewer)
 
+TELEMETRY_PATH = Path(__file__).with_name("evaluation_telemetry.py")
+TELEMETRY_SPEC = importlib.util.spec_from_file_location("rsl_rl_evaluation_telemetry", TELEMETRY_PATH)
+assert TELEMETRY_SPEC and TELEMETRY_SPEC.loader
+evaluation_telemetry = importlib.util.module_from_spec(TELEMETRY_SPEC)
+sys.modules[TELEMETRY_SPEC.name] = evaluation_telemetry
+TELEMETRY_SPEC.loader.exec_module(evaluation_telemetry)
+
 TORCH_AVAILABLE = torch is not None and hasattr(torch, "zeros")
+
+
+class _FakeTelemetryUploader:
+    initial_status = {"status": "uploading", "files": [], "max_episode_number": None}
+
+    def __init__(self):
+        self.uploaded = []
+        self.finalized = None
+
+    def status(self):
+        return self.initial_status
+
+    def upload(self, path, relative_path, sha256, row_count):
+        self.uploaded.append((relative_path, row_count))
+
+    def finalize(self, manifest):
+        self.finalized = manifest
+        return {"dataset_id": manifest["dataset_id"], "status": "complete"}
 
 
 class _FakeRobotData:
@@ -113,6 +138,74 @@ def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
             "Metrics/pose_2d_command/linear_velocity_xy/Envs": list(velocity),
         }
     }
+
+
+def test_parquet_telemetry_writes_normalized_completed_episode(monkeypatch, tmp_path):
+    pyarrow_parquet = pytest.importorskip("pyarrow.parquet")
+    monkeypatch.setattr(evaluation_telemetry, "TelemetryUploadClient", _FakeTelemetryUploader)
+    _FakeTelemetryUploader.initial_status = {
+        "status": "uploading", "files": [], "max_episode_number": None,
+    }
+    recorder = evaluation_telemetry.ParquetTelemetryRecorder(
+        tmp_path, "dataset-1", types.SimpleNamespace(robot_radius_m=0.4),
+        [types.SimpleNamespace(scenario="crossing", pedestrian_count=1)], [0], 0.1,
+        source_commit="abc1234",
+    )
+    frames = {
+        "time_s": np.asarray([0.0, 0.1]),
+        "robot_position_xy": np.asarray([[0.0, 0.0], [0.1, 0.0]]),
+        "robot_yaw": np.asarray([0.0, 0.0]),
+        "robot_velocity_xy_world": np.asarray([[1.0, 0.0], [1.0, 0.0]]),
+        "robot_command_velocity_body": np.asarray([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+        "navigation_policy_velocity_body": np.asarray([[0.8, 0.0, 0.0], [0.8, 0.0, 0.0]]),
+        "goal_position_xy": np.asarray([[5.0, 0.0], [5.0, 0.0]]),
+        "crowd_flow_direction": np.asarray([1.0, 1.0]),
+        "corridor_origin_xy": np.zeros((2, 2)),
+        "corridor_length": np.asarray([20.0, 20.0]),
+        "reward": np.asarray([1.0, 2.0]),
+        "pedestrian_position_xy": np.asarray([[[2.0, 0.0]], [[1.9, 0.0]]]),
+        "pedestrian_velocity_xy_world": np.asarray([[[0.5, 0.0]], [[0.5, 0.0]]]),
+        "pedestrian_radius": np.asarray([[0.25], [0.25]]),
+        "pedestrian_active_mask": np.asarray([[True], [True]]),
+        "accepted_for_metrics": np.asarray(True),
+    }
+    pending = evaluation_telemetry._PendingEpisode(
+        environment_id=0, episode_id="episode-a", episode_number=0, seed=666,
+        profile=types.SimpleNamespace(scenario="crossing", pedestrian_count=1),
+        outcome="success", success=True, collision=False, timeout=False,
+        base_contact=False, goal_region_collision=False, frames=frames,
+    )
+    recorder._write_shard([pending])
+    assert recorder.close()["status"] == "complete"
+    episode = pyarrow_parquet.read_table(tmp_path / "episodes/part-000000.parquet").to_pylist()[0]
+    frame_rows = pyarrow_parquet.read_table(tmp_path / "frames/part-000000.parquet").to_pylist()
+    agent_rows = pyarrow_parquet.read_table(tmp_path / "agents/part-000000.parquet").to_pylist()
+    assert episode["accepted_for_metrics"] is True
+    assert episode["end_step_exclusive"] == 2
+    assert [row["step"] for row in frame_rows] == [0, 1]
+    assert frame_rows[0]["robot_vx_body"] == pytest.approx(1.0)
+    assert frame_rows[0]["cbf_command_vx_body"] is None
+    assert [row["agent_id"] for row in agent_rows] == [0, 0]
+
+
+def test_parquet_telemetry_resume_uses_server_episode_watermark(monkeypatch, tmp_path):
+    monkeypatch.setattr(evaluation_telemetry, "TelemetryUploadClient", _FakeTelemetryUploader)
+    _FakeTelemetryUploader.initial_status = {
+        "status": "uploading",
+        "files": [
+            {"relative_path": f"{table}/part-000007.parquet", "format": "parquet",
+             "byte_size": 10, "sha256": "abc", "row_count": 1}
+            for table in ("episodes", "frames", "agents")
+        ],
+        "max_episode_number": 41,
+    }
+    recorder = evaluation_telemetry.ParquetTelemetryRecorder(
+        tmp_path, "dataset-1", types.SimpleNamespace(robot_radius_m=0.4),
+        [types.SimpleNamespace(scenario="crossing", pedestrian_count=1)], [0, 0], 0.1,
+    )
+    assert recorder._episode_numbers == [42, 43]
+    assert recorder._shard_index == 8
+    assert recorder.close()["status"] == "complete"
 
 
 def test_dynamic_profiles_cover_all_scenarios_and_counts():

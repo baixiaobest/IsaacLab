@@ -38,6 +38,7 @@ from evaluation import (  # isort: skip
     terminal_collision_ids,
     terminal_goal_region_collision_ids,
 )
+from evaluation_telemetry import ParquetTelemetryRecorder  # isort: skip
 
 
 parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy on the fixed static-plus-dynamic benchmark.")
@@ -105,6 +106,10 @@ parser.add_argument(
     type=str,
     default=None,
     help="Episode-replay root; each run creates a timestamped subdirectory (defaults to the evaluation run).",
+)
+parser.add_argument(
+    "--telemetry_dir", type=str, default=None,
+    help="Structured telemetry output directory. Omit to preserve the legacy file-only evaluator.",
 )
 parser.add_argument(
     "--disable_failure_recording", action="store_true",
@@ -592,6 +597,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     raw_env = env.unwrapped
     step_dt_s = env.unwrapped.step_dt
     episode_length_s = env.unwrapped.cfg.episode_length_s
+    structured_telemetry = args_cli.telemetry_dir is not None
     interaction_collector = InteractionEventCollector(profiles, env_profile_indices, step_dt_s)
     leader_outcome_collector = LeaderOutcomeCollector(profiles, env_profile_indices, step_dt_s)
     replay_recorder = None
@@ -599,6 +605,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         not args_cli.disable_failure_recording
         or args_cli.success_cases_per_scenario
         or args_cli.interaction_event_cases_per_label
+        or structured_telemetry
     ):
         replay_recorder = CollisionReplayRecorder(
             profiles,
@@ -613,7 +620,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             interesting_interaction_distance_m=args_cli.interesting_interaction_distance_m,
             # Event clips are admitted only after terminal success. Retaining each episode
             # ensures a slow-leader pass that occurs well before goal reach remains available.
-            retain_full_episode=bool(args_cli.interaction_event_cases_per_label),
+            retain_full_episode=bool(args_cli.interaction_event_cases_per_label) or structured_telemetry,
         )
     interaction_replay_recorder = (
         InteractionEventReplayRecorder(
@@ -625,6 +632,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if replay_recorder is not None and args_cli.interaction_event_cases_per_label
         else None
     )
+    telemetry_recorder = (
+        ParquetTelemetryRecorder(
+            Path(args_cli.telemetry_dir),
+            os.environ["RESEARCH_AGENT_TELEMETRY_DATASET_ID"],
+            replay_recorder,
+            profiles,
+            env_profile_indices,
+            step_dt_s,
+            source_commit=os.environ.get("RESEARCH_AGENT_EVALUATION_COMMIT"),
+        )
+        if structured_telemetry and replay_recorder is not None else None
+    )
+    active_seed = [seeds[0]]
 
     def _record_cbf_replay_state() -> None:
         """Write final CBF velocity and acceleration state for the latest replay frame."""
@@ -650,17 +670,25 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 raw_env, env_ids, GOAL_REGION_COLLISION_RADIUS_M, collision_env_ids=collision_ids
             )
         )
-        interaction_collector.finalize_terminal(env_ids)
-        leader_outcome_collector.finalize_terminal(raw_env, env_ids)
+        if not structured_telemetry:
+            interaction_collector.finalize_terminal(env_ids)
+            leader_outcome_collector.finalize_terminal(raw_env, env_ids)
         try:
             action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
         except KeyError:
             action_term = None
         if action_term is not None:
             cbf_solver_terminal_metrics.update(_snapshot_cbf_solver_metrics(action_term, env_ids))
-        success_env_ids = torch.nonzero(
-            raw_env.termination_manager.get_term("goal_reached"), as_tuple=False
-        ).reshape(-1)
+        def _termination_ids(name):
+            try:
+                term = raw_env.termination_manager.get_term(name)
+            except KeyError:
+                return torch.empty(0, dtype=torch.long, device=env_ids.device)
+            return torch.nonzero(term, as_tuple=False).reshape(-1)
+
+        success_env_ids = _termination_ids("goal_reached")
+        timeout_env_ids = _termination_ids("time_out")
+        base_contact_env_ids = _termination_ids("base_contact")
         if interaction_replay_recorder is not None:
             resetting_env_ids = set(env_ids.detach().cpu().tolist())
             for env_id in success_env_ids.detach().cpu().tolist():
@@ -672,6 +700,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     if leader_outcome is not None:
                         interaction_replay_recorder.stage_terminal_success(raw_env, int(env_id), [leader_outcome])
         _record_cbf_replay_state()
+        if telemetry_recorder is not None:
+            telemetry_recorder.stage_terminal(
+                raw_env, env_ids, seed=active_seed[0], success_ids=success_env_ids,
+                collision_ids=collision_ids, timeout_ids=timeout_env_ids,
+                base_contact_ids=base_contact_env_ids,
+                goal_region_collision_ids=goal_region_collision_ids,
+            )
         if replay_recorder is not None:
             replay_recorder.capture_terminal_episodes(
                 raw_env, env_ids, success_env_ids, collision_env_ids=collision_ids
@@ -700,6 +735,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
     try:
         for seed_index, seed in enumerate(seeds):
+            active_seed[0] = seed
             if seed_index > 0:
                 # Re-seed all global RNGs so the next chunk draws a fresh episode
                 # sequence. Episodes already in flight finish under their original
@@ -734,9 +770,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         replay_recorder.record_pre_step(
                             raw_env, submitted_actions * action_scales, cbf_filtered_command=cbf_command
                         )
-                    interaction_collector.record_pre_step(raw_env)
-                    leader_outcome_collector.record_pre_step(raw_env, leader_conditions)
-                    obs, _, dones, extras = env.step(actions)
+                    if not structured_telemetry:
+                        interaction_collector.record_pre_step(raw_env)
+                        leader_outcome_collector.record_pre_step(raw_env, leader_conditions)
+                    obs, rewards, dones, extras = env.step(actions)
+                    if replay_recorder is not None:
+                        replay_recorder.record_reward(rewards)
                     _record_cbf_replay_state()
                 if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                     policy.reset(dones)
@@ -746,6 +785,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 # done mask as the authoritative completion source; the log is used only for the
                 # terminal reasons of those confirmed environments.
                 completed_ids = torch.nonzero(dones, as_tuple=False).reshape(-1)
+                if telemetry_recorder is not None:
+                    telemetry_recorder.attach_terminal_rewards(rewards, completed_ids)
                 collector.consume(
                     extras,
                     velocity_accumulator.completed_means(completed_ids),
@@ -776,10 +817,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     seed_index=seed_index + 1,
                     status="running",
                 )
-                interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
-                leader_outcome_collector.resolve_terminal(
-                    completed_ids, collector.last_accepted_success_ids, seed=seed
-                )
+                if structured_telemetry:
+                    telemetry_recorder.resolve_terminal(completed_ids, collector.last_accepted_ids)
+                else:
+                    interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+                    leader_outcome_collector.resolve_terminal(
+                        completed_ids, collector.last_accepted_success_ids, seed=seed
+                    )
                 if interaction_replay_recorder is not None:
                     interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
                 velocity_accumulator.reset(completed_ids)
@@ -794,6 +838,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             )
     finally:
         env.close()
+
+    if telemetry_recorder is not None:
+        result = telemetry_recorder.close()
+        print(f"[INFO] Finalized structured telemetry dataset {result['dataset_id']}.")
 
     if not collector.complete:
         progress_reporter.report(

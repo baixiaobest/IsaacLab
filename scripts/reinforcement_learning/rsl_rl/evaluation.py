@@ -350,6 +350,7 @@ class CollisionReplayRecorder:
 
         robot = env.scene["robot"]
         crowd = env.crowd_manager
+        self.robot_radius_m = float(crowd.cfg.robot_radius)
         num_envs = len(self.env_profile_indices)
         if env.num_envs != num_envs:
             raise ValueError("Replay recorder profile assignment does not match env.num_envs.")
@@ -364,8 +365,13 @@ class CollisionReplayRecorder:
             "robot_command_velocity_body": torch.zeros(num_envs, self.capacity, 3, device=device),
             "navigation_policy_velocity_body": torch.zeros(num_envs, self.capacity, 3, device=device),
             "goal_position_xy": torch.zeros(num_envs, self.capacity, 2, device=device),
+            "crowd_flow_direction": torch.ones(num_envs, self.capacity, device=device),
+            "corridor_origin_xy": torch.zeros(num_envs, self.capacity, 2, device=device),
+            "corridor_length": torch.zeros(num_envs, self.capacity, device=device),
+            "reward": torch.full((num_envs, self.capacity), float("nan"), device=device),
             "pedestrian_position_xy": torch.zeros(num_envs, self.capacity, max_pedestrians, 2, device=device),
             "pedestrian_velocity_xy_world": torch.zeros(num_envs, self.capacity, max_pedestrians, 2, device=device),
+            "pedestrian_radius": torch.zeros(num_envs, self.capacity, max_pedestrians, device=device),
             "pedestrian_active_mask": torch.zeros(
                 num_envs, self.capacity, max_pedestrians, dtype=torch.bool, device=device
             ),
@@ -426,8 +432,15 @@ class CollisionReplayRecorder:
         self._buffers["robot_command_velocity_body"][env_ids, indices] = command
         self._buffers["navigation_policy_velocity_body"][env_ids, indices] = command
         self._buffers["goal_position_xy"][env_ids, indices] = goal
+        if getattr(crowd, "flow_dir", None) is not None:
+            self._buffers["crowd_flow_direction"][env_ids, indices] = crowd.flow_dir
+        if getattr(crowd, "corridor_origin", None) is not None:
+            self._buffers["corridor_origin_xy"][env_ids, indices] = crowd.corridor_origin[:, :2]
+        if getattr(crowd, "corridor_length", None) is not None:
+            self._buffers["corridor_length"][env_ids, indices] = crowd.corridor_length
         self._buffers["pedestrian_position_xy"][env_ids, indices] = crowd.get_world_positions()
         self._buffers["pedestrian_velocity_xy_world"][env_ids, indices] = crowd.get_velocities()
+        self._buffers["pedestrian_radius"][env_ids, indices] = crowd.radius
         self._buffers["pedestrian_active_mask"][env_ids, indices] = crowd.get_active_mask()
         self._minimum_agent_distances = torch.minimum(
             self._minimum_agent_distances, self._minimum_active_pedestrian_distances(env)
@@ -466,6 +479,20 @@ class CollisionReplayRecorder:
         indices = (self._write_indices[env_ids] - 1) % self.capacity
         self._buffers["cbf_filtered_command_velocity_body"][env_ids, indices] = command[env_ids]
         self._last_cbf_filtered_command[env_ids] = command[env_ids]
+
+    def record_reward(self, rewards: Any) -> None:
+        """Attach post-step scalar rewards to the pre-step frames that produced them."""
+        import torch
+
+        if self._buffers is None or self._counts is None or self._write_indices is None:
+            return
+        values = torch.as_tensor(rewards, device=self._write_indices.device).reshape(-1)
+        if values.shape[0] != len(self.env_profile_indices):
+            raise ValueError("Rewards must contain one scalar per vector environment.")
+        active = self._counts > 0
+        env_ids = torch.nonzero(active, as_tuple=False).squeeze(-1)
+        indices = (self._write_indices[env_ids] - 1) % self.capacity
+        self._buffers["reward"][env_ids, indices] = values[env_ids]
 
     def record_cbf_accelerations(self, nominal_acceleration_body: Any, filtered_acceleration_xy_world: Any) -> None:
         """Attach the CBF nominal and QP-filtered planar accelerations to the latest replay frame.
@@ -545,8 +572,22 @@ class CollisionReplayRecorder:
             "robot_command_velocity_body": self._last_command[env_id : env_id + 1].detach().cpu().numpy(),
             "navigation_policy_velocity_body": self._last_command[env_id : env_id + 1].detach().cpu().numpy(),
             "goal_position_xy": command_term.pos_command_w[env_id : env_id + 1, :2].detach().cpu().numpy(),
+            "crowd_flow_direction": (
+                crowd.flow_dir[env_id : env_id + 1].detach().cpu().numpy()
+                if getattr(crowd, "flow_dir", None) is not None else np.asarray([1.0], dtype=np.float32)
+            ),
+            "corridor_origin_xy": (
+                crowd.corridor_origin[env_id : env_id + 1, :2].detach().cpu().numpy()
+                if getattr(crowd, "corridor_origin", None) is not None else np.zeros((1, 2), dtype=np.float32)
+            ),
+            "corridor_length": (
+                crowd.corridor_length[env_id : env_id + 1].detach().cpu().numpy()
+                if getattr(crowd, "corridor_length", None) is not None else np.asarray([0.0], dtype=np.float32)
+            ),
+            "reward": np.asarray([np.nan], dtype=np.float32),
             "pedestrian_position_xy": crowd.get_world_positions()[env_id : env_id + 1].detach().cpu().numpy(),
             "pedestrian_velocity_xy_world": crowd.get_velocities()[env_id : env_id + 1].detach().cpu().numpy(),
+            "pedestrian_radius": crowd.radius[env_id : env_id + 1].detach().cpu().numpy(),
             "pedestrian_active_mask": crowd.get_active_mask()[env_id : env_id + 1].detach().cpu().numpy(),
         }
         if self._last_cbf_filtered_command is not None:
