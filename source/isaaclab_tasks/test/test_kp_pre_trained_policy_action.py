@@ -193,7 +193,11 @@ def test_dynamic_cbf_play_task_requires_the_fixed_body_frame_jit() -> None:
     assert cfg.episode_length_s == 20.0
     assert cfg.commands.pose_2d_command.resampling_time_range == (20.1, 20.1)
     assert isinstance(cfg.actions.pre_trained_policy_action, DynamicObstacleCbfPreTrainedPolicyActionCfg)
-    assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == "logs/lidar_velocity_predictor/best_jit.pt"
+    assert cfg.scene.obstacle_scanner.pattern_cfg.horizontal_fov_range == (-180.0, 180.0)
+    assert cfg.scene.obstacle_scanner.pattern_cfg.horizontal_res == pytest.approx(360.0 / 256)
+    assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == (
+        "logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_360_jit.pt"
+    )
     assert cfg.actions.pre_trained_policy_action.require_velocity_predictor
     assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
 

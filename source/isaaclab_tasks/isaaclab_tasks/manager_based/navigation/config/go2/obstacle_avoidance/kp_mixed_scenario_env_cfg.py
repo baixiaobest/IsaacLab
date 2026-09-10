@@ -9,7 +9,13 @@ from isaaclab.utils import configclass
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .mixed_scenario_mixins import MixedTemporalLidarObstacleAvoidanceEnvCfg
-from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
+from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH, NUM_LIDAR_RAYS
+
+
+DYNAMIC_CBF_LIDAR_FOV_DEG = 360.0
+DYNAMIC_CBF_VELOCITY_PREDICTOR_PATH = (
+    "logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_360_jit.pt"
+)
 
 
 @configclass
@@ -119,7 +125,7 @@ class DynamicCbfKpActionsCfg(ActionsCfg):
             tracking_tau_s=0.30,
             slack_penalty=1000.0,
             max_lidar_points=64,
-            velocity_predictor_jit_path="logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_jit.pt",
+            velocity_predictor_jit_path=DYNAMIC_CBF_VELOCITY_PREDICTOR_PATH,
             require_velocity_predictor=True,
             debug_vis=True,
         )
@@ -133,3 +139,14 @@ class MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
     """PLAY task with body-frame JIT velocities rotated into the world-frame CBF."""
 
     actions: DynamicCbfKpActionsCfg = DynamicCbfKpActionsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        # The 360-degree predictor needs returns behind the robot as well as in
+        # the policy's checkpoint-compatible 180-degree observation arc.  Keep
+        # the ray count fixed so the temporal observation shape is unchanged.
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_fov_range = (
+            -DYNAMIC_CBF_LIDAR_FOV_DEG / 2.0,
+            DYNAMIC_CBF_LIDAR_FOV_DEG / 2.0,
+        )
+        self.scene.obstacle_scanner.pattern_cfg.horizontal_res = DYNAMIC_CBF_LIDAR_FOV_DEG / NUM_LIDAR_RAYS
