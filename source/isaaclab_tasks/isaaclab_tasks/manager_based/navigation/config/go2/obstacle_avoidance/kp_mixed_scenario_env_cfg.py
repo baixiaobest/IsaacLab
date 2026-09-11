@@ -4,16 +4,26 @@ The non-prediction mixed static/pedestrian temporal-LiDAR baseline is inherited
 unchanged.  This module replaces only its high-level action term.
 """
 
+from isaaclab.managers import ObservationGroupCfg as ObsGroup
+from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .mixed_scenario_mixins import MixedTemporalLidarObstacleAvoidanceEnvCfg
-from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH, NUM_LIDAR_RAYS
+from .obstacle_avoidance_env_cfg import (
+    ActionsCfg,
+    LIDAR_MAX_DISTANCE,
+    LOW_LEVEL_ENV_CFG,
+    LOW_LEVEL_POLICY_PATH,
+    NUM_LIDAR_RAYS,
+)
 
 
 DYNAMIC_CBF_LIDAR_FOV_DEG = 360.0
 DYNAMIC_CBF_LIDAR_RAYS = 2 * NUM_LIDAR_RAYS
+DYNAMIC_CBF_LIDAR_HISTORY = 4
 DYNAMIC_CBF_VELOCITY_PREDICTOR_PATH = (
     "logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_360_jit.pt"
 )
@@ -128,9 +138,43 @@ class DynamicCbfKpActionsCfg(ActionsCfg):
             max_lidar_points=64,
             velocity_predictor_jit_path=DYNAMIC_CBF_VELOCITY_PREDICTOR_PATH,
             require_velocity_predictor=True,
+            predictor_observation_group="cbf_predictor",
+            predictor_num_bins=DYNAMIC_CBF_LIDAR_RAYS,
+            cbf_num_bins=DYNAMIC_CBF_LIDAR_RAYS,
+            cbf_fov_bins=DYNAMIC_CBF_LIDAR_RAYS,
             debug_vis=True,
         )
     )
+
+
+@configclass
+class DynamicCbfPredictorObservationsCfg(ObsGroup):
+    """Full-circle temporal LiDAR reserved for the dynamic-CBF predictor.
+
+    It shares the held-scan history with the policy observation, but it is not
+    concatenated into the actor input. This keeps existing 128-bin checkpoint
+    dimensions unchanged.
+    """
+
+    obstacle_scan = ObsTerm(
+        func=nav_mdp.TemporalLidarScan,
+        params={
+            "sensor_cfg": SceneEntityCfg("obstacle_scanner"),
+            "horizon": DYNAMIC_CBF_LIDAR_HISTORY,
+            "num_bins": DYNAMIC_CBF_LIDAR_RAYS,
+            "fov_degrees": DYNAMIC_CBF_LIDAR_FOV_DEG,
+            "max_distance": LIDAR_MAX_DISTANCE,
+            "pos_noise_std": 0.0,
+            "include_validity": True,
+            "history_key": "held_full_scan",
+            "history_num_rays": DYNAMIC_CBF_LIDAR_RAYS,
+            "owns_history": False,
+        },
+    )
+
+    def __post_init__(self):
+        self.enable_corruption = False
+        self.concatenate_terms = True
 
 
 @configclass
@@ -159,3 +203,4 @@ class MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
             group = getattr(self.observations, group_name)
             group.scan_age.params["history_num_rays"] = DYNAMIC_CBF_LIDAR_RAYS
             group.obstacle_scan.params["history_num_rays"] = DYNAMIC_CBF_LIDAR_RAYS
+        self.observations.cbf_predictor = DynamicCbfPredictorObservationsCfg()

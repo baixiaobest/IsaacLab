@@ -200,10 +200,17 @@ def test_dynamic_cbf_play_task_requires_the_fixed_body_frame_jit() -> None:
     assert cfg.observations.policy.obstacle_scan.params["history_num_rays"] == 512
     assert cfg.observations.critic.scan_age.params["history_num_rays"] == 512
     assert cfg.observations.critic.obstacle_scan.params["history_num_rays"] == 512
+    assert cfg.observations.policy.obstacle_scan.params["num_bins"] == 256
+    assert cfg.observations.policy.obstacle_scan.params["fov_degrees"] == 180.0
+    assert cfg.observations.cbf_predictor.obstacle_scan.params["num_bins"] == 512
+    assert cfg.observations.cbf_predictor.obstacle_scan.params["fov_degrees"] == 360.0
     assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == (
         "logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_360_jit.pt"
     )
     assert cfg.actions.pre_trained_policy_action.require_velocity_predictor
+    assert cfg.actions.pre_trained_policy_action.predictor_num_bins == 512
+    assert cfg.actions.pre_trained_policy_action.cbf_num_bins == 512
+    assert cfg.actions.pre_trained_policy_action.cbf_fov_bins == 512
     assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
 
 
@@ -229,12 +236,13 @@ def test_dynamic_cbf_requires_a_configured_jit_when_requested() -> None:
 def test_dynamic_predictor_is_cached_per_held_scan() -> None:
     term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
     term.num_envs = 2
+    term.cfg = SimpleNamespace(predictor_num_bins=128)
     term._velocity_predictor = lambda lidar: torch.full((2, 128, 2), 0.4)
     term._predicted_velocity_b = torch.zeros(2, 128, 2)
     term._predictor_capture_index = torch.full((2,), -1, dtype=torch.long)
     refresh_count = [0]
     term._refresh_predictor_lidar_history = lambda: refresh_count.__setitem__(0, refresh_count[0] + 1)
-    term._policy_lidar_tensor = lambda: torch.zeros(2, 2, 4, 128)
+    term._predictor_lidar_tensor = lambda: torch.zeros(2, 2, 4, 128)
     capture = {"capture_index": torch.tensor([4, 7])}
 
     first = term._predict_velocity_b(capture)
