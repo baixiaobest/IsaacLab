@@ -176,11 +176,18 @@ class ParquetTelemetryRecorder:
 
     @staticmethod
     def _ids(value: Any) -> set[int]:
+        # The evaluator provides terminal IDs as tensors for most termination
+        # terms, but contact aggregation already returns a Python set.  Avoid
+        # passing that set to ``torch.as_tensor``: PyTorch cannot infer its
+        # dtype and telemetry must not prevent an otherwise completed episode
+        # from being recorded.
+        if isinstance(value, set):
+            return {int(item) for item in value}
         try:
             import torch
 
             return set(torch.as_tensor(value).reshape(-1).detach().cpu().tolist())
-        except (ImportError, TypeError, ValueError):
+        except (ImportError, RuntimeError, TypeError, ValueError):
             return {int(item) for item in value}
 
     def stage_terminal(
