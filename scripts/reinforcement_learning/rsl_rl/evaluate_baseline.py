@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -140,6 +141,35 @@ def _create_timestamped_run_dir(output_root: Path) -> Path:
     raise RuntimeError(f"Could not create a unique evaluation run directory in {output_root}.")
 
 
+class _ProgressReporter:
+    """Throttled console progress print. No RL policy/W&B involved here, so unlike
+    ``evaluate.py``'s reporter this only ever writes to stdout."""
+
+    _INTERVAL_SECONDS = 10.0
+
+    def __init__(self, total_episodes: int, seed_count: int):
+        self.total_episodes = total_episodes
+        self.seed_count = seed_count
+        self.started_at = time.monotonic()
+        self.last_report_at = 0.0
+
+    def report(self, accepted_episodes: int, *, seed: int, seed_index: int, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self.last_report_at < self._INTERVAL_SECONDS:
+            return
+        self.last_report_at = now
+        elapsed = max(0.0, now - self.started_at)
+        rate = accepted_episodes / elapsed if elapsed else 0.0
+        remaining = max(0, self.total_episodes - accepted_episodes)
+        eta = f"{remaining / rate:.0f}s" if rate > 0.0 else "n/a"
+        percent = round(100.0 * accepted_episodes / self.total_episodes, 1) if self.total_episodes else 100.0
+        print(
+            f"[EVAL] running: {accepted_episodes}/{self.total_episodes} episodes ({percent}%), "
+            f"seed {seed} ({seed_index}/{self.seed_count}), elapsed {elapsed:.0f}s, ETA {eta}",
+            flush=True,
+        )
+
+
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Run all static-plus-dynamic profiles in parallel until every profile reaches its quota."""
@@ -221,6 +251,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         f"with {args_cli.episodes_per_profile} episodes each"
         + (f" across {seed_count} consecutive seeds ({seeds[0]}..{seeds[-1]})." if seed_count > 1 else ".")
     )
+    progress_reporter = _ProgressReporter(
+        total_episodes=len(profiles) * args_cli.episodes_per_profile, seed_count=seed_count
+    )
     try:
         for seed_index, seed in enumerate(seeds):
             if seed_index > 0:
@@ -242,6 +275,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 )
                 velocity_accumulator.reset(completed_ids)
                 goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
+                progress_reporter.report(collector.total_episodes, seed=seed, seed_index=seed_index + 1)
+            progress_reporter.report(collector.total_episodes, seed=seed, seed_index=seed_index + 1, force=True)
             print(f"[INFO] Seed {seed} stage complete: {collector.total_episodes} episodes accepted.")
     finally:
         env.close()
