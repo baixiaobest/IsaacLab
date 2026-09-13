@@ -571,6 +571,14 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
 
     env_cfg.social_force.max_pedestrians = 16
     env_cfg.social_force.lateral_heading_max = EVALUATION_CROWD_LATERAL_HEADING_MAX
+
+    # Keep the robot's goal clear of loitering pedestrians: without this, pedestrians
+    # can converge on/around the goal and shove the robot right as it arrives, which
+    # then shows up as a false-negative timeout or collision in the eval metrics.
+    env_cfg.social_force.a_robot_goal = 2.5  # repulsion strength [m/s^2]
+    env_cfg.social_force.b_robot_goal = 0.5  # falloff range of the repulsion [m]
+    env_cfg.social_force.robot_goal_radius = 1.0  # radius of the cleared zone around the goal [m]
+
     env_cfg.pedestrian_init_count = 2
     env_cfg.pedestrian_init_speed_range = EVALUATION_CROWD_SPEED_RANGE
 
