@@ -33,10 +33,11 @@ def _files(dataset_path: str) -> list[Path]:
 class PointVelocityDataset(Dataset):
     """Lazy individual scan-event samples stored in point-velocity HDF5 episodes."""
 
-    def __init__(self, dataset_path: str, input_name: str = "lidar_noisy") -> None:
+    def __init__(self, dataset_path: str, input_name: str = "lidar_noisy", fov_bins: int = 128, horizon: int = 4) -> None:
         if input_name not in {"lidar_noisy", "lidar_clean"}:
             raise ValueError("input_name must be lidar_noisy or lidar_clean.")
         self.input_name = input_name
+        self._expected_shape = (2, horizon, fov_bins)
         self.entries: list[EpisodeEntry] = []
         self.offsets = [0]
         for file_path in _files(dataset_path):
@@ -75,25 +76,24 @@ class PointVelocityDataset(Dataset):
     def __len__(self) -> int:
         return self.offsets[-1]
 
-    @staticmethod
-    def _canonical_lidar(array: np.ndarray, source: str) -> np.ndarray:
+    def _canonical_lidar(self, array: np.ndarray, source: str) -> np.ndarray:
         """Return a temporal scan in the model's ``(C, H, bins)`` layout.
 
         Observation-manager terms are flattened when their group is
         concatenated, so rollout files made from ``obstacle_scan`` contain a
-        single 1024-element vector.  Keep the HDF5 schema tolerant of that
-        native observation representation while always presenting the CNN with
-        its explicit ``(2, 4, 128)`` layout.
+        single flat vector.  Keep the HDF5 schema tolerant of that native
+        observation representation while always presenting the CNN with its
+        explicit ``(2, horizon, fov_bins)`` layout.
         """
         array = np.asarray(array, dtype=np.float32)
-        expected_shape = (2, 4, 128)
+        expected_shape = self._expected_shape
         if array.shape == expected_shape:
             return array
         if array.size == int(np.prod(expected_shape)):
             return array.reshape(expected_shape)
         raise ValueError(
             f"{source} has LiDAR sample shape {array.shape}; expected {expected_shape} "
-            "or a flattened 1024-element temporal scan."
+            f"or a flattened {int(np.prod(expected_shape))}-element temporal scan."
         )
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:

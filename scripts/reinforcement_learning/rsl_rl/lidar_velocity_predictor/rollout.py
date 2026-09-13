@@ -16,6 +16,20 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 import cli_args  # isort: skip
 
+# Which observation groups/terms/label-getter to read for each lidar sensor variant. "360"
+# requires a task registered with the second obstacle_scanner_360 sensor/observation group
+# (see the "-360-" gym ids in obstacle_avoidance/__init__.py).
+LIDAR_VARIANT_CONFIG = {
+    "180": {
+        "obs_group": "policy", "critic_group": "critic", "obs_term": "obstacle_scan",
+        "label_method": "get_point_velocity_labels", "num_bins": 256, "fov_bins": 128,
+    },
+    "360": {
+        "obs_group": "policy_360", "critic_group": "critic_360", "obs_term": "obstacle_scan_360",
+        "label_method": "get_point_velocity_labels_360", "num_bins": 512, "fov_bins": 512,
+    },
+}
+
 parser = argparse.ArgumentParser(description="Collect temporal-LiDAR point velocity labels.")
 parser.add_argument("--task", type=str, default="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Point-Velocity-Data-Unitree-Go2-Play-v0")
 parser.add_argument("--num_envs", type=int, default=40)
@@ -24,6 +38,13 @@ parser.add_argument("--dataset_root", type=str, default="datasets/lidar_point_ve
 parser.add_argument("--dataset_name", type=str, default="mixed_kp")
 parser.add_argument("--episodes_per_file", type=int, default=100)
 parser.add_argument("--seed", type=int, default=42)
+parser.add_argument(
+    "--lidar_variant",
+    type=str,
+    default="180",
+    choices=sorted(LIDAR_VARIANT_CONFIG),
+    help="Which lidar sensor/observation variant to collect labels from; pass a matching --task.",
+)
 parser.add_argument("--disable_fabric", action="store_true", default=False)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -103,6 +124,13 @@ class ChunkWriter:
                         f"{path} uses an incompatible LiDAR velocity schema. Archive or remove the old world-frame "
                         "files before collecting body-frame schema-v2 samples."
                     )
+                if existing_metadata.get("lidar_variant", "180") != metadata.get("lidar_variant", "180"):
+                    raise RuntimeError(
+                        f"{path} was collected with lidar_variant="
+                        f"{existing_metadata.get('lidar_variant', '180')!r}, but this run requested "
+                        f"{metadata.get('lidar_variant', '180')!r}. Use a separate --dataset_root/--dataset_name "
+                        "instead of mixing bin counts in one dataset."
+                    )
         self.file_index = int(existing[-1].stem.rsplit("_", 1)[-1]) + 1 if existing else 0
         self.episode_index = 0
         self.pending: list[EpisodeBuffer] = []
@@ -136,6 +164,7 @@ class ChunkWriter:
 
 
 def main() -> None:
+    variant_cfg = LIDAR_VARIANT_CONFIG[args_cli.lidar_variant]
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric)
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
@@ -162,6 +191,7 @@ def main() -> None:
     writer = ChunkWriter(args_cli.dataset_root, args_cli.dataset_name, args_cli.episodes_per_file, {
         "task": args_cli.task, "checkpoint": checkpoint, "num_envs": env.num_envs, "sample_period_s": 0.130,
         "schema_version": 2, "velocity_frame": "body_xy", "seed": args_cli.seed,
+        "lidar_variant": args_cli.lidar_variant, "num_bins": variant_cfg["num_bins"], "fov_bins": variant_cfg["fov_bins"],
     })
     buffers = [EpisodeBuffer() for _ in range(env.num_envs)]
     previous_capture = torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long)
@@ -169,11 +199,11 @@ def main() -> None:
     observations = env.get_observations()
     try:
         while simulation_app.is_running() and completed < args_cli.max_episodes:
-            labels = env.unwrapped.get_point_velocity_labels()
+            labels = getattr(env.unwrapped, variant_cfg["label_method"])()
             capture_index = labels["capture_index"]
             new_scan = capture_index != previous_capture
-            noisy = _slice_term(env.unwrapped, observations, "policy", "obstacle_scan")
-            clean = _slice_term(env.unwrapped, observations, "critic", "obstacle_scan")
+            noisy = _slice_term(env.unwrapped, observations, variant_cfg["obs_group"], variant_cfg["obs_term"])
+            clean = _slice_term(env.unwrapped, observations, variant_cfg["critic_group"], variant_cfg["obs_term"])
             for env_id in new_scan.nonzero(as_tuple=False).squeeze(-1).tolist():
                 buffer = buffers[env_id]
                 if len(buffer) == 0:

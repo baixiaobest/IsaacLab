@@ -223,7 +223,7 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._zoh_gain_s = zoh_average_acceleration_gain(self._control_dt, cfg.tracking_tau_s)
         self._solvers = [_OsqpDynamicObstacleCbf(cfg) for _ in range(self.num_envs)]
         self._velocity_predictor = self._load_velocity_predictor(cfg)
-        self._predicted_velocity_b = torch.zeros(self.num_envs, 128, 2, device=self.device)
+        self._predicted_velocity_b = torch.zeros(self.num_envs, cfg.lidar_fov_bins, 2, device=self.device)
         self._predictor_capture_index = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
         self._safe_acceleration_w = torch.zeros(self.num_envs, 2, device=self.device)
         self._slack = torch.zeros(self.num_envs, device=self.device)
@@ -408,7 +408,9 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         )[:, :2]
 
         capture = self._latest_lidar_capture()
-        binned = forward_lidar_reflection_bins(capture)
+        binned = forward_lidar_reflection_bins(
+            capture, num_bins=self.cfg.lidar_num_bins, fov_bins=self.cfg.lidar_fov_bins
+        )
         predicted_velocity_b = self._predict_velocity_b(capture)
         predicted_velocity_w = body_to_world_xy(predicted_velocity_b, binned["ego_yaw"])
         safe_acceleration_w = torch.empty_like(nominal_acceleration_w)
@@ -538,11 +540,11 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         lidar = self._policy_lidar_tensor()
         with torch.inference_mode():
             prediction = self._velocity_predictor(lidar)
-        if not isinstance(prediction, torch.Tensor) or prediction.shape != (self.num_envs, 128, 2):
+        if not isinstance(prediction, torch.Tensor) or prediction.shape != (self.num_envs, self.cfg.lidar_fov_bins, 2):
             shape = tuple(prediction.shape) if isinstance(prediction, torch.Tensor) else type(prediction).__name__
             raise RuntimeError(
                 "Dynamic CBF velocity predictor must return a tensor with shape "
-                f"({self.num_envs}, 128, 2), received {shape}."
+                f"({self.num_envs}, {self.cfg.lidar_fov_bins}, 2), received {shape}."
             )
         if not torch.isfinite(prediction).all():
             raise RuntimeError("Dynamic CBF velocity predictor produced non-finite values.")
@@ -575,12 +577,13 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         stop = start + int(np.prod(shapes[term_index]))
         observation = manager.compute_group(group)
         lidar = observation[:, start:stop]
-        if lidar.numel() != self.num_envs * 2 * 4 * 128:
+        fov_bins = self.cfg.lidar_fov_bins
+        if lidar.numel() != self.num_envs * 2 * 4 * fov_bins:
             raise RuntimeError(
-                f"Dynamic CBF expected a (2, 4, 128) actor LiDAR term, but '{group}/{term}' has shape "
+                f"Dynamic CBF expected a (2, 4, {fov_bins}) actor LiDAR term, but '{group}/{term}' has shape "
                 f"{tuple(lidar.shape)}."
             )
-        return lidar.reshape(self.num_envs, 2, 4, 128).to(dtype=torch.float32)
+        return lidar.reshape(self.num_envs, 2, 4, fov_bins).to(dtype=torch.float32)
 
     def _record_solver_stats(self, env_id: int, stats: _OsqpSolveStats) -> None:
         """Accumulate one host-side OSQP result without perturbing GPU timing."""
@@ -633,6 +636,11 @@ class DynamicObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
     predictor_observation_group: str = "policy"
     predictor_observation_term: str = "obstacle_scan"
     predictor_history_key: str = "held_full_scan"
+    lidar_fov_bins: int = 128
+    """Forward-arc bin count of the predictor's LiDAR input/output (512 for a 360-degree predictor)."""
+    lidar_num_bins: int = 256
+    """Total world-aligned bin count backing lidar_fov_bins (see forward_lidar_reflection_bins);
+    512 for a 360-degree predictor, where fov_bins covers the full circle (num_bins == fov_bins)."""
     solver_eps_abs: float = 1.0e-3
     solver_eps_rel: float = 1.0e-3
     solver_max_iter: int = 500

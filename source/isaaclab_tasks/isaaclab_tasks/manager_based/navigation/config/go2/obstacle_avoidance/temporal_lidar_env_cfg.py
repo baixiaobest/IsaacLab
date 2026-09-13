@@ -16,8 +16,10 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from .obstacle_avoidance_env_cfg import (
     LIDAR_FOV_DEG,
+    LIDAR_FOV_DEG_360,
     LIDAR_MAX_DISTANCE,
     NUM_LIDAR_RAYS,
+    NUM_LIDAR_RAYS_360,
     ObstacleAvoidanceEnvCfg,
     ObservationsCfg,
 )
@@ -49,6 +51,23 @@ TEMPORAL_LIDAR_OBS_SIZE = TEMPORAL_LIDAR_CHANNELS * TEMPORAL_LIDAR_HORIZON * TEM
 
 # Prediction target is a single distance-only frame (1 channel × fov_bins).
 TEMPORAL_LIDAR_PRED_TARGET_SIZE = TEMPORAL_LIDAR_FOV_BINS
+
+
+# ---------------------------------------------------------------------------
+# Second, independent 360-degree observation group (lidar-velocity-predictor
+# data collection only). Kept fully separate from the constants above so the
+# pretrained Kp navigation policy's 1024-element actor input never changes.
+# ---------------------------------------------------------------------------
+
+TEMPORAL_LIDAR_NUM_BINS_360 = NUM_LIDAR_RAYS_360   # total 360° world-aligned bins
+TEMPORAL_LIDAR_FOV_DEG_360 = LIDAR_FOV_DEG_360     # full circle returned (no arc slicing)
+TEMPORAL_LIDAR_RAYS_360 = NUM_LIDAR_RAYS_360
+TEMPORAL_LIDAR_HISTORY_KEY_360 = "held_full_scan_360"
+TEMPORAL_LIDAR_COLLECTOR_NAME_360 = "_held_scan_lidar_collector_360"
+
+# fov_bins == num_bins here (whole circle), so this is just NUM_LIDAR_RAYS_360.
+TEMPORAL_LIDAR_FOV_BINS_360 = int(round(TEMPORAL_LIDAR_NUM_BINS_360 * TEMPORAL_LIDAR_FOV_DEG_360 / 360.0))
+TEMPORAL_LIDAR_OBS_SIZE_360 = TEMPORAL_LIDAR_CHANNELS * TEMPORAL_LIDAR_HORIZON * TEMPORAL_LIDAR_FOV_BINS_360
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +234,94 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
+
+
+@configclass
+class TemporalLidar360ObservationsCfg(TemporalLidarObservationsCfg):
+    """Adds a second, independent 360-degree observation group.
+
+    Used only by the 360-degree lidar-velocity-predictor data-collection task
+    (see ``lidar_velocity_data_env_cfg.MixedTemporalLidarKp360PointVelocityDataEnvCfg``).
+    ``policy_360``/``critic_360`` are separate, non-concatenated groups reading from
+    ``obstacle_scanner_360`` — they never touch ``policy``/``critic``, so the pretrained
+    Kp navigation policy's 1024-element actor observation is unaffected.
+    """
+
+    @configclass
+    class Policy360Cfg(ObsGroup):
+        scan_age_360 = ObsTerm(
+            func=mdp.temporal_lidar_scan_age,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner_360"),
+                "max_distance": LIDAR_MAX_DISTANCE,
+                "history_key": TEMPORAL_LIDAR_HISTORY_KEY_360,
+                "collector_name": TEMPORAL_LIDAR_COLLECTOR_NAME_360,
+                "history_num_rays": TEMPORAL_LIDAR_RAYS_360,
+                "history_horizon": TEMPORAL_LIDAR_HORIZON,
+                "max_age_s": TEMPORAL_LIDAR_SCAN_AGE_MAX_S,
+            },
+        )
+
+        obstacle_scan_360 = ObsTerm(
+            func=mdp.TemporalLidarScan,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner_360"),
+                "horizon": TEMPORAL_LIDAR_HORIZON,
+                "num_bins": TEMPORAL_LIDAR_NUM_BINS_360,
+                "fov_degrees": TEMPORAL_LIDAR_FOV_DEG_360,
+                "max_distance": LIDAR_MAX_DISTANCE,
+                "pos_noise_std": TEMPORAL_LIDAR_POS_NOISE_STD,
+                "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
+                "history_key": TEMPORAL_LIDAR_HISTORY_KEY_360,
+                "history_num_rays": TEMPORAL_LIDAR_RAYS_360,
+                "collector_name": TEMPORAL_LIDAR_COLLECTOR_NAME_360,
+                "owns_history": True,
+            },
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class Critic360Cfg(ObsGroup):
+        """Clean critic view of the 360-degree held full-scan history."""
+
+        scan_age_360 = ObsTerm(
+            func=mdp.temporal_lidar_scan_age,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner_360"),
+                "max_distance": LIDAR_MAX_DISTANCE,
+                "history_key": TEMPORAL_LIDAR_HISTORY_KEY_360,
+                "collector_name": TEMPORAL_LIDAR_COLLECTOR_NAME_360,
+                "history_num_rays": TEMPORAL_LIDAR_RAYS_360,
+                "history_horizon": TEMPORAL_LIDAR_HORIZON,
+                "max_age_s": TEMPORAL_LIDAR_SCAN_AGE_MAX_S,
+            },
+        )
+
+        obstacle_scan_360 = ObsTerm(
+            func=mdp.TemporalLidarScan,
+            params={
+                "sensor_cfg": SceneEntityCfg("obstacle_scanner_360"),
+                "horizon": TEMPORAL_LIDAR_HORIZON,
+                "num_bins": TEMPORAL_LIDAR_NUM_BINS_360,
+                "fov_degrees": TEMPORAL_LIDAR_FOV_DEG_360,
+                "max_distance": LIDAR_MAX_DISTANCE,
+                "pos_noise_std": 0.0,
+                "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
+                "history_key": TEMPORAL_LIDAR_HISTORY_KEY_360,
+                "history_num_rays": TEMPORAL_LIDAR_RAYS_360,
+            },
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy_360: Policy360Cfg = Policy360Cfg()
+    critic_360: Critic360Cfg = Critic360Cfg()
 
 
 # ---------------------------------------------------------------------------

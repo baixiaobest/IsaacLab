@@ -48,6 +48,12 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="Save and upload a retained epoch checkpoint every N epochs; set 0 to disable.",
     )
+    parser.add_argument(
+        "--fov_bins",
+        type=int,
+        default=128,
+        help="Forward-arc bin count of the temporal-LiDAR input (128 for the 180-degree sensor, 512 for 360).",
+    )
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--learning_rate", type=float, default=3.0e-4)
     parser.add_argument("--weight_decay", type=float, default=1.0e-5)
@@ -250,7 +256,7 @@ def main() -> None:
     output = Path(args.output_dir).expanduser().resolve() / args.run_name
     output.mkdir(parents=True, exist_ok=True)
     deployment_jit_path = Path(args.deployment_jit_path).expanduser().resolve()
-    dataset = PointVelocityDataset(args.dataset_path, input_name="lidar_noisy")
+    dataset = PointVelocityDataset(args.dataset_path, input_name="lidar_noisy", fov_bins=args.fov_bins)
     train, validation, test = dataset.split(args.seed)
     if len(validation) == 0 or len(test) == 0:
         raise RuntimeError("Dataset is too small for stratified validation/test splits.")
@@ -258,7 +264,7 @@ def main() -> None:
     train_loader = DataLoader(dataset, batch_sampler=DynamicAwareBatchSampler(train, args.batch_size, args.seed), num_workers=args.num_workers)
     validation_loader = DataLoader(validation, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     device = torch.device(args.device)
-    model = TemporalLidarVelocityCNN().to(device)
+    model = TemporalLidarVelocityCNN(fov_bins=args.fov_bins).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_validation_loss = float("inf")
     start_epoch = 1
@@ -304,8 +310,8 @@ def main() -> None:
                 "num_training_samples": len(train),
                 "num_validation_samples": len(validation),
                 "num_test_samples": len(test),
-                "input_shape": [2, 4, 128],
-                "target_shape": [128, 2],
+                "input_shape": [2, 4, args.fov_bins],
+                "target_shape": [args.fov_bins, 2],
                 "target_velocity_frame": "body_xy",
             },
             allow_val_change=True,

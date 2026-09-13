@@ -74,18 +74,26 @@ def _histogram(path: Path, static_distance: np.ndarray, dynamic_distance: np.nda
     plt.close()
 
 
-def _bin_positions(range_m: np.ndarray) -> np.ndarray:
-    """Map the heading-centred 128 forward bins to robot-body XY positions."""
-    if range_m.shape != (128,):
-        raise ValueError(f"Expected 128 forward LiDAR bins, got {range_m.shape}.")
-    # ``forward_lidar_reflection_bins`` maps local bin 64 to the heading bin
-    # and advances by 2*pi/256 per output bin.  This makes the visualization
-    # use precisely the same body-frame convention as the training targets.
-    angle = (np.arange(128, dtype=np.float32) - 64.0) * (2.0 * np.pi / 256.0)
+def _bin_positions(range_m: np.ndarray, fov_bins: int = 128, num_bins: int = 256) -> np.ndarray:
+    """Map the heading-centred forward bins to robot-body XY positions.
+
+    ``forward_lidar_reflection_bins`` maps local bin ``fov_bins // 2`` to the
+    heading bin and advances by ``2*pi/num_bins`` per output bin.  This makes
+    the visualization use precisely the same body-frame convention as the
+    training targets. For a full 360-degree dataset (``fov_bins == num_bins``),
+    the wrap seam (bin 0 / bin ``fov_bins - 1``) lands directly behind the
+    robot by construction -- this is expected, not a bug, and the two
+    rearward-most bins should not be over-interpreted as adjacent obstacles.
+    """
+    if range_m.shape != (fov_bins,):
+        raise ValueError(f"Expected {fov_bins} forward LiDAR bins, got {range_m.shape}.")
+    angle = (np.arange(fov_bins, dtype=np.float32) - fov_bins / 2.0) * (2.0 * np.pi / num_bins)
     return np.column_stack((range_m * np.cos(angle), range_m * np.sin(angle)))
 
 
-def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arrow_seconds: float) -> dict:
+def _plot_scan_sample(
+    output: Path, sample: ScanSample, max_range_m: float, arrow_seconds: float, fov_bins: int, num_bins: int
+) -> dict:
     """Render one labelled scan in body coordinates and return manifest metadata."""
     try:
         import matplotlib.pyplot as plt
@@ -104,7 +112,7 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
         scenario_mode = int(group.attrs.get("scenario_mode", -1))
 
     valid = reflection & np.isfinite(ranges) & (ranges > 0.0) & (ranges <= max_range_m)
-    points = _bin_positions(ranges)
+    points = _bin_positions(ranges, fov_bins=fov_bins, num_bins=num_bins)
     static = valid & ~dynamic
     moving = valid & dynamic
     fig, axes = plt.subplots(figsize=(7, 7))
@@ -160,7 +168,9 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
     }
 
 
-def _render_scan_samples(output: Path, samples: list[ScanSample], max_range_m: float, arrow_seconds: float) -> list[dict]:
+def _render_scan_samples(
+    output: Path, samples: list[ScanSample], max_range_m: float, arrow_seconds: float, fov_bins: int, num_bins: int
+) -> list[dict]:
     if not samples:
         return []
     try:
@@ -168,7 +178,7 @@ def _render_scan_samples(output: Path, samples: list[ScanSample], max_range_m: f
     except ImportError:
         print("[WARN] matplotlib is unavailable; skipping LiDAR scan sanity-check plots.")
         return []
-    return [_plot_scan_sample(output, sample, max_range_m, arrow_seconds) for sample in samples]
+    return [_plot_scan_sample(output, sample, max_range_m, arrow_seconds, fov_bins, num_bins) for sample in samples]
 
 
 def main() -> None:
@@ -211,6 +221,11 @@ def main() -> None:
     rng = np.random.default_rng(args.scan_sample_seed)
     dynamic_scan_samples = _Reservoir("dynamic", args.num_scan_samples, rng)
     static_scan_samples = _Reservoir("static", args.num_scan_samples, rng)
+    # Auto-detected from the first file's rollout metadata (rollout.py records these since
+    # the 360-degree lidar_variant addition); older datasets predating that default to the
+    # original 128-bin forward arc over a 256-bin world grid.
+    fov_bins: int | None = None
+    num_bins: int | None = None
 
     for file_path in _files(Path(args.dataset_path).expanduser().resolve()):
         with h5py.File(file_path, "r") as handle:
@@ -223,6 +238,9 @@ def main() -> None:
                 raise RuntimeError(f"{file_path} has invalid dataset metadata.") from error
             if metadata.get("schema_version") != 2 or metadata.get("velocity_frame") != "body_xy":
                 raise RuntimeError(f"{file_path} is not a body-frame schema-v2 LiDAR velocity dataset.")
+            if fov_bins is None:
+                fov_bins = int(metadata.get("fov_bins", 128))
+                num_bins = int(metadata.get("num_bins", 256))
             for group in data.values():
                 reflection = np.asarray(group["reflection_mask"], dtype=bool)
                 dynamic = np.asarray(group["dynamic_mask"], dtype=bool)
@@ -280,6 +298,8 @@ def main() -> None:
         static_scan_samples.samples + dynamic_scan_samples.samples,
         args.scan_plot_range_m,
         args.velocity_arrow_seconds,
+        fov_bins if fov_bins is not None else 128,
+        num_bins if num_bins is not None else 256,
     )
     (output / "scan_samples.json").write_text(json.dumps(visualizations, indent=2), encoding="utf-8")
     print(f"[INFO] Wrote {len(visualizations)} labelled LiDAR scan plots to {output / 'scan_samples'}")

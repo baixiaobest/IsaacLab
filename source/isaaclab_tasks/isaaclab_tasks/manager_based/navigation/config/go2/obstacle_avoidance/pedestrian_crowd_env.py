@@ -32,6 +32,10 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         # See ``load_managers`` below: observation terms need this collector while
         # the base constructor is still running.
         self._held_scan_lidar_collector: HeldScanLidarCollector | None = None
+        # Optional second collector for a separate, independently-configured sensor
+        # (e.g. a 360-degree scanner used only for lidar-velocity-predictor data
+        # collection). Unused unless cfg.held_scan_lidar_360_enabled is set.
+        self._held_scan_lidar_collector_360: HeldScanLidarCollector | None = None
         super().__init__(cfg, render_mode=render_mode, **kwargs)
 
         self.crowd_manager = SocialForceCrowdManager(cfg.social_force, self.num_envs, self.device)
@@ -90,9 +94,17 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         if self._held_scan_lidar_collector is None and getattr(self.cfg, "held_scan_lidar_enabled", False):
             self._held_scan_lidar_collector = HeldScanLidarCollector(self, getattr(self.cfg, "held_scan_lidar", None))
 
+    def _ensure_held_scan_lidar_collector_360(self) -> None:
+        """Create the optional second (e.g. 360-degree) collector once the scene is available."""
+        if self._held_scan_lidar_collector_360 is None and getattr(self.cfg, "held_scan_lidar_360_enabled", False):
+            self._held_scan_lidar_collector_360 = HeldScanLidarCollector(
+                self, getattr(self.cfg, "held_scan_lidar_360", None)
+            )
+
     def load_managers(self) -> None:
         """Ensure temporal-lidar observation terms can resolve their collector."""
         self._ensure_held_scan_lidar_collector()
+        self._ensure_held_scan_lidar_collector_360()
         super().load_managers()
 
     def _randomize_per_env_colors(self):
@@ -138,6 +150,8 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         super()._post_physics_step()
         if self._held_scan_lidar_collector is not None:
             self._held_scan_lidar_collector.on_physics_step()
+        if self._held_scan_lidar_collector_360 is not None:
+            self._held_scan_lidar_collector_360.on_physics_step()
 
     def _reset_idx(self, env_ids):
         # event_manager.apply(mode="reset") inside super()._reset_idx runs
@@ -147,3 +161,5 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         self._write_pedestrians_to_sim()
         if self._held_scan_lidar_collector is not None:
             self._held_scan_lidar_collector.reset(env_ids)
+        if self._held_scan_lidar_collector_360 is not None:
+            self._held_scan_lidar_collector_360.reset(env_ids)

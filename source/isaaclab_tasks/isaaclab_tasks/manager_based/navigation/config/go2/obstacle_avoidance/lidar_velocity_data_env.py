@@ -82,12 +82,16 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         self._write_pedestrians_to_sim()
         if self._held_scan_lidar_collector is not None:
             self._held_scan_lidar_collector.reset(env_ids)
-        self._validate_velocity_label_scene()
+        if self._held_scan_lidar_collector_360 is not None:
+            self._held_scan_lidar_collector_360.reset(env_ids)
+        self._validate_velocity_label_scene("obstacle_scanner")
+        if self._held_scan_lidar_collector_360 is not None:
+            self._validate_velocity_label_scene("obstacle_scanner_360")
 
-    def _validate_velocity_label_scene(self) -> None:
-        sensor = self.scene.sensors["obstacle_scanner"]
+    def _validate_velocity_label_scene(self, sensor_name: str = "obstacle_scanner") -> None:
+        sensor = self.scene.sensors[sensor_name]
         if getattr(sensor.cfg, "update_mesh_ids", False) is not True:
-            raise RuntimeError("LiDAR velocity data collection requires obstacle_scanner.update_mesh_ids=True.")
+            raise RuntimeError(f"LiDAR velocity data collection requires {sensor_name}.update_mesh_ids=True.")
         target_counts = sensor._num_meshes_per_env
         if len(target_counts) != 2:
             raise RuntimeError("Expected exactly terrain and pedestrian raycast targets for velocity labels.")
@@ -98,9 +102,8 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
                 f"got target mesh counts {counts}."
             )
 
-    def get_point_velocity_labels(self) -> dict[str, torch.Tensor]:
-        """Return body-frame labels aligned to the policy's current 128-bin forward LiDAR arc."""
-        collector = self._held_scan_lidar_collector
+    def _get_point_velocity_labels(self, collector, num_bins: int, fov_bins: int) -> dict[str, torch.Tensor]:
+        """Return body-frame labels aligned to a ``num_bins``/``fov_bins`` forward LiDAR arc."""
         if collector is None:
             raise RuntimeError("LiDAR velocity labels require the held scan collector.")
         capture = collector.latest_capture()
@@ -109,7 +112,7 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
             raise RuntimeError("No captured pedestrian velocity is available yet; wait for a live LiDAR capture.")
 
         mesh_ids = capture["ray_mesh_ids"].to(torch.long)
-        binned = forward_lidar_reflection_bins(capture)
+        binned = forward_lidar_reflection_bins(capture, num_bins=num_bins, fov_bins=fov_bins)
         reflection_mask = binned["reflection_mask"]
         winner_mesh = torch.gather(mesh_ids, 1, binned["winner_ray"])
         dynamic_mask = reflection_mask & (winner_mesh >= 1) & (winner_mesh <= self.crowd_manager.max_pedestrians)
@@ -128,3 +131,11 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
             "range_m": binned["range_m"],
             "capture_index": capture["capture_index"],
         }
+
+    def get_point_velocity_labels(self) -> dict[str, torch.Tensor]:
+        """Return body-frame labels aligned to the policy's current 128-bin forward LiDAR arc."""
+        return self._get_point_velocity_labels(self._held_scan_lidar_collector, num_bins=256, fov_bins=128)
+
+    def get_point_velocity_labels_360(self) -> dict[str, torch.Tensor]:
+        """Return body-frame labels aligned to the full 512-bin, 360-degree LiDAR arc."""
+        return self._get_point_velocity_labels(self._held_scan_lidar_collector_360, num_bins=512, fov_bins=512)

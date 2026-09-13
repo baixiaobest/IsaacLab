@@ -43,6 +43,15 @@ LOW_LEVEL_POLICY_PATH = "logs/rsl_rl/ObstacleAvoidance/Locomotion/locomotion_pol
 NUM_LIDAR_RAYS = 256
 LIDAR_FOV_DEG = 180.0
 LIDAR_MAX_DISTANCE = 20.0
+
+# Second, independent full-circle lidar sensor used only for 360-degree
+# lidar-velocity-predictor data collection (see lidar_velocity_data_env.py and
+# mixed_scenario_mixins.build_obstacle_scanner_360). Never used by the primary
+# obstacle_scanner pipeline above, so it has no effect on the pretrained Kp
+# navigation policy's observation shape. 512 rays over 360 degrees preserves the
+# same ~0.7 deg/ray resolution as the 256-ray/180-degree sensor above.
+NUM_LIDAR_RAYS_360 = 512
+LIDAR_FOV_DEG_360 = 360.0
 COMMAND_RESAMPLING_TIME_S = 12.0
 EPISODE_LENGTH_S = 12.0
 HIGH_LEVEL_DECIMATION_FACTOR = 4 # Run the navigation policy at 12.5hz, which is 1/4 of low-level policy.

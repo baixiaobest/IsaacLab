@@ -28,6 +28,7 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.sensors import patterns
 from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg
 from isaaclab.terrains import TerrainImporter, TerrainImporterCfg
 from isaaclab.utils import configclass
@@ -39,7 +40,9 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 from .obstacle_avoidance_env_cfg import (
     LIDAR_MAX_DISTANCE,
     LIDAR_FOV_DEG,
+    LIDAR_FOV_DEG_360,
     NUM_LIDAR_RAYS,
+    NUM_LIDAR_RAYS_360,
     CommandsCfg,
     CurriculumCfg,
     EventCfg,
@@ -85,6 +88,38 @@ PED_LATERAL_HEADING_MAX_HIGH = math.radians(12.0)
 
 EPISODE_LENGTH = 15.0
 RESAMPLING_TIME_RANGE = (15.1, 15.1)
+
+def build_obstacle_scanner_360() -> MultiMeshRayCasterCfg:
+    """Build the optional full-circle scanner used only for 360-degree data collection.
+
+    Deliberately not a ``_MixedSceneCfg`` field: attaching it there would add a second,
+    512-ray multi-mesh raycaster to every Mixed-family task (including the 4096-env
+    training task), doubling ray-casting cost for tasks that never read from it. Callers
+    that actually want this sensor assign it onto ``self.scene`` from their own
+    ``__post_init__`` instead (``InteractiveScene`` discovers sensors by scanning
+    ``self.cfg.__dict__``, so a plain runtime attribute assignment is sufficient).
+    """
+    return MultiMeshRayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=ObstacleAvoidanceSceneCfg().obstacle_scanner.offset,
+        ray_alignment="yaw",
+        max_distance=LIDAR_MAX_DISTANCE,
+        pattern_cfg=patterns.LidarPatternCfg(
+            channels=1,
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(-LIDAR_FOV_DEG_360 / 2.0, LIDAR_FOV_DEG_360 / 2.0),
+            horizontal_res=LIDAR_FOV_DEG_360 / NUM_LIDAR_RAYS_360,
+        ),
+        debug_vis=False,
+        mesh_prim_paths=[
+            "/World/ground",
+            MultiMeshRayCasterCfg.RaycastTargetCfg(
+                prim_expr="{ENV_REGEX_NS}/Pedestrian_.*",
+                track_mesh_transforms=True,
+                merge_prim_meshes=False,
+            ),
+        ],
+    )
 
 # The 10 m x 10 m local map is intentionally the final policy/critic term.  The
 # encoder model splits its flat input at the tail, so changing this ordering

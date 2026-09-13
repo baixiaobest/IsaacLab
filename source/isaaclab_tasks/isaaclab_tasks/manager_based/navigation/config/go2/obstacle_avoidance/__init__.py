@@ -223,6 +223,22 @@ gym.register(
     },
 )
 
+# 360-degree variant: same fixed-coverage data-collection task, plus a second, independent
+# full-circle scanner/observation group so rollout.py can write genuinely 360-degree lidar
+# velocity training data. Note the "-360-" in the id -- do not confuse with the 180-degree
+# task above when scripting against these ids.
+gym.register(
+    id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-360-Kp-Point-Velocity-Data-Unitree-Go2-Play-v0",
+    entry_point=f"{__name__}.lidar_velocity_data_env:FixedCoveragePedestrianCrowdNavigationEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.lidar_velocity_data_env_cfg:MixedTemporalLidarKp360PointVelocityDataEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
+    },
+)
+
 gym.register(
     id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0",
     entry_point=_PED_CROWD_ENTRY_POINT,
@@ -244,6 +260,22 @@ gym.register(
         "env_cfg_entry_point": (
             f"{__name__}.kp_mixed_scenario_env_cfg:"
             "MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY"
+        ),
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
+    },
+)
+
+# 360-degree variant: same Kp-driven PLAY task, but the CBF-QP consumes body-frame
+# point velocities from the 360-degree predictor (obstacle_scan_360) instead of the
+# original 128-bin/180-degree one. Note the "-360-" in the id.
+gym.register(
+    id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-360-Kp-Dynamic-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+    entry_point=_PED_CROWD_ENTRY_POINT,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.kp_mixed_scenario_env_cfg:"
+            "MixedTemporalLidarKp360DynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY"
         ),
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
     },

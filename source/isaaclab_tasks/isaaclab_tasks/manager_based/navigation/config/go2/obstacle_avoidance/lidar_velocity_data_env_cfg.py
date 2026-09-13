@@ -3,9 +3,12 @@
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.utils import configclass
 
+from .held_scan_lidar_env import HeldScanLidarCfg
 from .kp_mixed_scenario_env_cfg import MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY
 from .lidar_velocity_data_env import FixedCoverageTerrainImporter, reset_fixed_level_pedestrian_crowd
+from .mixed_scenario_mixins import build_obstacle_scanner_360
 from .pedestrian_terrains import build_mixed_static_pedestrian_corridor
+from .temporal_lidar_env_cfg import TemporalLidar360ObservationsCfg
 
 
 @configclass
@@ -43,3 +46,28 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
             mode="reset",
             params={"flow_dir": 1.0},
         )
+
+
+@configclass
+class MixedTemporalLidarKp360PointVelocityDataEnvCfg(MixedTemporalLidarKpPointVelocityDataEnvCfg):
+    """360-degree variant: adds a second, independent full-circle scanner + observation group.
+
+    Everything else (terrain, fixed coverage, pedestrian crowd, Kp driving action,
+    disabled curricula) is inherited unchanged from the 180-degree data-collection
+    task above. The pretrained Kp policy still drives the robot using its original
+    128-bin/180-degree ``policy`` observation group; the new ``policy_360``/``critic_360``
+    groups exist solely so ``rollout.py`` can read genuinely full-circle scans for the
+    360-degree lidar-velocity-predictor dataset.
+    """
+
+    observations: TemporalLidar360ObservationsCfg = TemporalLidar360ObservationsCfg()
+    held_scan_lidar_360_enabled: bool = True
+    held_scan_lidar_360: HeldScanLidarCfg = HeldScanLidarCfg(sensor_name="obstacle_scanner_360", full_fan_ray_count=512)
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Not a declared _MixedSceneCfg field on purpose (see build_obstacle_scanner_360's
+        # docstring): InteractiveScene discovers sensors via self.cfg.__dict__, so assigning
+        # it here scopes the extra 512-ray raycaster to only this task.
+        self.scene.obstacle_scanner_360 = build_obstacle_scanner_360()
+        self.scene.obstacle_scanner_360.update_mesh_ids = True
