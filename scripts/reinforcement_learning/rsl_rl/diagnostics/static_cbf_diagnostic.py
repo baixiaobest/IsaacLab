@@ -24,6 +24,12 @@ from typing import Any
 
 from isaaclab.app import AppLauncher
 
+# Keep shared evaluation and CLI modules importable when this local-only tool
+# is launched directly from rsl_rl/diagnostics/.
+RSL_RL_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(RSL_RL_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(RSL_RL_SCRIPTS_DIR))
+
 import cli_args  # isort: skip
 
 from evaluation import (  # isort: skip

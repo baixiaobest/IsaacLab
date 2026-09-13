@@ -147,12 +147,14 @@ def test_kp_play_task_resolves_to_updated_config() -> None:
     cfg = load_cfg_from_registry(KP_PLAY_TASK_ID, "env_cfg_entry_point")
 
     assert isinstance(cfg, MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY)
+    assert cfg.episode_length_s == 20.0
+    assert cfg.commands.pose_2d_command.resampling_time_range == (20.1, 20.1)
     assert cfg.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert cfg.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
 
 
 def test_kp_play_task_matches_baseline_temporal_lidar_play_setup() -> None:
-    """The Kp play task changes only the high-level action term."""
+    """The Kp play task preserves the baseline setup apart from its evaluation timing and action term."""
     baseline = MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY()
     kp_task = MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY()
 
@@ -170,6 +172,8 @@ def test_cbf_play_task_preserves_the_trained_policy_interface() -> None:
 
     assert isinstance(cfg, MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY)
     assert cfg.scene.num_envs == 16
+    assert cfg.episode_length_s == 20.0
+    assert cfg.commands.pose_2d_command.resampling_time_range == (20.1, 20.1)
     assert isinstance(cfg.actions.pre_trained_policy_action, StaticObstacleCbfPreTrainedPolicyActionCfg)
     assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
     assert cfg.actions.pre_trained_policy_action.kp == (8.0, 8.0)
@@ -186,6 +190,8 @@ def test_dynamic_cbf_play_task_requires_the_fixed_body_frame_jit() -> None:
     cfg = load_cfg_from_registry(DYNAMIC_CBF_PLAY_TASK_ID, "env_cfg_entry_point")
 
     assert isinstance(cfg, MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY)
+    assert cfg.episode_length_s == 20.0
+    assert cfg.commands.pose_2d_command.resampling_time_range == (20.1, 20.1)
     assert isinstance(cfg.actions.pre_trained_policy_action, DynamicObstacleCbfPreTrainedPolicyActionCfg)
     assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == "logs/lidar_velocity_predictor/best_jit.pt"
     assert cfg.actions.pre_trained_policy_action.require_velocity_predictor

@@ -130,7 +130,10 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
     def step(self, action: torch.Tensor):
         result = super().step(action)
         robot_pos = self.scene["robot"].data.root_pos_w[:, :2]
-        self.crowd_manager.step(dt=self.cfg.sim.dt * self.cfg.decimation, robot_pos=robot_pos)
+        robot_goal_pos = self.command_manager.get_term("pose_2d_command").pos_command_w[:, :2]
+        self.crowd_manager.step(
+            dt=self.cfg.sim.dt * self.cfg.decimation, robot_pos=robot_pos, robot_goal_pos=robot_goal_pos
+        )
         self._write_pedestrians_to_sim()
         return result
 

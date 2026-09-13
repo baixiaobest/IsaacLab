@@ -50,6 +50,10 @@ class MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarKpObsta
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 16
+        # Evaluation uses a longer, matching command horizon than training.
+        # The CBF PLAY variants inherit this configuration unchanged.
+        self.episode_length_s = 20.0
+        self.commands.pose_2d_command.resampling_time_range = (20.1, 20.1)
 
 
 @configclass
