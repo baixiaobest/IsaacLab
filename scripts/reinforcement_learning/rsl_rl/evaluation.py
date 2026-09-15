@@ -225,6 +225,7 @@ class CollisionReplayRecorder:
         history_seconds: float = 3.0,
         goal_region_radius_m: float = GOAL_REGION_COLLISION_RADIUS_M,
         successes_per_scenario: int = 0,
+        timeouts_per_scenario: int = 0,
         episode_length_s: float | None = None,
         record_collisions: bool = True,
         interesting_interaction_distance_m: float = SUCCESS_INTERACTION_DISTANCE_M,
@@ -238,7 +239,11 @@ class CollisionReplayRecorder:
             raise ValueError("goal_region_radius_m must be positive.")
         if successes_per_scenario < 0:
             raise ValueError("successes_per_scenario must be non-negative.")
-        if (successes_per_scenario or retain_full_episode) and (episode_length_s is None or episode_length_s <= 0.0):
+        if timeouts_per_scenario < 0:
+            raise ValueError("timeouts_per_scenario must be non-negative.")
+        if (successes_per_scenario or timeouts_per_scenario or retain_full_episode) and (
+            episode_length_s is None or episode_length_s <= 0.0
+        ):
             raise ValueError("episode_length_s must be positive when retaining complete episodes.")
         if interesting_interaction_distance_m <= 0.0:
             raise ValueError("interesting_interaction_distance_m must be positive.")
@@ -256,16 +261,18 @@ class CollisionReplayRecorder:
         self.history_seconds = float(history_seconds)
         self.goal_region_radius_m = float(goal_region_radius_m)
         self.successes_per_scenario = int(successes_per_scenario)
+        self.timeouts_per_scenario = int(timeouts_per_scenario)
         self.episode_length_s = float(episode_length_s) if episode_length_s is not None else None
         self.record_collisions = bool(record_collisions)
         self.interesting_interaction_distance_m = float(interesting_interaction_distance_m)
         self.retain_full_episode = bool(retain_full_episode)
         # The terminal frame is added only when exporting, so the ring itself contains exactly
-        # the requested leading history or the complete pre-terminal successful episode.
+        # the requested leading history or the complete pre-terminal successful/timeout episode.
         self.history_frames = math.ceil(self.history_seconds / self.step_dt_s - 1e-9)
         self.full_episode_frames = (
             math.ceil(self.episode_length_s / self.step_dt_s - 1e-9)
-            if self.episode_length_s is not None and (self.successes_per_scenario or self.retain_full_episode)
+            if self.episode_length_s is not None
+            and (self.successes_per_scenario or self.timeouts_per_scenario or self.retain_full_episode)
             else 0
         )
         self.capacity = max(self.history_frames, self.full_episode_frames)
@@ -279,9 +286,10 @@ class CollisionReplayRecorder:
         self._last_cbf_nominal_acceleration = None
         self._last_cbf_filtered_acceleration = None
         self._env_ids = None
-        self._next_case_numbers = {"collision": 1, "success": 1}
+        self._next_case_numbers = {"collision": 1, "success": 1, "timeout": 1}
         self._cases: list[dict[str, Any]] = []
         self._successes_by_scenario = {profile.scenario: 0 for profile in profiles}
+        self._timeouts_by_scenario = {profile.scenario: 0 for profile in profiles}
         self._minimum_agent_distances = None
         self._load_existing_index()
         if not self.index_path.is_file():
@@ -302,10 +310,22 @@ class CollisionReplayRecorder:
         return sum(case.get("outcome") == "success" for case in self._cases)
 
     @property
+    def timeout_case_count(self) -> int:
+        """Return the number of complete timeout-episode replay artifacts."""
+        return sum(case.get("outcome") == "timeout" for case in self._cases)
+
+    @property
     def success_recording_complete(self) -> bool:
         """Whether every scenario has reached its interesting-success replay quota."""
         return self.successes_per_scenario == 0 or all(
             count >= self.successes_per_scenario for count in self._successes_by_scenario.values()
+        )
+
+    @property
+    def timeout_recording_complete(self) -> bool:
+        """Whether every scenario has reached its timeout replay quota."""
+        return self.timeouts_per_scenario == 0 or all(
+            count >= self.timeouts_per_scenario for count in self._timeouts_by_scenario.values()
         )
 
     def _load_existing_index(self) -> None:
@@ -316,16 +336,20 @@ class CollisionReplayRecorder:
         if payload.get("schema_version") != self.schema_version or not isinstance(payload.get("cases"), list):
             raise ValueError(f"Unsupported failure-case index: {self.index_path}")
         self._cases = payload["cases"]
-        numbers = {"collision": [], "success": []}
+        numbers = {"collision": [], "success": [], "timeout": []}
         for case in self._cases:
             case_id = str(case.get("case_id", ""))
-            for outcome, prefix in (("collision", "collision_"), ("success", "success_")):
+            for outcome, prefix in (("collision", "collision_"), ("success", "success_"), ("timeout", "timeout_")):
                 if case_id.startswith(prefix) and case_id[len(prefix) :].isdigit():
                     numbers[outcome].append(int(case_id[len(prefix) :]))
             if case.get("outcome") == "success":
                 scenario = case.get("scenario")
                 if scenario in self._successes_by_scenario:
                     self._successes_by_scenario[scenario] += 1
+            elif case.get("outcome") == "timeout":
+                scenario = case.get("scenario")
+                if scenario in self._timeouts_by_scenario:
+                    self._timeouts_by_scenario[scenario] += 1
         self._next_case_numbers = {outcome: max(values, default=0) + 1 for outcome, values in numbers.items()}
 
     def _write_index(self) -> None:
@@ -337,6 +361,7 @@ class CollisionReplayRecorder:
                 "history_seconds": self.history_seconds,
                 "goal_region_radius_m": self.goal_region_radius_m,
                 "successes_per_scenario": self.successes_per_scenario,
+                "timeouts_per_scenario": self.timeouts_per_scenario,
                 "episode_length_s": self.episode_length_s,
                 "record_collisions": self.record_collisions,
                 "interesting_interaction_distance_m": self.interesting_interaction_distance_m,
@@ -632,9 +657,14 @@ class CollisionReplayRecorder:
         return self.capture_terminal_episodes(env, reset_env_ids, success_env_ids=[])
 
     def capture_terminal_episodes(
-        self, env: Any, reset_env_ids: Any, success_env_ids: Any, collision_env_ids: Iterable[int] | None = None,
+        self,
+        env: Any,
+        reset_env_ids: Any,
+        success_env_ids: Any,
+        collision_env_ids: Iterable[int] | None = None,
+        timeout_env_ids: Iterable[int] | None = None,
     ) -> list[dict[str, Any]]:
-        """Export collision context and quota-limited complete successful episodes before reset."""
+        """Export collision context and quota-limited complete successful/timeout episodes before reset."""
         import torch
 
         if self._buffers is None:
@@ -660,6 +690,13 @@ class CollisionReplayRecorder:
         )
         requested_success_ids = set(
             torch.as_tensor(success_env_ids, device=self._env_ids.device, dtype=torch.long).reshape(-1).cpu().tolist()
+        )
+        requested_timeout_ids = set(
+            torch.as_tensor(
+                list(timeout_env_ids) if timeout_env_ids is not None else [],
+                device=self._env_ids.device,
+                dtype=torch.long,
+            ).reshape(-1).cpu().tolist()
         )
 
         exported = []
@@ -688,13 +725,26 @@ class CollisionReplayRecorder:
                     )
                 )
                 self._successes_by_scenario[profile.scenario] += 1
+        if self.timeouts_per_scenario:
+            for env_id in env_ids.detach().cpu().tolist():
+                if env_id in collision_ids or env_id not in requested_timeout_ids:
+                    continue
+                profile = self.profiles[self.env_profile_indices[env_id]]
+                if self._timeouts_by_scenario[profile.scenario] >= self.timeouts_per_scenario:
+                    continue
+                exported.append(
+                    self._export_case(
+                        env, env_id, outcome="timeout", minimum_agent_distance_m=episode_minimum_distances[env_id]
+                    )
+                )
+                self._timeouts_by_scenario[profile.scenario] += 1
         self.reset(env_ids)
         return exported
 
     def _export_case(self, env: Any, env_id: int, outcome: str, minimum_agent_distance_m: Any) -> dict[str, Any]:
-        if outcome not in ("collision", "success"):
+        if outcome not in ("collision", "success", "timeout"):
             raise ValueError(f"Unsupported replay outcome: {outcome}")
-        frames = self._ordered_frames(env_id, None if outcome == "success" else self.history_frames)
+        frames = self._ordered_frames(env_id, None if outcome in ("success", "timeout") else self.history_frames)
         terminal_frame = self._terminal_frame(env, env_id)
         frames = {name: np.concatenate([values, terminal_frame[name]], axis=0) for name, values in frames.items()}
         profile = self.profiles[self.env_profile_indices[env_id]]
@@ -741,7 +791,7 @@ class CollisionReplayRecorder:
             "automatic_tags": automatic_tags,
             "step_dt_s": self.step_dt_s,
             "history_seconds": self.history_seconds,
-            "full_episode": outcome == "success",
+            "full_episode": outcome in ("success", "timeout"),
             "frame_count": int(frames["time_s"].shape[0]),
             "replay_file": str(Path("cases") / filename),
         }

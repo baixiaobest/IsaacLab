@@ -8,7 +8,7 @@ from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
-from .mixed_scenario_mixins import MixedTemporalLidarObstacleAvoidanceEnvCfg
+from .mixed_scenario_mixins import MixedObstacleAvoidanceEnvCfg, MixedTemporalLidarObstacleAvoidanceEnvCfg
 from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
 
 
@@ -133,3 +133,89 @@ class MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
     """PLAY task with body-frame JIT velocities rotated into the world-frame CBF."""
 
     actions: DynamicCbfKpActionsCfg = DynamicCbfKpActionsCfg()
+
+
+@configclass
+class GreedyKpActionsCfg(ActionsCfg):
+    """PLAY-only action container: the greedy LiDAR baseline through Kp-bounded tracking, no CBF.
+
+    A single current-frame 180-degree LiDAR scan drives the greedy controller each step; its command
+    is bounded by the same Kp acceleration/velocity tracking as :class:`KpActionsCfg` and passed
+    straight to the frozen locomotion policy -- there is no CBF-QP safety filter in this path.
+    """
+
+    pre_trained_policy_action: nav_mdp.GreedyPreTrainedPolicyActionCfg = nav_mdp.GreedyPreTrainedPolicyActionCfg(
+        asset_name="robot",
+        policy_path=LOW_LEVEL_POLICY_PATH,
+        low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
+        low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
+        low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
+        action_scales=(1.0, 1.0, 1.0),
+        kp=(8.0, 8.0),
+        acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
+        velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
+        tracking_tau_s=0.30,
+        debug_vis=True,
+    )
+
+
+@configclass
+class MixedGreedyKpObstacleAvoidanceEnvCfg_PLAY(MixedObstacleAvoidanceEnvCfg):
+    """PLAY task: greedy LiDAR baseline drives the robot directly, no CBF.
+
+    Built on the non-temporal mixed baseline (a single current-frame LiDAR scan; no temporal-LiDAR
+    history), since nothing here consumes a temporal observation -- the controller reads the raw
+    LiDAR sensor directly, and there is no CBF velocity predictor to feed either.
+    """
+
+    actions: GreedyKpActionsCfg = GreedyKpActionsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 16
+        # Evaluation uses a longer, matching command horizon than training.
+        self.episode_length_s = 20.0
+        self.commands.pose_2d_command.resampling_time_range = (20.1, 20.1)
+
+
+@configclass
+class DwaKpActionsCfg(ActionsCfg):
+    """PLAY-only action container: the DWA baseline through Kp-bounded tracking, no CBF.
+
+    A single current-frame 180-degree LiDAR scan drives the DWA controller each step; its command is
+    bounded by the same Kp acceleration/velocity tracking as :class:`KpActionsCfg` and passed straight
+    to the frozen locomotion policy -- there is no CBF-QP safety filter in this path.
+    """
+
+    pre_trained_policy_action: nav_mdp.DwaPreTrainedPolicyActionCfg = nav_mdp.DwaPreTrainedPolicyActionCfg(
+        asset_name="robot",
+        policy_path=LOW_LEVEL_POLICY_PATH,
+        low_level_decimation=LOW_LEVEL_ENV_CFG.decimation,
+        low_level_actions=LOW_LEVEL_ENV_CFG.actions.joint_pos,
+        low_level_observations=LOW_LEVEL_ENV_CFG.observations.policy,
+        action_scales=(1.0, 1.0, 1.0),
+        kp=(8.0, 8.0),
+        acceleration_limits=((-5.0, 5.0), (-5.0, 5.0)),
+        velocity_limits=((-1.5, 1.5), (-1.5, 1.5)),
+        tracking_tau_s=0.30,
+        debug_vis=True,
+    )
+
+
+@configclass
+class MixedDwaKpObstacleAvoidanceEnvCfg_PLAY(MixedObstacleAvoidanceEnvCfg):
+    """PLAY task: DWA baseline drives the robot directly, no CBF.
+
+    Built on the non-temporal mixed baseline (a single current-frame LiDAR scan; no temporal-LiDAR
+    history), since nothing here consumes a temporal observation -- the controller reads the raw
+    LiDAR sensor directly, and there is no CBF velocity predictor to feed either.
+    """
+
+    actions: DwaKpActionsCfg = DwaKpActionsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 16
+        # Evaluation uses a longer, matching command horizon than training.
+        self.episode_length_s = 20.0
+        self.commands.pose_2d_command.resampling_time_range = (20.1, 20.1)
