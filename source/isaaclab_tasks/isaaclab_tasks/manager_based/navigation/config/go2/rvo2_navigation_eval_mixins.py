@@ -225,6 +225,13 @@ class RVO2CrowdEvalEnvCfg(RVO2NavigationEnvCfg_PLAY):
 
         self.social_force.lateral_heading_max = EVALUATION_CROWD_LATERAL_HEADING_MAX
 
+        # Keep the robot's goal clear of loitering pedestrians: without this, pedestrians
+        # can converge on/around the goal and shove the robot right as it arrives, which
+        # then shows up as a false-negative timeout or collision in the eval metrics.
+        self.social_force.a_robot_goal = 2.5
+        self.social_force.b_robot_goal = 0.5
+        self.social_force.robot_goal_radius = 0.6
+
         # Benchmark goal protocol (accepted arrival instead of the stricter training pose).
         self.terminations.goal_reached = DoneTerm(
             func=nav_mdp.pose_2d_command_goal_reached,
@@ -384,7 +391,10 @@ class RVO2CrowdEvalNavigationEnv(RVO2NavigationEnv):
         # computed inside sees the crowd state from the previous crowd advance.
         result = ManagerBasedRLEnv.step(self, action)
         robot_pos = self.scene["robot"].data.root_pos_w[:, :2]
-        self.crowd_manager.step(dt=self.cfg.sim.dt * self.cfg.decimation, robot_pos=robot_pos)
+        robot_goal_pos = self.command_manager.get_term("pose_2d_command").pos_command_w[:, :2]
+        self.crowd_manager.step(
+            dt=self.cfg.sim.dt * self.cfg.decimation, robot_pos=robot_pos, robot_goal_pos=robot_goal_pos
+        )
         self._write_crowd_to_sim()
         self._compute_occupancy_grid()
         self.extras["occupancy_grid"] = self._occupancy_grid

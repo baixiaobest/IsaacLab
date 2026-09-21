@@ -8,8 +8,8 @@ their entire episode. The robot itself receives no social-force reaction, so eac
 environment's crowd still depends only on that environment's robot state.
 
 Each pedestrian ``i`` is driven by a Helbing-Molnar style social force
-:math:`f_i = f_i^{goal} + f_i^{ped} + f_i^{robot} + f_i^{wall}`, clamped to
-``max_force`` and integrated with semi-implicit Euler:
+:math:`f_i = f_i^{goal} + f_i^{ped} + f_i^{robot} + f_i^{robot\_goal} + f_i^{wall}`,
+clamped to ``max_force`` and integrated with semi-implicit Euler:
 ``v_i <- clamp(v_i + f_i * dt, max_speed_factor * desired_speed_i)``,
 ``pos_i <- pos_i + v_i * dt``.
 
@@ -48,6 +48,16 @@ affected; ``y`` is the pedestrian's offset from the corridor centerline,
     f_i^wall_y = -a_wall * exp((r_i - d_pos) / b_wall) + a_wall * exp((r_i - d_neg) / b_wall)
 
 with strength ``a_wall`` and falloff range ``b_wall``. ``f_i^wall_x = 0``.
+
+**Robot-goal repulsion** (one-way, pedestrians only; keeps the robot's current
+navigation goal clear of loitering pedestrians so a last-second bump while the
+robot is settling into the goal pose doesn't register as a false-negative
+timeout/collision; ``d_i = |pos_i - goal_robot|``)::
+
+    f_i^robot_goal = a_robot_goal * exp((r_i + robot_goal_radius - d_i) / b_robot_goal) * (pos_i - goal_robot) / d_i
+
+with strength ``a_robot_goal`` and falloff range ``b_robot_goal``. Disabled by
+default (``a_robot_goal = 0``); the robot itself is never affected by this term.
 """
 
 from __future__ import annotations
@@ -107,6 +117,21 @@ class SocialForceCrowdCfg:
     The assignment is sampled independently for every active pedestrian when the crowd is
     reset with the robot. Ignoring pedestrians still react to other pedestrians and walls.
     """
+
+    a_robot_goal: float = 0.0
+    """Repulsion strength keeping pedestrians clear of the robot's current navigation goal.
+
+    Zero (the default) disables this term entirely. Unlike ``a_robot``, this term is
+    one-way with respect to *all* pedestrians (it is not gated by ``ignores_robot``):
+    it models a cleared zone around the target point rather than a pedestrian's
+    attentiveness to the robot itself.
+    """
+
+    b_robot_goal: float = 0.5
+    """Falloff range of the robot-goal repulsion [m]."""
+
+    robot_goal_radius: float = 0.6
+    """Effective radius of the zone kept clear around the robot's goal [m]."""
 
     lateral_heading_max: float = 0.0
     """Maximum absolute pedestrian heading offset from the corridor flow axis [rad].
@@ -474,13 +499,22 @@ class SocialForceCrowdManager:
     # Simulation step
     # ------------------------------------------------------------------
 
-    def step(self, dt: float, robot_pos: torch.Tensor | None = None) -> None:
+    def step(
+        self,
+        dt: float,
+        robot_pos: torch.Tensor | None = None,
+        robot_goal_pos: torch.Tensor | None = None,
+    ) -> None:
         """Advance the social-force simulation by ``dt`` seconds.
 
         Args:
             robot_pos: Optional world-XY robot position, shape ``(num_envs, 2)``. If given,
                 pedestrians are repelled by the robot (one-way — the robot is not pushed
                 back, since its motion is governed entirely by the RL policy).
+            robot_goal_pos: Optional world-XY robot navigation-goal position, shape
+                ``(num_envs, 2)``. If given and ``cfg.a_robot_goal > 0``, pedestrians are
+                also repelled away from the goal itself (one-way; the robot is never
+                affected), keeping it clear as the robot approaches.
         """
         cfg = self.cfg
         active = self.active_mask
@@ -511,6 +545,18 @@ class SocialForceCrowdManager:
         else:
             f_robot = torch.zeros_like(f_ped)
 
+        # --- 2c. Robot-goal repulsion (one-way: clears the goal, robot is not pushed) -----
+        if robot_goal_pos is not None and cfg.a_robot_goal > 0.0:
+            diff_goal = self.pos - robot_goal_pos.unsqueeze(1)  # (N, P, 2)
+            dist_goal = torch.linalg.norm(diff_goal, dim=-1).clamp(min=1e-6)  # (N, P)
+            magnitude_goal = cfg.a_robot_goal * torch.exp(
+                (self.radius + cfg.robot_goal_radius - dist_goal) / cfg.b_robot_goal
+            )
+            magnitude_goal = torch.where(active, magnitude_goal, torch.zeros_like(magnitude_goal))
+            f_robot_goal = (magnitude_goal / dist_goal).unsqueeze(-1) * diff_goal
+        else:
+            f_robot_goal = torch.zeros_like(f_ped)
+
         # --- 3. Corridor-wall repulsion (analytic, local-y only) -------------------------
         local_y = self.pos[..., 1] - self.corridor_origin[:, 1:2]
         half_width = self._half_width
@@ -524,7 +570,7 @@ class SocialForceCrowdManager:
         f_wall_y = f_wall_y + cfg.a_wall * torch.exp((self.radius - dist_to_neg_wall) / cfg.b_wall)
 
         # --- 4. Combine, clamp, integrate (semi-implicit Euler) ---------------------------
-        force = f_goal + f_ped + f_robot
+        force = f_goal + f_ped + f_robot + f_robot_goal
         force[..., 1] += f_wall_y
         force_mag = torch.linalg.norm(force, dim=-1, keepdim=True).clamp(min=1e-6)
         force = force * (cfg.max_force / force_mag).clamp(max=1.0)
