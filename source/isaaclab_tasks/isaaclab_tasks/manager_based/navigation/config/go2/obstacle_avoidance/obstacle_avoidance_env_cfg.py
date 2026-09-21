@@ -303,10 +303,21 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.2)
 
     excessive_velocity = RewTerm(
-        func=mdp.excessive_velocity, 
+        func=mdp.excessive_velocity,
         weight=-0.1,
         params={
             "speed_threshold": 1.0,
+        })
+
+    # Smoothly discourage yaw beyond the gait's comfortable range without a
+    # discontinuous reward: tanh is ~0.02 at 1.0, 0.5 at 1.2, and ~0.98 at
+    # 1.4 rad/s. The planned executable yaw envelope is 1.2 rad/s.
+    excessive_yaw_rate = RewTerm(
+        func=mdp.excessive_yaw_rate,
+        weight=-0.1,
+        params={
+            "transition_start": 1.0,
+            "transition_end": 1.4,
         })
 
 @configclass

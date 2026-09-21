@@ -273,6 +273,29 @@ def excessive_velocity(
     speed = torch.linalg.norm(asset.data.root_lin_vel_w[:, :3], dim=1)
     return (speed > speed_threshold).to(dtype=torch.float32)
 
+
+def excessive_yaw_rate(
+    env: ManagerBasedRLEnv,
+    transition_start: float = 1.0,
+    transition_end: float = 1.4,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Smooth bounded penalty for excessive measured body yaw rate.
+
+    A tanh transition is centered between ``transition_start`` and
+    ``transition_end``.  Its output is about 0.018 at the start, 0.5 at the
+    midpoint, and 0.982 at the end; it remains in ``[0, 1]``.  Body-frame
+    angular velocity makes the threshold independent of robot heading.
+    """
+    if transition_end <= transition_start:
+        raise ValueError("transition_end must be greater than transition_start.")
+    asset = env.scene[asset_cfg.name]
+    yaw_rate = torch.abs(asset.data.root_ang_vel_b[:, 2])
+    midpoint = 0.5 * (transition_start + transition_end)
+    tanh_scale = 0.25 * (transition_end - transition_start)
+    return 0.5 * (torch.tanh((yaw_rate - midpoint) / tanh_scale) + 1.0)
+
+
 def stand_still_joint_deviation_l1(
     env, command_name: str, command_threshold: float = 0.06, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
