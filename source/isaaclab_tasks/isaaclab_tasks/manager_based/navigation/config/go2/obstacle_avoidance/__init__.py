@@ -9,6 +9,43 @@ from . import pedestrian_scenario_mixins
 from . import lidar_velocity_data_env_cfg
 from . import mixed_scenario_mixins
 
+# Research Agent chooses an evaluator from this explicit task-family metadata;
+# it must never infer the family from a task-name substring.  ``-Play``
+# navigation tasks are evaluation configurations.  The robust locomotion
+# benchmark instead installs a dedicated scripted evaluation command term, so
+# it uses its non-Play task registration.
+RESEARCH_AGENT_LOCOMOTION_TASKS = frozenset(
+    {
+        "Isaac-Locomotion-Vel-Unitree-Go2-Robust-v1",
+    }
+)
+RESEARCH_AGENT_NAVIGATION_TASKS = frozenset(
+    {
+        "Isaac-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Pedestrian-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Pedestrian-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Pedestrian-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Pedestrian-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-v0",
+        # Mixed static + pedestrian co-training and evaluation tasks.
+        "Isaac-Mixed-Static-Pedestrian-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Mixed-Static-Pedestrian-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Dynamic-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Prediction-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+    }
+)
+
 ###############
 # Locomotion Velocity
 ###############
@@ -40,6 +77,16 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.locomotion_env_cfg:LocomotionVelEnvCfg_ROLLOUT",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2LocomotionVelPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
+    id="Isaac-Locomotion-Vel-Unitree-Go2-Robust-v1",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.locomotion_env_cfg:LocomotionVelEnvCfg_ROBUST",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2LocomotionVelRobustPPORunnerCfg_v1",
     },
 )
 

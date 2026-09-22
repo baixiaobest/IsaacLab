@@ -485,6 +485,13 @@ class UnitreeGo2LocomotionVelPPORunnerCfg_v0(RslRlOnPolicyRunnerCfg):
     logger="wandb"
 
 
+@configclass
+class UnitreeGo2LocomotionVelRobustPPORunnerCfg_v1(UnitreeGo2LocomotionVelPPORunnerCfg_v0):
+    """Runner namespace for the direct-twist robust locomotion policy."""
+
+    experiment_name = "go2_locomotion_vel_robust_v1"
+
+
 ObstacleAvoidancePPOConfig = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,

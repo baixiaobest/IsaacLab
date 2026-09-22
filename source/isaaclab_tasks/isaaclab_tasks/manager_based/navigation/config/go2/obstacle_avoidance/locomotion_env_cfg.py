@@ -386,6 +386,23 @@ class LocomotionVelEnvCfg_PLAY(LocomotionVelEnvCfg):
         self.observations.policy.imu_lin_acc.modifiers = None
         self.commands.base_velocity.resampling_time_range = (10000.0, 10000.0)
 
+
+@configclass
+class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
+    """Robust direct-twist training variant for the navigation locomotion policy."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
+            asset_name="robot",
+            # The command term computes its own per-environment hold schedule.
+            resampling_time_range=(0.08, 0.08),
+            debug_vis=False,
+        )
+        # The generic curriculum mutates UniformVelocityCommandCfg timing globally;
+        # robust-v1 instead derives timing from each environment's terrain level.
+        self.curriculum.command_resampling_time = None
+
 @configclass
 class LocomotionVelEnvCfg_LIDAR_TEST(LocomotionVelEnvCfg_PLAY):
     """Test variant: replaces terrain with tall discrete obstacles so the L2 lidar
@@ -445,4 +462,3 @@ class LocomotionVelEnvCfg_ROLLOUT(LocomotionVelEnvCfg):
                 heading=(-math.pi, math.pi),
             ),
         )
-
