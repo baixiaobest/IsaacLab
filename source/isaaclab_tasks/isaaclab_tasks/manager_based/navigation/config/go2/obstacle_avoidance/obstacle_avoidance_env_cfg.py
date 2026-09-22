@@ -314,7 +314,7 @@ class RewardsCfg:
     # 1.4 rad/s. The planned executable yaw envelope is 1.2 rad/s.
     excessive_yaw_rate = RewTerm(
         func=mdp.excessive_yaw_rate,
-        weight=-0.1,
+        weight=-0.0,
         params={
             "transition_start": 1.0,
             "transition_end": 1.4,
