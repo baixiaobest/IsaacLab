@@ -122,9 +122,25 @@ class RobustVelocityCommand(CommandTerm):
         self._history_index = 0
         self._last_dt = float(env.step_dt)
 
+        # Per-episode delivery-aware tracking statistics used by the terrain
+        # curriculum.  They are accumulated against ``self._command`` -- the
+        # delayed command observed by the policy and used by the tracking
+        # rewards -- rather than the latent target.
+        self._planar_error_sq_sum = torch.zeros(self.num_envs, device=self.device)
+        self._yaw_error_sq_sum = torch.zeros(self.num_envs, device=self.device)
+        self._stop_planar_speed_sq_sum = torch.zeros(self.num_envs, device=self.device)
+        self._stop_yaw_rate_sq_sum = torch.zeros(self.num_envs, device=self.device)
+        self._planar_active_steps = torch.zeros(self.num_envs, device=self.device)
+        self._yaw_active_steps = torch.zeros(self.num_envs, device=self.device)
+        self._stop_steps = torch.zeros(self.num_envs, device=self.device)
+
         self.metrics["delay_s"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["target_planar_speed"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["target_yaw_rate"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["tracking_planar_rms_mps"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["tracking_yaw_rms_radps"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["stop_planar_rms_mps"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["stop_yaw_rms_radps"] = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def command(self) -> torch.Tensor:
@@ -178,7 +194,15 @@ class RobustVelocityCommand(CommandTerm):
             (len(env_ids),),
             device=self.device,
         )
-        return super().reset(env_ids)
+        extras = super().reset(env_ids)
+        self._planar_error_sq_sum[env_ids] = 0.0
+        self._yaw_error_sq_sum[env_ids] = 0.0
+        self._stop_planar_speed_sq_sum[env_ids] = 0.0
+        self._stop_yaw_rate_sq_sum[env_ids] = 0.0
+        self._planar_active_steps[env_ids] = 0.0
+        self._yaw_active_steps[env_ids] = 0.0
+        self._stop_steps[env_ids] = 0.0
+        return extras
 
     def compute(self, dt: float) -> None:
         self._last_dt = dt
@@ -316,9 +340,60 @@ class RobustVelocityCommand(CommandTerm):
         self._mode[env_ids] = modes
 
     def _update_metrics(self) -> None:
+        asset = self._env.scene[self.cfg.asset_name]
+        measured_planar = asset.data.root_lin_vel_b[:, :2]
+        measured_yaw = asset.data.root_ang_vel_b[:, 2]
+        commanded_planar = self._command[:, :2]
+        commanded_yaw = self._command[:, 2]
+        planar_active = torch.linalg.vector_norm(commanded_planar, dim=-1) > 0.10
+        yaw_active = torch.abs(commanded_yaw) > 0.10
+        stopped = ~(planar_active | yaw_active)
+
+        planar_error_sq = torch.sum(torch.square(commanded_planar - measured_planar), dim=-1)
+        yaw_error_sq = torch.square(commanded_yaw - measured_yaw)
+        self._planar_error_sq_sum += planar_error_sq * planar_active
+        self._yaw_error_sq_sum += yaw_error_sq * yaw_active
+        self._stop_planar_speed_sq_sum += torch.sum(torch.square(measured_planar), dim=-1) * stopped
+        self._stop_yaw_rate_sq_sum += torch.square(measured_yaw) * stopped
+        self._planar_active_steps += planar_active
+        self._yaw_active_steps += yaw_active
+        self._stop_steps += stopped
+
+        self.metrics["tracking_planar_rms_mps"][:] = torch.sqrt(
+            self._planar_error_sq_sum / self._planar_active_steps.clamp_min(1.0)
+        )
+        self.metrics["tracking_yaw_rms_radps"][:] = torch.sqrt(
+            self._yaw_error_sq_sum / self._yaw_active_steps.clamp_min(1.0)
+        )
+        self.metrics["stop_planar_rms_mps"][:] = torch.sqrt(
+            self._stop_planar_speed_sq_sum / self._stop_steps.clamp_min(1.0)
+        )
+        self.metrics["stop_yaw_rms_radps"][:] = torch.sqrt(
+            self._stop_yaw_rate_sq_sum / self._stop_steps.clamp_min(1.0)
+        )
         self.metrics["delay_s"][:] = self._delay_ticks * self._last_dt
         self.metrics["target_planar_speed"][:] = torch.linalg.vector_norm(self._target_command[:, :2], dim=-1)
         self.metrics["target_yaw_rate"][:] = torch.abs(self._target_command[:, 2])
+
+    def episode_tracking_metrics(self, env_ids: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Return pre-reset episode metrics for binary terrain progression."""
+        return {
+            "planar_rms_mps": torch.sqrt(
+                self._planar_error_sq_sum[env_ids] / self._planar_active_steps[env_ids].clamp_min(1.0)
+            ),
+            "yaw_rms_radps": torch.sqrt(
+                self._yaw_error_sq_sum[env_ids] / self._yaw_active_steps[env_ids].clamp_min(1.0)
+            ),
+            "stop_planar_rms_mps": torch.sqrt(
+                self._stop_planar_speed_sq_sum[env_ids] / self._stop_steps[env_ids].clamp_min(1.0)
+            ),
+            "stop_yaw_rms_radps": torch.sqrt(
+                self._stop_yaw_rate_sq_sum[env_ids] / self._stop_steps[env_ids].clamp_min(1.0)
+            ),
+            "planar_active_steps": self._planar_active_steps[env_ids],
+            "yaw_active_steps": self._yaw_active_steps[env_ids],
+            "stop_steps": self._stop_steps[env_ids],
+        }
 
     def _update_command(self) -> None:
         levels = torch.arange(self.num_envs, device=self.device)

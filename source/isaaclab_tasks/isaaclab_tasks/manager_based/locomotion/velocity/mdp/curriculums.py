@@ -65,6 +65,69 @@ def terrain_levels_vel(
         "max": torch.max(terrain.terrain_levels.float()),
     }
 
+
+def robust_velocity_tracking_terrain_curriculum(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    command_name: str = "base_velocity",
+    planar_rms_threshold_mps: float = 0.25,
+    yaw_rms_threshold_radps: float = 0.35,
+    stop_planar_rms_threshold_mps: float = 0.15,
+    stop_yaw_rms_threshold_radps: float = 0.20,
+) -> dict[str, torch.Tensor]:
+    """Advance or demote robust-v1 terrain level from episode tracking quality.
+
+    The legacy velocity curriculum compares final net displacement with a
+    single command at reset.  That is not meaningful for direct twist commands
+    that turn, stop, or change direction.  ``RobustVelocityCommand`` instead
+    accumulates RMS errors against the delayed command actually supplied to the
+    policy.  A completed episode advances exactly one level when every command
+    component it exercised meets its gate; any failed gate or non-timeout
+    termination demotes exactly one level.
+    """
+    if not isinstance(env_ids, torch.Tensor):
+        env_ids = torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
+    if len(env_ids) == 0:
+        return {"mean": torch.mean(env.scene.terrain.terrain_levels.float()), "max": torch.max(env.scene.terrain.terrain_levels.float())}
+
+    command_term = env.command_manager.get_term(command_name)
+    get_metrics = getattr(command_term, "episode_tracking_metrics", None)
+    if not callable(get_metrics):
+        raise TypeError(
+            f"{command_name!r} must provide episode_tracking_metrics for the robust velocity terrain curriculum."
+        )
+    metrics = get_metrics(env_ids)
+
+    planar_active = metrics["planar_active_steps"] > 0.0
+    yaw_active = metrics["yaw_active_steps"] > 0.0
+    stop_active = metrics["stop_steps"] > 0.0
+    has_episode_samples = planar_active | yaw_active | stop_active
+    planar_good = (~planar_active) | (metrics["planar_rms_mps"] <= planar_rms_threshold_mps)
+    yaw_good = (~yaw_active) | (metrics["yaw_rms_radps"] <= yaw_rms_threshold_radps)
+    stop_good = (~stop_active) | (
+        (metrics["stop_planar_rms_mps"] <= stop_planar_rms_threshold_mps)
+        & (metrics["stop_yaw_rms_radps"] <= stop_yaw_rms_threshold_radps)
+    )
+
+    # ``reset_terminated`` is true only for non-timeout terminations.  It is
+    # absent on the one initial reset, which also has no episode samples and is
+    # therefore deliberately left at its randomly assigned initial level.
+    terminated = getattr(env, "reset_terminated", torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))
+    healthy = ~terminated[env_ids]
+    good = has_episode_samples & healthy & planar_good & yaw_good & stop_good
+    bad = has_episode_samples & ~good
+    env.scene.terrain.update_env_origins(env_ids, good, bad)
+
+    terrain_levels = env.scene.terrain.terrain_levels.float()
+    return {
+        "mean": torch.mean(terrain_levels),
+        "max": torch.max(terrain_levels),
+        "good_fraction": torch.mean(good.float()),
+        "bad_fraction": torch.mean(bad.float()),
+        "planar_rms_mps": torch.mean(metrics["planar_rms_mps"][planar_active]) if torch.any(planar_active) else torch.zeros((), device=env.device),
+        "yaw_rms_radps": torch.mean(metrics["yaw_rms_radps"][yaw_active]) if torch.any(yaw_active) else torch.zeros((), device=env.device),
+    }
+
 def single_terrain_level(
     env: ManagerBasedRLEnv, 
     env_ids: Sequence[int],

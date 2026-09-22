@@ -345,6 +345,21 @@ class CurriculumCfg:
         },
     )
 
+
+@configclass
+class RobustCurriculumCfg(CurriculumCfg):
+    """Robust-v1 progresses terrain from delivered-command tracking quality."""
+
+    terrain_levels = CurrTerm(
+        func=mdp.robust_velocity_tracking_terrain_curriculum,
+        params={
+            "planar_rms_threshold_mps": 0.25,
+            "yaw_rms_threshold_radps": 0.35,
+            "stop_planar_rms_threshold_mps": 0.15,
+            "stop_yaw_rms_threshold_radps": 0.20,
+        },
+    )
+
 @configclass
 class LocomotionVelEnvCfg(ManagerBasedRLEnvCfg):
     """Flat-terrain locomotion env for Go2 (velocity command tracking)."""
@@ -393,6 +408,7 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
+        self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
             # The command term computes its own per-environment hold schedule.

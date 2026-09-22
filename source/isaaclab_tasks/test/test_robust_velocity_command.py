@@ -10,6 +10,9 @@ from isaaclab_tasks.manager_based.locomotion.velocity.mdp.robust_velocity_comman
     RobustVelocityCommand,
     ScriptedVelocityCommand,
 )
+from isaaclab_tasks.manager_based.locomotion.velocity.mdp.curriculums import (
+    robust_velocity_tracking_terrain_curriculum,
+)
 
 
 def _bare_command_term(
@@ -144,3 +147,37 @@ def test_sudden_interventions_build_speed_before_raw_stop_or_avoidance_step() ->
         assert abs(term.target_command[0, 1].item()) == 0.65
         assert abs(term.target_command[0, 2].item()) == 0.80
         assert int(term.mode[0]) == RobustVelocityCommand.SUDDEN_AVOIDANCE_SWITCH
+
+
+def test_tracking_terrain_curriculum_promotes_good_and_demotes_bad_episodes() -> None:
+    class Terrain:
+        terrain_levels = torch.tensor([3, 3, 3, 3], dtype=torch.long)
+
+        def update_env_origins(self, env_ids, move_up, move_down) -> None:
+            self.terrain_levels[env_ids] += move_up.long() - move_down.long()
+            self.terrain_levels.clamp_(min=0)
+
+    metrics = {
+        "planar_rms_mps": torch.tensor([0.20, 0.26, 0.20, 0.00]),
+        "yaw_rms_radps": torch.tensor([0.30, 0.30, 0.30, 0.00]),
+        "stop_planar_rms_mps": torch.tensor([0.00, 0.00, 0.00, 0.00]),
+        "stop_yaw_rms_radps": torch.tensor([0.00, 0.00, 0.00, 0.00]),
+        "planar_active_steps": torch.tensor([10.0, 10.0, 10.0, 0.0]),
+        "yaw_active_steps": torch.tensor([10.0, 10.0, 10.0, 0.0]),
+        "stop_steps": torch.tensor([0.0, 0.0, 0.0, 0.0]),
+    }
+    env = SimpleNamespace(
+        device="cpu",
+        num_envs=4,
+        scene=SimpleNamespace(terrain=Terrain()),
+        command_manager=SimpleNamespace(get_term=lambda _: SimpleNamespace(episode_tracking_metrics=lambda _: metrics)),
+        # Third episode has a non-timeout termination. Fourth is the initial
+        # reset, with no episode samples, and must retain its random level.
+        reset_terminated=torch.tensor([False, False, True, False]),
+    )
+
+    result = robust_velocity_tracking_terrain_curriculum(env, torch.arange(4))
+
+    assert env.scene.terrain.terrain_levels.tolist() == [4, 2, 2, 3]
+    assert result["good_fraction"].item() == 0.25
+    assert result["bad_fraction"].item() == 0.50
