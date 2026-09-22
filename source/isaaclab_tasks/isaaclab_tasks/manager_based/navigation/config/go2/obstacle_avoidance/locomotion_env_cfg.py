@@ -408,6 +408,13 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
+        # Robust v1 intentionally starts with its easy command envelope.  The
+        # default None initializes random terrain rows, which previously
+        # bypassed the low-level command curriculum on the first episodes.
+        self.scene.terrain.max_init_terrain_level = 0
+        # Torque-offset randomization is deferred for this first robust-policy
+        # revision.  Reintroduce it only as an explicit later curriculum.
+        self.events.joint_torque_offset_curriculum = None
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",

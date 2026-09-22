@@ -30,11 +30,14 @@ def _bare_command_term(
         jitter_correlation_time_s=0.20,
         max_planar_speed=1.0,
         max_yaw_rate=1.2,
+        initial_max_planar_speed=0.40,
+        initial_max_yaw_rate=0.50,
         max_planar_accel=1.5,
         max_yaw_accel=3.0,
         sudden_transition_start_probability=0.015,
         sudden_transition_approach_hold_s=0.60,
         sudden_transition_response_hold_s=0.60,
+        sudden_transition_start_level=6,
     )
     term._last_dt = 0.02
     term._target_command = torch.tensor([[1.0, 0.0, 1.2]])
@@ -48,6 +51,7 @@ def _bare_command_term(
     term._history = torch.zeros(4, 1, 3)
     term._history_index = 0
     term._terrain_alpha = lambda env_ids: torch.ones(len(env_ids))
+    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=None))
     return term
 
 
@@ -98,6 +102,32 @@ def test_rate_limit_and_jitter_behavior() -> None:
     assert torch.all(term._jitter == 0.0)
 
 
+def test_command_envelope_ramps_from_easy_level_to_deployment_limit() -> None:
+    term = _bare_command_term()
+    term._terrain_alpha = lambda env_ids: torch.zeros(len(env_ids))
+    planar_limit, yaw_limit = term._curriculum_command_limits(torch.tensor([0]))
+    torch.testing.assert_close(planar_limit, torch.tensor([0.40]))
+    torch.testing.assert_close(yaw_limit, torch.tensor([0.50]))
+
+    term._terrain_alpha = lambda env_ids: torch.ones(len(env_ids))
+    planar_limit, yaw_limit = term._curriculum_command_limits(torch.tensor([0]))
+    torch.testing.assert_close(planar_limit, torch.tensor([1.0]))
+    torch.testing.assert_close(yaw_limit, torch.tensor([1.2]))
+
+
+def test_low_curriculum_level_uses_easy_targets_and_excludes_interventions() -> None:
+    term = _bare_command_term()
+    term.cfg.sudden_transition_start_probability = 1.0
+    term._terrain_alpha = lambda env_ids: torch.zeros(len(env_ids))
+    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=SimpleNamespace(terrain_levels=torch.tensor([0]))))
+
+    term._resample_command(torch.tensor([0]))
+
+    assert torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item() <= 0.40 + 1.0e-6
+    assert abs(term.target_command[0, 2].item()) <= 0.50 + 1.0e-6
+    assert int(term._pending_sudden_transition[0]) == 0
+
+
 def test_command_delay_uses_the_requested_history_tick() -> None:
     for delay_ticks in (1, 2, 3):
         term = _bare_command_term(delay_ticks=delay_ticks)
@@ -129,6 +159,7 @@ def test_sudden_interventions_build_speed_before_raw_stop_or_avoidance_step() ->
     torch.manual_seed(17)
     term = _bare_command_term()
     term.cfg.sudden_transition_start_probability = 1.0
+    term.cfg.sudden_transition_start_level = 0
 
     term._resample_command(torch.tensor([0]))
     pending = int(term._pending_sudden_transition[0])

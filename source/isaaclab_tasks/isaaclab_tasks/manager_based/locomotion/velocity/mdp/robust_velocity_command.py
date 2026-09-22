@@ -34,6 +34,17 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     max_planar_accel: float = 1.5
     max_yaw_accel: float = 3.0
 
+    initial_max_planar_speed: float = 0.40
+    """Planar-speed envelope at terrain level zero.
+
+    The final envelope remains ``max_planar_speed``.  Starting with a smaller
+    envelope makes level zero genuinely easier, rather than only making target
+    changes less frequent.
+    """
+
+    initial_max_yaw_rate: float = 0.50
+    """Yaw-rate envelope at terrain level zero, ramped to ``max_yaw_rate``."""
+
     curriculum_full_level: int = 6
     """Terrain level where 12.5 Hz targets and full jitter are enabled."""
 
@@ -48,17 +59,21 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     min_delay_ticks: int = 1
     max_delay_ticks: int = 3
 
-    sudden_transition_start_probability: float = 0.02
-    """Probability that a normal resample starts a two-phase intervention.
+    sudden_transition_start_probability: float = 0.00136
+    """Probability that a normal 12.5 Hz resample starts an intervention.
 
     The first phase holds a fast approach target long enough for the emitted
     command to build speed. The next raw target is then either a stop or a
-    large avoidance switch. The policy still sees only the rate-limited,
-    delayed command.
+    large avoidance switch. At the final 80-ms normal hold time, 0.00136
+    yields approximately 2% intervention *time* after including the 0.60-s
+    approach and 0.60-s response phases. The policy still sees only the
+    rate-limited, delayed command.
     """
 
     sudden_transition_approach_hold_s: float = 0.60
     sudden_transition_response_hold_s: float = 0.60
+    sudden_transition_start_level: int = 6
+    """First terrain level allowed to sample sudden stop/avoidance cases."""
 
     def __post_init__(self) -> None:
         # The command class is defined below this config declaration.  Resolve it
@@ -67,6 +82,10 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             self.class_type = RobustVelocityCommand
         if self.max_planar_speed <= 0.0 or self.max_yaw_rate <= 0.0:
             raise ValueError("Velocity limits must be positive.")
+        if not 0.0 < self.initial_max_planar_speed <= self.max_planar_speed:
+            raise ValueError("initial_max_planar_speed must be in (0, max_planar_speed].")
+        if not 0.0 < self.initial_max_yaw_rate <= self.max_yaw_rate:
+            raise ValueError("initial_max_yaw_rate must be in (0, max_yaw_rate].")
         if self.max_planar_accel <= 0.0 or self.max_yaw_accel <= 0.0:
             raise ValueError("Acceleration limits must be positive.")
         if self.curriculum_full_level <= 0:
@@ -83,6 +102,8 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             raise ValueError("sudden_transition_approach_hold_s must be positive.")
         if self.sudden_transition_response_hold_s <= 0.0:
             raise ValueError("sudden_transition_response_hold_s must be positive.")
+        if not 0 <= self.sudden_transition_start_level <= self.curriculum_full_level:
+            raise ValueError("sudden_transition_start_level must be in [0, curriculum_full_level].")
         if self.initial_target_hold_range_s[0] <= 0.0 or (
             self.initial_target_hold_range_s[1] < self.initial_target_hold_range_s[0]
         ):
@@ -216,6 +237,17 @@ class RobustVelocityCommand(CommandTerm):
             terrain.terrain_levels[env_ids].float() / float(self.cfg.curriculum_full_level), min=0.0, max=1.0
         )
 
+    def _curriculum_command_limits(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return per-environment planar/yaw envelopes for the current level."""
+        alpha = self._terrain_alpha(env_ids)
+        planar_limit = self.cfg.initial_max_planar_speed + alpha * (
+            self.cfg.max_planar_speed - self.cfg.initial_max_planar_speed
+        )
+        yaw_limit = self.cfg.initial_max_yaw_rate + alpha * (
+            self.cfg.max_yaw_rate - self.cfg.initial_max_yaw_rate
+        )
+        return planar_limit, yaw_limit
+
     def _resample(self, env_ids: Sequence[int]) -> None:
         if len(env_ids) == 0:
             return
@@ -288,11 +320,16 @@ class RobustVelocityCommand(CommandTerm):
         return command, mode
 
     def _resample_command(self, env_ids: Sequence[int]) -> None:
+        if not isinstance(env_ids, torch.Tensor):
+            env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         commands, modes = self.sample_direct_targets(
             len(env_ids), self.device, self.cfg.max_planar_speed, self.cfg.max_yaw_rate
         )
-        if not isinstance(env_ids, torch.Tensor):
-            env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
+        # Preserve the final mixture while scaling its envelope from the
+        # genuinely easier level-zero command range to the deployment range.
+        planar_limit, yaw_limit = self._curriculum_command_limits(env_ids)
+        commands[:, :2] *= (planar_limit / self.cfg.max_planar_speed).unsqueeze(-1)
+        commands[:, 2] *= yaw_limit / self.cfg.max_yaw_rate
 
         pending = self._pending_sudden_transition[env_ids]
         stop_ids = pending == 1
@@ -314,10 +351,15 @@ class RobustVelocityCommand(CommandTerm):
             self.time_left[env_ids[pending != 0]] = self.cfg.sudden_transition_response_hold_s
 
         # Start a sustained fast approach, then force an intervention on the
-        # following resample. The start probability is deliberately low: its
-        # 0.60-s approach plus 0.60-s response would otherwise dominate the
-        # high-curriculum time mix.
-        eligible = pending == 0
+        # following resample. The calibrated start probability preserves the
+        # intended 2% scenario-time share at the final 12.5 Hz target rate.
+        levels = getattr(getattr(self._env.scene, "terrain", None), "terrain_levels", None)
+        sudden_enabled = (
+            torch.ones(len(env_ids), dtype=torch.bool, device=self.device)
+            if levels is None
+            else levels[env_ids] >= self.cfg.sudden_transition_start_level
+        )
+        eligible = (pending == 0) & sudden_enabled
         starts = eligible & (
             torch.rand(len(env_ids), device=self.device) < self.cfg.sudden_transition_start_probability
         )
