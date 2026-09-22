@@ -368,7 +368,15 @@ def _evaluate_checkpoint(
     env_cfg.seed = args_cli.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
     env_cfg.commands.base_velocity = mdp.ScriptedVelocityCommandCfg(
-        asset_name="robot", min_delay_ticks=1, max_delay_ticks=3, debug_vis=False
+        asset_name="robot",
+        # CommandTermCfg requires this even though scripted targets are owned by
+        # the evaluator.  Keep CommandManager resampling inert: the scripted
+        # term sets ``time_left`` to infinity on reset and receives all target
+        # changes explicitly from the evaluation profiles.
+        resampling_time_range=(1.0e6, 1.0e6),
+        min_delay_ticks=1,
+        max_delay_ticks=3,
+        debug_vis=False,
     )
     env = gym.make(args_cli.task, cfg=env_cfg)
     if isinstance(env.unwrapped, DirectMARLEnv):
