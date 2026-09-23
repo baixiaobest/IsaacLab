@@ -408,9 +408,8 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        # Robust v1 intentionally starts with its easy command envelope.  The
-        # default None initializes random terrain rows, which previously
-        # bypassed the low-level command curriculum on the first episodes.
+        # All environments begin on the easiest terrain row.  The velocity
+        # command profile is deliberately identical at every terrain level.
         self.scene.terrain.max_init_terrain_level = 0
         # Torque-offset randomization is deferred for this first robust-policy
         # revision.  Reintroduce it only as an explicit later curriculum.
@@ -418,9 +417,10 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
-            # The command term computes its own per-environment hold schedule.
-            resampling_time_range=(0.08, 0.08),
-            debug_vis=False,
+            # Required by CommandTermCfg only; RobustVelocityCommand owns its
+            # per-environment schedule and does not use this generic range.
+            resampling_time_range=(1.0e6, 1.0e6),
+            debug_vis=True,
         )
         # The generic curriculum mutates UniformVelocityCommandCfg timing globally;
         # robust-v1 instead derives timing from each environment's terrain level.

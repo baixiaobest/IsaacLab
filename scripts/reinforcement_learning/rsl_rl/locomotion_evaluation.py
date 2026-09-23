@@ -10,18 +10,16 @@ import numpy as np
 
 
 CONTROL_DT_S = 0.02
-NAVIGATION_UPDATE_S = 0.08
-NOMINAL_CONDITION = "nominal_20ms"
-DELAY_STRESS_CONDITION = "delay_stress_60ms"
-NAVIGATION_STRESS_CONDITION = "navigation_stress_60ms"
+RESAMPLING_STRESS_UPDATE_S = 0.5
+NOMINAL_CONDITION = "nominal_held"
+RESAMPLING_STRESS_CONDITION = "resampling_stress_500ms"
 
 
 @dataclass(frozen=True)
 class LocomotionProfile:
     name: str
     family: str
-    delay_ticks: int
-    navigation_rate: bool
+    resampling_stress: bool
 
 
 BASE_TRAJECTORIES = (
@@ -41,16 +39,15 @@ BASE_TRAJECTORIES = (
 
 
 def evaluation_profiles() -> tuple[LocomotionProfile, ...]:
-    """Return the fixed 12-by-3 evaluation matrix."""
+    """Return the fixed 12-by-2 held-command and 2 Hz stress matrix."""
     conditions = (
-        (NOMINAL_CONDITION, 1, False),
-        (DELAY_STRESS_CONDITION, 3, False),
-        (NAVIGATION_STRESS_CONDITION, 3, True),
+        (NOMINAL_CONDITION, False),
+        (RESAMPLING_STRESS_CONDITION, True),
     )
     return tuple(
-        LocomotionProfile(f"{trajectory}:{condition}", trajectory, delay, navigation_rate)
+        LocomotionProfile(f"{trajectory}:{condition}", trajectory, resampling_stress)
         for trajectory in BASE_TRAJECTORIES
-        for condition, delay, navigation_rate in conditions
+        for condition, resampling_stress in conditions
     )
 
 
@@ -61,9 +58,9 @@ def _sign(episode_index: int) -> float:
 def target_for_profile(profile: LocomotionProfile, elapsed_s: float, episode_index: int) -> np.ndarray:
     """Return an unfiltered latent target for one profile time and episode.
 
-    A one-second settling phase starts every profile.  All subsequent changes
-    are intentional raw target steps; command shaping is performed by the
-    scripted command term, not by this generator.
+    A one-second settling phase starts every profile. All subsequent changes
+    are intentional raw target steps delivered immediately by the scripted
+    command term.
     """
     sign = _sign(episode_index)
     t = max(0.0, elapsed_s - 1.0)
@@ -101,9 +98,11 @@ def target_for_profile(profile: LocomotionProfile, elapsed_s: float, episode_ind
             return np.array((0.75, 0.0, 0.0), dtype=np.float32)
         return np.array((0.25, sign * 0.65, sign * 0.80), dtype=np.float32)
     if profile.family == "navigation_rate_sequence":
-        # Fixed pseudo-random, 12.5 Hz target stream.  The index and signs are
+        # Fixed pseudo-random, 2 Hz target stream. The index and signs are
         # deterministic so candidate and baseline consume identical commands.
-        sequence_index = int(t / NAVIGATION_UPDATE_S)
+        # Nominal evaluation holds the initial sequence command. The stress
+        # profile advances the deterministic sequence only on its 2 Hz update.
+        sequence_index = int(t / RESAMPLING_STRESS_UPDATE_S) if profile.resampling_stress else 0
         generator = np.random.default_rng(10_000 * episode_index + sequence_index)
         mode = sequence_index % 4
         if mode == 0:

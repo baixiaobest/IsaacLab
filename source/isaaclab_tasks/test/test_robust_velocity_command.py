@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 
+from isaaclab.managers import CommandTerm
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp.robust_velocity_command import (
     RobustVelocityCommand,
     ScriptedVelocityCommand,
@@ -16,70 +18,59 @@ from isaaclab_tasks.manager_based.locomotion.velocity.mdp.curriculums import (
 
 
 def _bare_command_term(
-    delay_ticks: int = 1, command_type: type[RobustVelocityCommand] = RobustVelocityCommand
+    level: int = 0, command_type: type[RobustVelocityCommand] = RobustVelocityCommand
 ) -> RobustVelocityCommand:
-    """Construct the update-state portion without requiring an Isaac Sim environment."""
+    """Construct command state without requiring an Isaac Sim environment."""
     term = object.__new__(command_type)
     term.num_envs = 1
     term.device = "cpu"
     term.cfg = SimpleNamespace(
-        curriculum_full_level=6,
-        jitter_start_level=3,
-        jitter_planar_std=0.08,
-        jitter_yaw_std=0.20,
-        jitter_correlation_time_s=0.20,
-        max_planar_speed=1.0,
-        max_yaw_rate=1.2,
-        initial_max_planar_speed=0.40,
-        initial_max_yaw_rate=0.50,
-        max_planar_accel=1.5,
-        max_yaw_accel=3.0,
-        sudden_transition_start_probability=0.015,
-        sudden_transition_approach_hold_s=0.60,
-        sudden_transition_response_hold_s=0.60,
-        sudden_transition_start_level=6,
+        incremental_start_terrain_level=5,
+        incremental_full_terrain_level=9,
+        incremental_start_frequency_hz=0.5,
+        incremental_full_frequency_hz=2.0,
+        max_planar_delta_mps=0.2,
+        max_yaw_delta_radps=0.3,
+        max_planar_speed=1.5,
+        max_yaw_rate=2.0,
+        sudden_change_time_fraction=0.5,
     )
-    term._last_dt = 0.02
-    term._target_command = torch.tensor([[1.0, 0.0, 1.2]])
+    terrain = SimpleNamespace(terrain_levels=torch.tensor([level], dtype=torch.long))
+    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=terrain), max_episode_length_s=10.0)
+    term._target_command = torch.tensor([[0.8, 0.2, 0.7]])
     term._emitted_command = torch.zeros(1, 3)
     term._command = torch.zeros(1, 3)
-    term._jitter = torch.zeros(1, 3)
-    term._delay_ticks = torch.tensor([delay_ticks], dtype=torch.long)
-    term._mode = torch.zeros(1, dtype=torch.long)
-    term._pending_sudden_transition = torch.zeros(1, dtype=torch.long)
+    term._mode = torch.tensor([RobustVelocityCommand.NORMAL_COUPLED_MOTION])
+    term._sudden_change_fired = torch.zeros(1, dtype=torch.bool)
     term.time_left = torch.zeros(1)
-    term._history = torch.zeros(4, 1, 3)
-    term._history_index = 0
-    term._terrain_alpha = lambda env_ids: torch.ones(len(env_ids))
-    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=None))
+    term.command_counter = torch.zeros(1, dtype=torch.long)
     return term
 
 
 def test_sampled_direct_twist_mixture_and_limits() -> None:
     torch.manual_seed(3)
-    command, mode = RobustVelocityCommand.sample_direct_targets(100_000, "cpu")
+    command, mode = RobustVelocityCommand.sample_direct_targets(100_000, "cpu", 1.5, 2.0)
     speed = torch.linalg.vector_norm(command[:, :2], dim=-1)
 
-    assert torch.all(speed <= 1.0 + 1.0e-6)
-    assert torch.all(torch.abs(command[:, 2]) <= 1.2 + 1.0e-6)
+    assert torch.all(speed <= 1.5 + 1.0e-6)
+    assert torch.all(torch.abs(command[:, 2]) <= 2.0 + 1.0e-6)
+    assert speed.max() > 1.49
+    assert torch.abs(command[:, 2]).max() > 1.99
     assert torch.all(speed[mode == RobustVelocityCommand.ROTATE_IN_PLACE] == 0.0)
-
+    assert torch.all(command[mode == RobustVelocityCommand.FULL_STOP] == 0.0)
     expected = {
-        RobustVelocityCommand.SLOW_COUPLED_TURN: 0.25,
-        RobustVelocityCommand.ROTATE_IN_PLACE: 0.20,
+        RobustVelocityCommand.SLOW_COUPLED_TURN: 0.15,
+        RobustVelocityCommand.ROTATE_IN_PLACE: 0.15,
+        RobustVelocityCommand.FULL_STOP: 0.10,
         RobustVelocityCommand.NORMAL_COUPLED_MOTION: 0.40,
-        RobustVelocityCommand.STRAIGHT_LATERAL_STOP: 0.15,
+        RobustVelocityCommand.SUDDEN_CHANGE: 0.20,
     }
     for mode_id, probability in expected.items():
-        observed = (mode == mode_id).float().mean().item()
-        assert abs(observed - probability) < 0.01
-
-    turning = torch.abs(command[:, 2]) > 0.0
-    assert abs((command[turning, 2] > 0.0).float().mean().item() - 0.5) < 0.015
+        assert abs((mode == mode_id).float().mean().item() - probability) < 0.01
+    assert set(mode.unique().tolist()) == set(expected)
 
 
 def test_direct_yaw_has_no_heading_dependency() -> None:
-    """The sampler has no robot-heading input and produces direct yaw-rate targets."""
     torch.manual_seed(11)
     first, _ = RobustVelocityCommand.sample_direct_targets(128, "cpu")
     torch.manual_seed(11)
@@ -88,96 +79,89 @@ def test_direct_yaw_has_no_heading_dependency() -> None:
     assert torch.any(torch.abs(first[:, 2]) > 0.0)
 
 
-def test_rate_limit_and_jitter_behavior() -> None:
-    torch.manual_seed(7)
-    term = _bare_command_term(delay_ticks=0)
+def test_robust_command_implements_debug_visualization() -> None:
+    assert RobustVelocityCommand._set_debug_vis_impl is not CommandTerm._set_debug_vis_impl
+    assert RobustVelocityCommand._debug_vis_callback is not CommandTerm._debug_vis_callback
+
+
+def test_levels_zero_through_four_hold_normal_prior_for_episode() -> None:
+    for level in range(5):
+        term = _bare_command_term(level)
+        term._set_next_resample_time(torch.tensor([0]))
+        assert torch.isinf(term.time_left[0])
+        before = term.target_command.clone()
+        term.command_counter[:] = 1
+        term._resample_existing_priors(torch.tensor([0]))
+        torch.testing.assert_close(term.target_command, before)
+        assert torch.isinf(term.time_left[0])
+
+
+def test_sudden_change_occurs_once_at_episode_midpoint_and_is_independent() -> None:
+    term = _bare_command_term(level=0)
+    term._mode[:] = RobustVelocityCommand.SUDDEN_CHANGE
+    prior = term.target_command.clone()
+    term._set_next_resample_time(torch.tensor([0]))
+    assert term.time_left.item() == 5.0
+
+    torch.manual_seed(91)
+    term.command_counter[:] = 1
+    term._resample_existing_priors(torch.tensor([0]))
+    assert term._sudden_change_fired.item()
+    assert torch.isinf(term.time_left[0])
+    assert not torch.equal(term.target_command, prior)
+    assert torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item() <= 1.5
+    assert abs(term.target_command[0, 2].item()) <= 2.0
+    after = term.target_command.clone()
+    term._resample_existing_priors(torch.tensor([0]))
+    torch.testing.assert_close(term.target_command, after)
+
+
+def test_normal_prior_updates_have_specified_schedule_and_delta_bounds() -> None:
+    expected_periods = {5: 2.0, 6: 1.0 / 0.875, 7: 0.8, 8: 1.0 / 1.625, 9: 0.5, 12: 0.5}
+    for level, expected_period in expected_periods.items():
+        term = _bare_command_term(level)
+        torch.testing.assert_close(term._normal_update_period_s(torch.tensor([0])), torch.tensor([expected_period]))
+        prior = term.target_command.clone()
+        term.command_counter[:] = 1
+        torch.manual_seed(level)
+        term._resample_existing_priors(torch.tensor([0]))
+        planar_delta = torch.linalg.vector_norm(term.target_command[:, :2] - prior[:, :2], dim=-1)
+        yaw_delta = torch.abs(term.target_command[:, 2] - prior[:, 2])
+        assert planar_delta.item() <= 0.2 + 1.0e-6
+        assert yaw_delta.item() <= 0.3 + 1.0e-6
+        assert term.time_left.item() == pytest.approx(expected_period)
+
+
+def test_incremental_updates_depend_on_previous_prior() -> None:
+    torch.manual_seed(31)
+    first = _bare_command_term(level=9)
+    first.command_counter[:] = 1
+    first._resample_existing_priors(torch.tensor([0]))
+    torch.manual_seed(31)
+    second = _bare_command_term(level=9)
+    second._target_command[:] = torch.tensor([[-0.8, -0.2, -0.7]])
+    second.command_counter[:] = 1
+    second._resample_existing_priors(torch.tensor([0]))
+    # Identical sampled deltas are applied to distinct priors.
+    assert not torch.equal(first.target_command, second.target_command)
+
+
+def test_command_is_immediate_and_has_no_delay_or_jitter_state() -> None:
+    term = _bare_command_term()
     term._update_command()
-
-    assert torch.linalg.vector_norm(term.emitted_command[:, :2], dim=-1).item() <= 1.5 * 0.02 + 1.0e-6
-    assert abs(term.emitted_command[0, 2].item()) <= 3.0 * 0.02 + 1.0e-6
-
-    term._target_command.zero_()
-    for _ in range(8):
-        term._update_command()
-    assert torch.all(term._jitter == 0.0)
+    torch.testing.assert_close(term.command, term.target_command)
+    torch.testing.assert_close(term.emitted_command, term.target_command)
+    for obsolete_attribute in ("delay_ticks", "_delay_ticks", "_history", "_jitter", "set_delay_ticks"):
+        assert not hasattr(term, obsolete_attribute)
 
 
-def test_command_envelope_ramps_from_easy_level_to_deployment_limit() -> None:
-    term = _bare_command_term()
-    term._terrain_alpha = lambda env_ids: torch.zeros(len(env_ids))
-    planar_limit, yaw_limit = term._curriculum_command_limits(torch.tensor([0]))
-    torch.testing.assert_close(planar_limit, torch.tensor([0.40]))
-    torch.testing.assert_close(yaw_limit, torch.tensor([0.50]))
-
-    term._terrain_alpha = lambda env_ids: torch.ones(len(env_ids))
-    planar_limit, yaw_limit = term._curriculum_command_limits(torch.tensor([0]))
-    torch.testing.assert_close(planar_limit, torch.tensor([1.0]))
-    torch.testing.assert_close(yaw_limit, torch.tensor([1.2]))
-
-
-def test_low_curriculum_level_uses_easy_targets_and_excludes_interventions() -> None:
-    term = _bare_command_term()
-    term.cfg.sudden_transition_start_probability = 1.0
-    term._terrain_alpha = lambda env_ids: torch.zeros(len(env_ids))
-    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=SimpleNamespace(terrain_levels=torch.tensor([0]))))
-
-    term._resample_command(torch.tensor([0]))
-
-    assert torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item() <= 0.40 + 1.0e-6
-    assert abs(term.target_command[0, 2].item()) <= 0.50 + 1.0e-6
-    assert int(term._pending_sudden_transition[0]) == 0
-
-
-def test_command_delay_uses_the_requested_history_tick() -> None:
-    for delay_ticks in (1, 2, 3):
-        term = _bare_command_term(delay_ticks=delay_ticks)
-        emitted = []
-        delayed = []
-        for _ in range(delay_ticks + 3):
-            term._update_command()
-            emitted.append(term.emitted_command.clone())
-            delayed.append(term.command.clone())
-
-        for step in range(delay_ticks):
-            torch.testing.assert_close(delayed[step], torch.zeros_like(delayed[step]))
-        for step in range(delay_ticks, len(delayed)):
-            torch.testing.assert_close(delayed[step], emitted[step - delay_ticks])
-
-
-def test_scripted_delivery_reuses_limiter_and_has_no_jitter() -> None:
-    term = _bare_command_term(delay_ticks=1, command_type=ScriptedVelocityCommand)
-    term._target_command[:] = torch.tensor([[1.0, 0.0, 1.2]])
-    term._jitter[:] = 99.0
+def test_scripted_command_is_immediate_and_bounded() -> None:
+    term = _bare_command_term(command_type=ScriptedVelocityCommand)
+    term._target_command[:] = torch.tensor([[2.0, 0.0, 3.0]])
     term._update_command()
-
-    assert torch.all(term._jitter == 0.0)
-    assert torch.linalg.vector_norm(term.emitted_command[:, :2], dim=-1).item() <= 1.5 * 0.02 + 1.0e-6
-    assert abs(term.emitted_command[0, 2].item()) <= 3.0 * 0.02 + 1.0e-6
-
-
-def test_sudden_interventions_build_speed_before_raw_stop_or_avoidance_step() -> None:
-    torch.manual_seed(17)
-    term = _bare_command_term()
-    term.cfg.sudden_transition_start_probability = 1.0
-    term.cfg.sudden_transition_start_level = 0
-
-    term._resample_command(torch.tensor([0]))
-    pending = int(term._pending_sudden_transition[0])
-    assert pending in {1, 2}
-    torch.testing.assert_close(term.target_command[0, 0], torch.tensor(0.75))
-    assert abs(term.time_left[0].item() - 0.60) < 1.0e-6
-
-    term._resample_command(torch.tensor([0]))
-    assert int(term._pending_sudden_transition[0]) == 0
-    assert abs(term.time_left[0].item() - 0.60) < 1.0e-6
-    if pending == 1:
-        torch.testing.assert_close(term.target_command, torch.zeros_like(term.target_command))
-        assert int(term.mode[0]) == RobustVelocityCommand.SUDDEN_STOP
-    else:
-        torch.testing.assert_close(term.target_command[0, 0], torch.tensor(0.25))
-        assert abs(term.target_command[0, 1].item()) == 0.65
-        assert abs(term.target_command[0, 2].item()) == 0.80
-        assert int(term.mode[0]) == RobustVelocityCommand.SUDDEN_AVOIDANCE_SWITCH
+    torch.testing.assert_close(term.command, torch.tensor([[1.5, 0.0, 2.0]]))
+    torch.testing.assert_close(term.command, term.emitted_command)
+    assert not hasattr(term, "set_delay_ticks")
 
 
 def test_tracking_terrain_curriculum_promotes_good_and_demotes_bad_episodes() -> None:
@@ -202,13 +186,9 @@ def test_tracking_terrain_curriculum_promotes_good_and_demotes_bad_episodes() ->
         num_envs=4,
         scene=SimpleNamespace(terrain=Terrain()),
         command_manager=SimpleNamespace(get_term=lambda _: SimpleNamespace(episode_tracking_metrics=lambda _: metrics)),
-        # Third episode has a non-timeout termination. Fourth is the initial
-        # reset, with no episode samples, and must retain its random level.
         reset_terminated=torch.tensor([False, False, True, False]),
     )
-
     result = robust_velocity_tracking_terrain_curriculum(env, torch.arange(4))
-
     assert env.scene.terrain.terrain_levels.tolist() == [4, 2, 2, 3]
     assert result["good_fraction"].item() == 0.25
     assert result["bad_fraction"].item() == 0.50

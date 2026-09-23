@@ -24,6 +24,7 @@ from isaaclab.app import AppLauncher
 
 import cli_args  # isort: skip
 from locomotion_evaluation import (  # isort: skip
+    RESAMPLING_STRESS_UPDATE_S,
     evaluation_profiles,
     evaluate_gates,
     percentile,
@@ -38,7 +39,7 @@ parser.add_argument("--evaluation_family", default="locomotion")
 parser.add_argument("--baseline_checkpoint", default=None, help="Optional pinned native RSL-RL baseline checkpoint.")
 parser.add_argument("--baseline_experiment_id", default=None, help="Research Agent provenance for an optional baseline.")
 parser.add_argument("--episodes_per_profile", type=int, required=True)
-parser.add_argument("--num_envs", type=int, default=36, help="At least one environment per fixed profile cell.")
+parser.add_argument("--num_envs", type=int, default=24, help="At least one environment per fixed profile cell.")
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--output_dir", default=None)
 parser.add_argument("--max_failure_artifacts", type=int, default=20)
@@ -278,7 +279,6 @@ class EpisodeCollector:
                 "profile": profile.name,
                 "trajectory": profile.family,
                 "condition": profile.name.split(":", 1)[1],
-                "delay_ticks": profile.delay_ticks,
                 "episode_index": int(episode_numbers[env_id]),
                 "mirror_sign": -1 if int(episode_numbers[env_id]) % 2 else 1,
                 "fall": fall or velocity_limit,
@@ -363,7 +363,7 @@ def _evaluate_checkpoint(
 ) -> tuple[list[dict[str, Any]], str]:
     profiles = evaluation_profiles()
     if args_cli.num_envs < len(profiles):
-        raise ValueError(f"--num_envs must be at least {len(profiles)} for the 36 locomotion evaluation profiles.")
+        raise ValueError(f"--num_envs must be at least {len(profiles)} for the 24 locomotion evaluation profiles.")
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.seed = args_cli.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
@@ -374,8 +374,6 @@ def _evaluate_checkpoint(
         # term sets ``time_left`` to infinity on reset and receives all target
         # changes explicitly from the evaluation profiles.
         resampling_time_range=(1.0e6, 1.0e6),
-        min_delay_ticks=1,
-        max_delay_ticks=3,
         debug_vis=False,
     )
     env = gym.make(args_cli.task, cfg=env_cfg)
@@ -412,10 +410,10 @@ def _evaluate_checkpoint(
             targets = term.target_command.detach().cpu().numpy().copy()
             for env_id in range(args_cli.num_envs):
                 profile = profiles[assignments[env_id]]
-                # Navigation-stress profiles expose high-level targets at 12.5
-                # Hz; all other profiles hold the scripted value every control
-                # tick. The command term performs the downstream shaping.
-                if profile.navigation_rate and int(step_counts[env_id]) % 4:
+                # Stress profiles replace the prior at 2 Hz (every 500 ms).
+                # All commands reach the policy directly, with no delay path.
+                update_period_steps = round(RESAMPLING_STRESS_UPDATE_S / raw_env.step_dt)
+                if profile.resampling_stress and int(step_counts[env_id]) % update_period_steps:
                     continue
                 targets[env_id] = target_for_profile(
                     profile,
@@ -423,8 +421,6 @@ def _evaluate_checkpoint(
                     int(episode_numbers[env_id]),
                 )
             term.set_target_commands(torch.as_tensor(targets, device=raw_env.device))
-            delays = torch.as_tensor([profiles[index].delay_ticks for index in assignments], device=raw_env.device)
-            term.set_delay_ticks(delays)
             with torch.inference_mode():
                 actions = policy(obs)
                 collector.record(raw_env, term, actions, previous_actions, step_counts)

@@ -11,8 +11,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from locomotion_evaluation import (  # noqa: E402
-    DELAY_STRESS_CONDITION,
     NOMINAL_CONDITION,
+    RESAMPLING_STRESS_CONDITION,
     evaluation_profiles,
     evaluate_gates,
     target_for_profile,
@@ -38,14 +38,23 @@ def _row(profile, *, fall: bool = False, tracking: float = 0.1, quality: float =
 
 def test_profile_matrix_and_sign_mirroring() -> None:
     profiles = evaluation_profiles()
-    assert len(profiles) == 36
+    assert len(profiles) == 24
     assert sum(profile.name.endswith(NOMINAL_CONDITION) for profile in profiles) == 12
-    assert sum(profile.name.endswith(DELAY_STRESS_CONDITION) for profile in profiles) == 12
+    assert sum(profile.name.endswith(RESAMPLING_STRESS_CONDITION) for profile in profiles) == 12
+    assert sum(profile.resampling_stress for profile in profiles) == 12
     lateral = next(profile for profile in profiles if profile.family == "lateral_tracking")
     assert target_for_profile(lateral, 2.0, 0)[1] == -target_for_profile(lateral, 2.0, 1)[1]
     obstacle_stop = next(profile for profile in profiles if profile.family == "obstacle_stop")
     assert target_for_profile(obstacle_stop, 3.9, 0)[0] > 0.0
     assert target_for_profile(obstacle_stop, 4.1, 0).sum() == 0.0
+    sequence_nominal = next(
+        profile for profile in profiles if profile.family == "navigation_rate_sequence" and not profile.resampling_stress
+    )
+    sequence_stress = next(
+        profile for profile in profiles if profile.family == "navigation_rate_sequence" and profile.resampling_stress
+    )
+    assert (target_for_profile(sequence_nominal, 2.1, 0) == target_for_profile(sequence_nominal, 1.1, 0)).all()
+    assert not (target_for_profile(sequence_stress, 2.1, 0) == target_for_profile(sequence_stress, 1.1, 0)).all()
 
 
 def test_explicit_evaluation_family_rejects_navigation_task() -> None:
