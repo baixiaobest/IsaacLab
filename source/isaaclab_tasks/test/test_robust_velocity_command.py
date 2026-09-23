@@ -10,6 +10,7 @@ import torch
 from isaaclab.managers import CommandTerm
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp.robust_velocity_command import (
     RobustVelocityCommand,
+    RobustVelocityCommandCfg,
     ScriptedVelocityCommand,
 )
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp.curriculums import (
@@ -68,6 +69,26 @@ def test_sampled_direct_twist_mixture_and_limits() -> None:
     for mode_id, probability in expected.items():
         assert abs((mode == mode_id).float().mean().item() - probability) < 0.01
     assert set(mode.unique().tolist()) == set(expected)
+
+
+def test_mode_mixture_is_configurable_and_must_sum_to_one() -> None:
+    command, mode = RobustVelocityCommand.sample_direct_targets(
+        1_000,
+        "cpu",
+        slow_coupled_turn_probability=0.0,
+        rotate_in_place_probability=0.0,
+        full_stop_probability=1.0,
+        normal_coupled_motion_probability=0.0,
+        sudden_change_probability=0.0,
+    )
+    assert torch.all(command == 0.0)
+    assert torch.all(mode == RobustVelocityCommand.FULL_STOP)
+
+    with pytest.raises(ValueError, match="sum to one"):
+        RobustVelocityCommandCfg(
+            resampling_time_range=(1.0, 1.0),
+            full_stop_probability=0.2,
+        )
 
 
 def test_direct_yaw_has_no_heading_dependency() -> None:

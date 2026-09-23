@@ -417,6 +417,11 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
+            slow_coupled_turn_probability=0.10,
+            rotate_in_place_probability=0.10,
+            full_stop_probability=0.10,
+            normal_coupled_motion_probability=0.40,
+            sudden_change_probability=0.30,
             # Required by CommandTermCfg only; RobustVelocityCommand owns its
             # per-environment schedule and does not use this generic range.
             resampling_time_range=(1.0e6, 1.0e6),

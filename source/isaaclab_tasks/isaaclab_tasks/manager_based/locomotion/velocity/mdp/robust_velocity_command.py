@@ -32,6 +32,11 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     asset_name: str = "robot"
     max_planar_speed: float = 1.5
     max_yaw_rate: float = 2.0
+    slow_coupled_turn_probability: float = 0.15
+    rotate_in_place_probability: float = 0.15
+    full_stop_probability: float = 0.10
+    normal_coupled_motion_probability: float = 0.40
+    sudden_change_probability: float = 0.20
     incremental_start_terrain_level: int = 5
     incremental_full_terrain_level: int = 9
     incremental_start_frequency_hz: float = 0.5
@@ -57,6 +62,26 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             self.class_type = RobustVelocityCommand
         if self.max_planar_speed <= 0.0 or self.max_yaw_rate <= 0.0:
             raise ValueError("Velocity limits must be positive.")
+        mode_probability_sum = sum(
+            (
+                self.slow_coupled_turn_probability,
+                self.rotate_in_place_probability,
+                self.full_stop_probability,
+                self.normal_coupled_motion_probability,
+                self.sudden_change_probability,
+            )
+        )
+        if any(
+            probability < 0.0
+            for probability in (
+                self.slow_coupled_turn_probability,
+                self.rotate_in_place_probability,
+                self.full_stop_probability,
+                self.normal_coupled_motion_probability,
+                self.sudden_change_probability,
+            )
+        ) or not math.isclose(mode_probability_sum, 1.0, rel_tol=0.0, abs_tol=1.0e-6):
+            raise ValueError("Mode probabilities must be nonnegative and sum to one.")
         if self.incremental_start_terrain_level < 0:
             raise ValueError("incremental_start_terrain_level must be nonnegative.")
         if self.incremental_full_terrain_level <= self.incremental_start_terrain_level:
@@ -182,7 +207,15 @@ class RobustVelocityCommand(CommandTerm):
         if torch.any(initial):
             initial_ids = env_ids[initial]
             commands, modes = self.sample_direct_targets(
-                len(initial_ids), self.device, self.cfg.max_planar_speed, self.cfg.max_yaw_rate
+                len(initial_ids),
+                self.device,
+                self.cfg.max_planar_speed,
+                self.cfg.max_yaw_rate,
+                slow_coupled_turn_probability=self.cfg.slow_coupled_turn_probability,
+                rotate_in_place_probability=self.cfg.rotate_in_place_probability,
+                full_stop_probability=self.cfg.full_stop_probability,
+                normal_coupled_motion_probability=self.cfg.normal_coupled_motion_probability,
+                sudden_change_probability=self.cfg.sudden_change_probability,
             )
             self._target_command[initial_ids] = commands
             self._mode[initial_ids] = modes
@@ -257,19 +290,46 @@ class RobustVelocityCommand(CommandTerm):
 
     @classmethod
     def sample_direct_targets(
-        cls, count: int, device: torch.device | str, max_planar_speed: float = 1.5, max_yaw_rate: float = 2.0
+        cls,
+        count: int,
+        device: torch.device | str,
+        max_planar_speed: float = 1.5,
+        max_yaw_rate: float = 2.0,
+        *,
+        slow_coupled_turn_probability: float = 0.15,
+        rotate_in_place_probability: float = 0.15,
+        full_stop_probability: float = 0.10,
+        normal_coupled_motion_probability: float = 0.40,
+        sudden_change_probability: float = 0.20,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Sample the 15/15/10/40/20 slow/rotate/stop/normal/sudden mixture."""
+        """Sample the configured slow/rotate/stop/normal/sudden mixture."""
         if count <= 0:
             return torch.empty(0, 3, device=device), torch.empty(0, dtype=torch.long, device=device)
+        probabilities = (
+            slow_coupled_turn_probability,
+            rotate_in_place_probability,
+            full_stop_probability,
+            normal_coupled_motion_probability,
+            sudden_change_probability,
+        )
+        if any(probability < 0.0 for probability in probabilities) or not math.isclose(
+            sum(probabilities), 1.0, rel_tol=0.0, abs_tol=1.0e-6
+        ):
+            raise ValueError("Mode probabilities must be nonnegative and sum to one.")
         command = torch.zeros(count, 3, device=device)
         mode = torch.empty(count, dtype=torch.long, device=device)
         mixture = torch.rand(count, device=device)
-        slow = mixture < 0.15
-        rotate = (mixture >= 0.15) & (mixture < 0.30)
-        stop = (mixture >= 0.30) & (mixture < 0.40)
-        normal = (mixture >= 0.40) & (mixture < 0.80)
-        sudden = ~(slow | rotate | stop | normal)
+        slow_end = slow_coupled_turn_probability
+        rotate_end = slow_end + rotate_in_place_probability
+        stop_end = rotate_end + full_stop_probability
+        normal_end = stop_end + normal_coupled_motion_probability
+        slow = mixture < slow_end
+        rotate = (mixture >= slow_end) & (mixture < rotate_end)
+        stop = (mixture >= rotate_end) & (mixture < stop_end)
+        normal = (mixture >= stop_end) & (mixture < normal_end)
+        # The validated unit sum makes the remaining interval precisely the
+        # sudden-change probability, while also covering round-off at 1.0.
+        sudden = mixture >= normal_end
         slow_count = int(slow.sum().item())
         if slow_count:
             speed = torch.empty(slow_count, device=device).uniform_(0.05, min(0.35, max_planar_speed))
