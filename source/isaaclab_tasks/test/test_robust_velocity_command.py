@@ -33,10 +33,9 @@ def _bare_command_term(
         max_planar_delta_mps=0.2,
         max_yaw_delta_radps=0.3,
         max_planar_speed=1.5,
-        max_yaw_rate=1.5,
-        yaw_rate_start_cap_radps=1.0,
-        yaw_rate_ramp_start_terrain_level=0,
-        yaw_rate_ramp_full_terrain_level=5,
+        max_yaw_rate=2.0,
+        normal_yaw_full_cap_speed_mps=1.0,
+        normal_yaw_cap_at_max_planar_speed_radps=1.0,
         sudden_change_time_fraction=0.5,
     )
     terrain = SimpleNamespace(terrain_levels=torch.tensor([level], dtype=torch.long))
@@ -53,13 +52,13 @@ def _bare_command_term(
 
 def test_sampled_direct_twist_mixture_and_limits() -> None:
     torch.manual_seed(3)
-    command, mode = RobustVelocityCommand.sample_direct_targets(100_000, "cpu", 1.5, 1.5)
+    command, mode = RobustVelocityCommand.sample_direct_targets(100_000, "cpu", 1.5, 2.0)
     speed = torch.linalg.vector_norm(command[:, :2], dim=-1)
 
     assert torch.all(speed <= 1.5 + 1.0e-6)
-    assert torch.all(torch.abs(command[:, 2]) <= 1.5 + 1.0e-6)
+    assert torch.all(torch.abs(command[:, 2]) <= 2.0 + 1.0e-6)
     assert speed.max() > 1.49
-    assert torch.abs(command[:, 2]).max() > 1.49
+    assert torch.abs(command[:, 2]).max() > 1.99
     assert torch.all(speed[mode == RobustVelocityCommand.ROTATE_IN_PLACE] == 0.0)
     assert torch.all(command[mode == RobustVelocityCommand.FULL_STOP] == 0.0)
     expected = {
@@ -103,18 +102,18 @@ def test_direct_yaw_has_no_heading_dependency() -> None:
     assert torch.any(torch.abs(first[:, 2]) > 0.0)
 
 
-def test_yaw_cap_ramps_from_one_to_one_point_five_by_terrain_level() -> None:
-    for level, expected_cap in {0: 1.0, 1: 1.1, 2: 1.2, 3: 1.3, 4: 1.4, 5: 1.5, 9: 1.5}.items():
-        term = _bare_command_term(level)
-        torch.testing.assert_close(term._yaw_rate_caps(torch.tensor([0])), torch.tensor([expected_cap]))
+def test_normal_and_sudden_yaw_cap_shrinks_above_one_meter_per_second() -> None:
+    command, mode = RobustVelocityCommand.sample_direct_targets(100_000, "cpu")
+    coupled = (mode == RobustVelocityCommand.NORMAL_COUPLED_MOTION) | (
+        mode == RobustVelocityCommand.SUDDEN_CHANGE
+    )
+    speed = torch.linalg.vector_norm(command[coupled, :2], dim=-1)
+    yaw_cap = 2.0 - 2.0 * (speed - 1.0).clamp(min=0.0, max=0.5)
 
-        command, _ = RobustVelocityCommand.sample_direct_targets(
-            10_000,
-            "cpu",
-            max_yaw_rate=1.5,
-            yaw_rate_caps=torch.full((10_000,), expected_cap),
-        )
-        assert torch.all(torch.abs(command[:, 2]) <= expected_cap + 1.0e-6)
+    assert torch.all(torch.abs(command[coupled, 2]) <= yaw_cap + 1.0e-6)
+    fast_coupled = coupled & (torch.linalg.vector_norm(command[:, :2], dim=-1) > 1.45)
+    assert torch.any(fast_coupled)
+    assert torch.all(torch.abs(command[fast_coupled, 2]) <= 1.1)
 
 
 def test_robust_command_implements_debug_visualization() -> None:
@@ -148,8 +147,7 @@ def test_sudden_change_occurs_once_at_episode_midpoint_and_is_independent() -> N
     assert torch.isinf(term.time_left[0])
     assert not torch.equal(term.target_command, prior)
     assert torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item() <= 1.5
-    # The midpoint replacement uses the same level-0 yaw cap as the initial prior.
-    assert abs(term.target_command[0, 2].item()) <= 1.0
+    assert abs(term.target_command[0, 2].item()) <= 2.0
     after = term.target_command.clone()
     term._resample_existing_priors(torch.tensor([0]))
     torch.testing.assert_close(term.target_command, after)
@@ -198,7 +196,7 @@ def test_scripted_command_is_immediate_and_bounded() -> None:
     term = _bare_command_term(command_type=ScriptedVelocityCommand)
     term._target_command[:] = torch.tensor([[2.0, 0.0, 3.0]])
     term._update_command()
-    torch.testing.assert_close(term.command, torch.tensor([[1.5, 0.0, 1.5]]))
+    torch.testing.assert_close(term.command, torch.tensor([[1.5, 0.0, 2.0]]))
     torch.testing.assert_close(term.command, term.emitted_command)
     assert not hasattr(term, "set_delay_ticks")
 
