@@ -23,19 +23,19 @@ if TYPE_CHECKING:
 class RobustVelocityCommandCfg(CommandTermCfg):
     """Direct body-twist curriculum with fixed priors and bounded updates.
 
-    Terrain difficulty alone progresses through levels 0--4. At level 5,
-    normal coupled commands begin making prior-relative updates; the update
-    rate reaches 2 Hz at level 9. There is no command delay or filtering.
+    The yaw envelope ramps from 1.0 to 1.5 rad/s over terrain levels 0--5.
+    At level 5, normal coupled commands also begin making prior-relative
+    updates; the update rate reaches 2 Hz at level 9. There is no command
+    delay or filtering.
     """
 
     class_type: type | None = None
     asset_name: str = "robot"
     max_planar_speed: float = 1.5
-    max_yaw_rate: float = 2.0
-    normal_yaw_full_cap_speed_mps: float = 1.0
-    """Planar speed through which normal/sudden commands retain ``max_yaw_rate``."""
-    normal_yaw_cap_at_max_planar_speed_radps: float = 1.0
-    """Normal/sudden yaw-rate cap at ``max_planar_speed``."""
+    max_yaw_rate: float = 1.5
+    yaw_rate_start_cap_radps: float = 1.0
+    yaw_rate_ramp_start_terrain_level: int = 0
+    yaw_rate_ramp_full_terrain_level: int = 5
     slow_coupled_turn_probability: float = 0.15
     rotate_in_place_probability: float = 0.15
     full_stop_probability: float = 0.10
@@ -66,10 +66,12 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             self.class_type = RobustVelocityCommand
         if self.max_planar_speed <= 0.0 or self.max_yaw_rate <= 0.0:
             raise ValueError("Velocity limits must be positive.")
-        if not 0.0 < self.normal_yaw_full_cap_speed_mps < self.max_planar_speed:
-            raise ValueError("normal_yaw_full_cap_speed_mps must lie strictly within the planar-speed envelope.")
-        if not 0.0 <= self.normal_yaw_cap_at_max_planar_speed_radps <= self.max_yaw_rate:
-            raise ValueError("normal_yaw_cap_at_max_planar_speed_radps must lie in [0, max_yaw_rate].")
+        if not 0.0 < self.yaw_rate_start_cap_radps <= self.max_yaw_rate:
+            raise ValueError("yaw_rate_start_cap_radps must lie in (0, max_yaw_rate].")
+        if self.yaw_rate_ramp_start_terrain_level < 0:
+            raise ValueError("yaw_rate_ramp_start_terrain_level must be nonnegative.")
+        if self.yaw_rate_ramp_full_terrain_level <= self.yaw_rate_ramp_start_terrain_level:
+            raise ValueError("yaw_rate_ramp_full_terrain_level must exceed yaw_rate_ramp_start_terrain_level.")
         mode_probability_sum = sum(
             (
                 self.slow_coupled_turn_probability,
@@ -160,7 +162,8 @@ class RobustVelocityCommand(CommandTerm):
             "RobustVelocityCommand:\n"
             "\tCommand dimension: (3,)\n"
             f"\tPlanar speed limit: {self.cfg.max_planar_speed} m/s\n"
-            f"\tYaw-rate limit: {self.cfg.max_yaw_rate} rad/s\n"
+            f"\tYaw-rate cap: {self.cfg.yaw_rate_start_cap_radps}--{self.cfg.max_yaw_rate} rad/s "
+            f"(levels {self.cfg.yaw_rate_ramp_start_terrain_level}--{self.cfg.yaw_rate_ramp_full_terrain_level})\n"
             f"\tNormal update frequency: {self.cfg.incremental_start_frequency_hz}--"
             f"{self.cfg.incremental_full_frequency_hz} Hz (levels "
             f"{self.cfg.incremental_start_terrain_level}--{self.cfg.incremental_full_terrain_level})"
@@ -206,6 +209,17 @@ class RobustVelocityCommand(CommandTerm):
         )
         return frequency.reciprocal()
 
+    def _yaw_rate_caps(self, env_ids: torch.Tensor) -> torch.Tensor:
+        """Return the terrain-level yaw cap for all non-stop command modes."""
+        levels = self._terrain_levels(env_ids).float()
+        alpha = (
+            (levels - self.cfg.yaw_rate_ramp_start_terrain_level)
+            / float(self.cfg.yaw_rate_ramp_full_terrain_level - self.cfg.yaw_rate_ramp_start_terrain_level)
+        ).clamp(0.0, 1.0)
+        return self.cfg.yaw_rate_start_cap_radps + alpha * (
+            self.cfg.max_yaw_rate - self.cfg.yaw_rate_start_cap_radps
+        )
+
     def _resample(self, env_ids: Sequence[int]) -> None:
         if len(env_ids) == 0:
             return
@@ -219,8 +233,7 @@ class RobustVelocityCommand(CommandTerm):
                 self.device,
                 self.cfg.max_planar_speed,
                 self.cfg.max_yaw_rate,
-                normal_yaw_full_cap_speed_mps=self.cfg.normal_yaw_full_cap_speed_mps,
-                normal_yaw_cap_at_max_planar_speed_radps=self.cfg.normal_yaw_cap_at_max_planar_speed_radps,
+                yaw_rate_caps=self._yaw_rate_caps(initial_ids),
                 slow_coupled_turn_probability=self.cfg.slow_coupled_turn_probability,
                 rotate_in_place_probability=self.cfg.rotate_in_place_probability,
                 full_stop_probability=self.cfg.full_stop_probability,
@@ -269,8 +282,7 @@ class RobustVelocityCommand(CommandTerm):
                 self.device,
                 self.cfg.max_planar_speed,
                 self.cfg.max_yaw_rate,
-                normal_yaw_full_cap_speed_mps=self.cfg.normal_yaw_full_cap_speed_mps,
-                normal_yaw_cap_at_max_planar_speed_radps=self.cfg.normal_yaw_cap_at_max_planar_speed_radps,
+                yaw_rate_caps=self._yaw_rate_caps(sudden_ids),
             )
             self._sudden_change_fired[sudden_ids] = True
         normal = modes == self.NORMAL_COUPLED_MOTION
@@ -288,10 +300,7 @@ class RobustVelocityCommand(CommandTerm):
         count: int,
         device: torch.device | str,
         max_planar_speed: float,
-        max_yaw_rate: float,
-        *,
-        normal_yaw_full_cap_speed_mps: float = 1.0,
-        normal_yaw_cap_at_max_planar_speed_radps: float = 1.0,
+        yaw_rate_caps: torch.Tensor,
     ) -> torch.Tensor:
         command = torch.zeros(count, 3, device=device)
         if count == 0:
@@ -300,12 +309,7 @@ class RobustVelocityCommand(CommandTerm):
         angle = torch.empty(count, device=device).uniform_(-math.pi, math.pi)
         command[:, 0] = speed * torch.cos(angle)
         command[:, 1] = speed * torch.sin(angle)
-        speed_alpha = (
-            (speed - normal_yaw_full_cap_speed_mps)
-            / (max_planar_speed - normal_yaw_full_cap_speed_mps)
-        ).clamp(0.0, 1.0)
-        yaw_cap = max_yaw_rate + speed_alpha * (normal_yaw_cap_at_max_planar_speed_radps - max_yaw_rate)
-        command[:, 2] = torch.empty(count, device=device).uniform_(-1.0, 1.0) * yaw_cap
+        command[:, 2] = torch.empty(count, device=device).uniform_(-1.0, 1.0) * yaw_rate_caps
         return command
 
     @classmethod
@@ -314,10 +318,9 @@ class RobustVelocityCommand(CommandTerm):
         count: int,
         device: torch.device | str,
         max_planar_speed: float = 1.5,
-        max_yaw_rate: float = 2.0,
+        max_yaw_rate: float = 1.5,
         *,
-        normal_yaw_full_cap_speed_mps: float = 1.0,
-        normal_yaw_cap_at_max_planar_speed_radps: float = 1.0,
+        yaw_rate_caps: torch.Tensor | float | None = None,
         slow_coupled_turn_probability: float = 0.15,
         rotate_in_place_probability: float = 0.15,
         full_stop_probability: float = 0.10,
@@ -338,10 +341,16 @@ class RobustVelocityCommand(CommandTerm):
             sum(probabilities), 1.0, rel_tol=0.0, abs_tol=1.0e-6
         ):
             raise ValueError("Mode probabilities must be nonnegative and sum to one.")
-        if not 0.0 < normal_yaw_full_cap_speed_mps < max_planar_speed:
-            raise ValueError("normal_yaw_full_cap_speed_mps must lie strictly within the planar-speed envelope.")
-        if not 0.0 <= normal_yaw_cap_at_max_planar_speed_radps <= max_yaw_rate:
-            raise ValueError("normal_yaw_cap_at_max_planar_speed_radps must lie in [0, max_yaw_rate].")
+        if yaw_rate_caps is None:
+            yaw_rate_caps = torch.full((count,), max_yaw_rate, device=device)
+        else:
+            yaw_rate_caps = torch.as_tensor(yaw_rate_caps, device=device, dtype=torch.float32)
+            if yaw_rate_caps.ndim == 0:
+                yaw_rate_caps = yaw_rate_caps.expand(count)
+            if yaw_rate_caps.shape != (count,):
+                raise ValueError(f"yaw_rate_caps must have shape ({count},), received {tuple(yaw_rate_caps.shape)}.")
+            if torch.any(yaw_rate_caps < 0.0) or torch.any(yaw_rate_caps > max_yaw_rate):
+                raise ValueError("yaw_rate_caps must lie in [0, max_yaw_rate].")
         command = torch.zeros(count, 3, device=device)
         mode = torch.empty(count, dtype=torch.long, device=device)
         mixture = torch.rand(count, device=device)
@@ -362,19 +371,17 @@ class RobustVelocityCommand(CommandTerm):
             angle = torch.empty(slow_count, device=device).uniform_(-math.pi, math.pi)
             command[slow, 0] = speed * torch.cos(angle)
             command[slow, 1] = speed * torch.sin(angle)
-            command[slow, 2] = torch.empty(slow_count, device=device).uniform_(-max_yaw_rate, max_yaw_rate)
+            command[slow, 2] = torch.empty(slow_count, device=device).uniform_(-1.0, 1.0) * yaw_rate_caps[slow]
         rotate_count = int(rotate.sum().item())
         if rotate_count:
-            command[rotate, 2] = torch.empty(rotate_count, device=device).uniform_(-max_yaw_rate, max_yaw_rate)
+            command[rotate, 2] = torch.empty(rotate_count, device=device).uniform_(-1.0, 1.0) * yaw_rate_caps[rotate]
         coupled = normal | sudden
         if torch.any(coupled):
             command[coupled] = cls._sample_normal_coupled_targets(
                 int(coupled.sum().item()),
                 device,
                 max_planar_speed,
-                max_yaw_rate,
-                normal_yaw_full_cap_speed_mps=normal_yaw_full_cap_speed_mps,
-                normal_yaw_cap_at_max_planar_speed_radps=normal_yaw_cap_at_max_planar_speed_radps,
+                yaw_rate_caps[coupled],
             )
         mode[slow] = cls.SLOW_COUPLED_TURN
         mode[rotate] = cls.ROTATE_IN_PLACE

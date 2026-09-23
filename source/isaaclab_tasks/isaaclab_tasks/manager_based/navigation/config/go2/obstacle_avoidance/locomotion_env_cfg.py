@@ -408,8 +408,8 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        # All environments begin on the easiest terrain row.  The velocity
-        # command profile is deliberately identical at every terrain level.
+        # All environments begin on the easiest terrain row. The yaw envelope
+        # ramps through level 5; normal-command update timing starts at level 5.
         self.scene.terrain.max_init_terrain_level = 0
         # Torque-offset randomization is deferred for this first robust-policy
         # revision.  Reintroduce it only as an explicit later curriculum.
@@ -417,8 +417,10 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
-            normal_yaw_full_cap_speed_mps=1.0,
-            normal_yaw_cap_at_max_planar_speed_radps=1.0,
+            max_yaw_rate=1.5,
+            yaw_rate_start_cap_radps=0.6,
+            yaw_rate_ramp_start_terrain_level=0,
+            yaw_rate_ramp_full_terrain_level=5,
             slow_coupled_turn_probability=0.10,
             rotate_in_place_probability=0.10,
             full_stop_probability=0.10,
