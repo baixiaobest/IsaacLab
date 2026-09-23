@@ -34,6 +34,8 @@ def _bare_command_term(
         max_yaw_delta_radps=0.3,
         max_planar_speed=1.5,
         max_yaw_rate=2.0,
+        normal_yaw_full_cap_speed_mps=1.0,
+        normal_yaw_cap_at_max_planar_speed_radps=1.0,
         sudden_change_time_fraction=0.5,
     )
     terrain = SimpleNamespace(terrain_levels=torch.tensor([level], dtype=torch.long))
@@ -98,6 +100,20 @@ def test_direct_yaw_has_no_heading_dependency() -> None:
     second, _ = RobustVelocityCommand.sample_direct_targets(128, "cpu")
     torch.testing.assert_close(first, second)
     assert torch.any(torch.abs(first[:, 2]) > 0.0)
+
+
+def test_normal_and_sudden_yaw_cap_shrinks_above_one_meter_per_second() -> None:
+    command, mode = RobustVelocityCommand.sample_direct_targets(100_000, "cpu")
+    coupled = (mode == RobustVelocityCommand.NORMAL_COUPLED_MOTION) | (
+        mode == RobustVelocityCommand.SUDDEN_CHANGE
+    )
+    speed = torch.linalg.vector_norm(command[coupled, :2], dim=-1)
+    yaw_cap = 2.0 - 2.0 * (speed - 1.0).clamp(min=0.0, max=0.5)
+
+    assert torch.all(torch.abs(command[coupled, 2]) <= yaw_cap + 1.0e-6)
+    fast_coupled = coupled & (torch.linalg.vector_norm(command[:, :2], dim=-1) > 1.45)
+    assert torch.any(fast_coupled)
+    assert torch.all(torch.abs(command[fast_coupled, 2]) <= 1.1)
 
 
 def test_robust_command_implements_debug_visualization() -> None:

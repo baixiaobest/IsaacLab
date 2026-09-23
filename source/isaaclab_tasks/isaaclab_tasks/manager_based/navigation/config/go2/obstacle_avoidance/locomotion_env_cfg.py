@@ -417,6 +417,8 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
+            normal_yaw_full_cap_speed_mps=1.0,
+            normal_yaw_cap_at_max_planar_speed_radps=1.0,
             slow_coupled_turn_probability=0.10,
             rotate_in_place_probability=0.10,
             full_stop_probability=0.10,
