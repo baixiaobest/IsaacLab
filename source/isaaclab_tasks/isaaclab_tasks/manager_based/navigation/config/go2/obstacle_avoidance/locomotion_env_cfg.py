@@ -435,6 +435,8 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         # robust-v1 instead derives timing from each environment's terrain level.
         self.curriculum.command_resampling_time = None
 
+        self.rewards.track_lin_vel_xy_exp.weight = 2.5
+
 @configclass
 class LocomotionVelEnvCfg_LIDAR_TEST(LocomotionVelEnvCfg_PLAY):
     """Test variant: replaces terrain with tall discrete obstacles so the L2 lidar
