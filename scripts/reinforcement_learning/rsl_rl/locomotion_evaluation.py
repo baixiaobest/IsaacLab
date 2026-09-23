@@ -165,7 +165,10 @@ def evaluate_gates(
     baseline_coupled = [
         row for row in baseline if row["condition"] != NOMINAL_CONDITION and row["trajectory"] in coupled_families
     ]
-    baseline_coupled_rate = _rate(baseline_coupled)
+    # A standalone evaluation has no baseline rows.  Preserve that absence as
+    # JSON ``null`` in the artifact rather than emitting ``NaN``, which the
+    # evaluator intentionally rejects when it serializes its summary.
+    baseline_coupled_rate = _rate(baseline_coupled) if baseline_coupled else None
     candidate_coupled_rate = _rate(candidate_coupled)
     ratio_ci = _bootstrap_rate_ratio(candidate_coupled, baseline_coupled)
 
@@ -184,12 +187,16 @@ def evaluate_gates(
         for key in quality_keys
     } if comparison_available else {key: "not_assessed" for key in quality_keys})
     candidate_stress_rate = _rate(stress)
-    zero_baseline = baseline_coupled_rate == 0.0
-    coupled_gate = (
-        candidate_coupled_rate == 0.0
-        if zero_baseline
-        else candidate_coupled_rate <= 0.70 * baseline_coupled_rate and ratio_ci[1] is not None and ratio_ci[1] <= 0.70
-    )
+    if comparison_available:
+        zero_baseline = baseline_coupled_rate == 0.0
+        coupled_gate = (
+            candidate_coupled_rate == 0.0
+            if zero_baseline
+            else candidate_coupled_rate <= 0.70 * baseline_coupled_rate
+            and ratio_ci[1] is not None and ratio_ci[1] <= 0.70
+        )
+    else:
+        coupled_gate = "not_assessed"
     absolute_gates = {
         "sufficient_samples": episodes_per_profile >= 100,
         "nominal_zero_falls": _rate(nominal) == 0.0,
