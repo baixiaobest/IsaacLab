@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -88,3 +89,6 @@ def test_standalone_gates_are_absolute_only() -> None:
     assert result["hardware_eligible"]
     assert not result["comparison_available"]
     assert result["comparative_gates"]["coupled_turn_improvement"] == "not_assessed"
+    assert result["fall_rates"]["baseline_coupled_stress"] is None
+    # Evaluation artifacts are serialized with allow_nan=False.
+    json.dumps(result, allow_nan=False)
