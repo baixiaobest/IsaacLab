@@ -281,8 +281,7 @@ class RobustVelocityCommand(CommandTerm):
                 len(sudden_ids),
                 self.device,
                 self.cfg.max_planar_speed,
-                self.cfg.max_yaw_rate,
-                yaw_rate_caps=self._yaw_rate_caps(sudden_ids),
+                self._yaw_rate_caps(sudden_ids),
             )
             self._sudden_change_fired[sudden_ids] = True
         normal = modes == self.NORMAL_COUPLED_MOTION

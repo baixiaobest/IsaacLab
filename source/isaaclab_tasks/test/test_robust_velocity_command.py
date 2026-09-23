@@ -148,7 +148,8 @@ def test_sudden_change_occurs_once_at_episode_midpoint_and_is_independent() -> N
     assert torch.isinf(term.time_left[0])
     assert not torch.equal(term.target_command, prior)
     assert torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item() <= 1.5
-    assert abs(term.target_command[0, 2].item()) <= 2.0
+    # The midpoint replacement uses the same level-0 yaw cap as the initial prior.
+    assert abs(term.target_command[0, 2].item()) <= 1.0
     after = term.target_command.clone()
     term._resample_existing_priors(torch.tensor([0]))
     torch.testing.assert_close(term.target_command, after)
