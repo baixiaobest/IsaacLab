@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import torch
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
@@ -16,17 +15,14 @@ from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, ImuCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg, ImuCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
-from isaaclab.terrains.config.rough import ROUGH_ONLY, ROUGH_AND_GRIDS, DISCRETE_OBSTACLES_ONLY
+from isaaclab.terrains.config.rough import ROUGH_ONLY, ROUGH_AND_GRIDS
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab.envs import ManagerBasedRLEnv
-from isaaclab.envs.mdp.observations import occupancy_grid_from_lidar
-from isaaclab_tasks.manager_based.navigation.mdp.vis_utils import acquire_debug_draw, draw_occupancy_grid_points
 
 from isaaclab_assets.robots.unitree import UNITREE_GO2_CFG
 from .observation_modifiers import (
@@ -38,7 +34,11 @@ from .observation_modifiers import (
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
-    """Flat-terrain scene with Go2."""
+    """Flat-terrain scene with Go2.
+
+    This is deliberately sensor-free: the regular locomotion policy and its
+    estimator should not incur the LiDAR update cost or expose LiDAR data.
+    """
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -66,25 +66,6 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/base",
         offset=ImuCfg.OffsetCfg(pos=(-0.02557, 0.0, 0.04232)),
         gravity_bias=(0.0, 0.0, 9.81),
-        debug_vis=False,
-    )
-
-    # Unitree 4D LiDAR L2: 360°×96° FOV, 16-channel approximation, 30m range.
-    # Position from official Go2 URDF (unitreerobotics/unitree_ros): xyz=(0.28945, 0, -0.046825)
-    # relative to base. The URDF also has rpy=(0, 2.8782, 0) (≈165° pitch) which is a body-frame
-    # mounting convention for the L2 housing — it does NOT tilt the scan plane and is not applied here.
-    l2_lidar = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.28945, 0.0, -0.046825)),
-        ray_alignment="yaw",
-        max_distance=30.0,
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=8,
-            vertical_fov_range=(-15.0, 15.0),
-            horizontal_fov_range=(0.0, 360.0),
-            horizontal_res=1.0,
-        ),
-        mesh_prim_paths=["/World/ground"],
         debug_vis=False,
     )
 
@@ -172,22 +153,8 @@ class ObservationsCfg:
         imu_ang_vel = ObsTerm(func=mdp.imu_ang_vel, params={"asset_cfg": SceneEntityCfg("imu")})
         imu_lin_acc = ObsTerm(func=mdp.imu_lin_acc, params={"asset_cfg": SceneEntityCfg("imu")})
 
-    @configclass
-    class LidarObsCfg(ObsGroup):
-        """Occupancy grid from the Unitree L2 lidar (32×32 @ 0.4 m/cell, 12.8 m span)."""
-
-        occupancy_grid = ObsTerm(
-            func=occupancy_grid_from_lidar,
-            params={"sensor_cfg": SceneEntityCfg("l2_lidar"), "grid_size": 32, "grid_resolution": 0.4},
-        )
-
-        def __post_init__(self):
-            self.enable_corruption = False
-            self.concatenate_terms = True
-
     policy: PolicyCfg = PolicyCfg()
     ground_truth: GroundTruthCfg = GroundTruthCfg()
-    lidar: LidarObsCfg = LidarObsCfg()
 
 
 @configclass
@@ -383,8 +350,6 @@ class LocomotionVelEnvCfg(ManagerBasedRLEnvCfg):
             self.scene.contact_forces.update_period = self.sim.dt
         if self.scene.imu is not None:
             self.scene.imu.update_period = self.sim.dt
-        if self.scene.l2_lidar is not None:
-            self.scene.l2_lidar.update_period = self.decimation * self.sim.dt
 
 
 @configclass
@@ -432,39 +397,6 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         # The generic curriculum mutates UniformVelocityCommandCfg timing globally;
         # robust-v1 instead derives timing from each environment's terrain level.
         self.curriculum.command_resampling_time = None
-
-@configclass
-class LocomotionVelEnvCfg_LIDAR_TEST(LocomotionVelEnvCfg_PLAY):
-    """Test variant: replaces terrain with tall discrete obstacles so the L2 lidar
-    occupancy grid can be visually verified in the Isaac Sim viewport."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 1
-        self.scene.terrain.terrain_generator = DISCRETE_OBSTACLES_ONLY
-        self.scene.terrain.max_init_terrain_level = 0  # start on easiest level (most obstacles)
-        self.scene.l2_lidar.debug_vis = True            # show raw ray hits in viewport
-
-
-class LocomotionLidarVizEnv(ManagerBasedRLEnv):
-    """ManagerBasedRLEnv subclass that draws the L2 lidar occupancy grid in the viewport each step."""
-
-    def __init__(self, cfg, **kwargs):
-        super().__init__(cfg, **kwargs)
-        self._occ_draw = acquire_debug_draw()
-        self._occ_sensor_cfg = SceneEntityCfg("l2_lidar")
-
-    def step(self, action: torch.Tensor):
-        result = super().step(action)
-        if self._occ_draw is not None:
-            grid_flat = occupancy_grid_from_lidar(self, self._occ_sensor_cfg, grid_size=32, grid_resolution=0.4)
-            sensor_pos = self.scene["l2_lidar"].data.pos_w
-            grid_2d = grid_flat[0].reshape(32, 32).cpu().numpy()
-            sx, sy = float(sensor_pos[0, 0].item()), float(sensor_pos[0, 1].item())
-            self._occ_draw.clear_points()
-            draw_occupancy_grid_points(self._occ_draw, grid_2d, (sx, sy), grid_resolution=0.4)
-        return result
-
 
 @configclass
 class LocomotionVelEnvCfg_ROLLOUT(LocomotionVelEnvCfg):

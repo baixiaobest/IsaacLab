@@ -34,7 +34,8 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.envs.mdp.observations import occupancy_grid_from_lidar
 from isaaclab_tasks.manager_based.navigation.mdp.vis_utils import acquire_debug_draw, draw_occupancy_grid_points
 
-from .locomotion_env_cfg import LocomotionVelEnvCfg, MySceneCfg as LowLevelSceneCfg
+from .locomotion_env_cfg import LocomotionVelEnvCfg
+from .occupancy_locomotion_env_cfg import OccupancyLidarSceneCfg as LowLevelSceneCfg
 from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 
 LOW_LEVEL_ENV_CFG = LocomotionVelEnvCfg()
