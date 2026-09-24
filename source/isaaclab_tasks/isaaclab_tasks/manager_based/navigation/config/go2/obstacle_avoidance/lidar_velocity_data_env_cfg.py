@@ -37,8 +37,8 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
         self.curriculum.terrain_levels = None
         self.curriculum.discrete_obstacles = None
         self.curriculum.concentric_maze = None
-        self.curriculum.ped_corridor = None
-        self.curriculum.indoor_ped_corridor = None
+        self.curriculum.open_dynamic_terrain_level = None
+        self.curriculum.indoor_dynamic_terrain_level = None
         self.curriculum.pedestrian_density = None
         self.events.reset_pedestrians = EventTerm(
             func=reset_fixed_level_pedestrian_crowd,

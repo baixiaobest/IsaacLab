@@ -186,8 +186,16 @@ class _MixedEventCfg:
 
 @configclass
 class _MixedCurriculumCfg:
-    ped_corridor = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "ped_corridor"})
-    indoor_ped_corridor = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "indoor_ped_corridor"})
+    # Log these families separately: their curricula intentionally progress at
+    # different rates and a global terrain mean conceals that distinction.
+    open_dynamic_terrain_level = CurrTerm(
+        func=mdp.GetTerrainLevel,
+        params={"terrain_name": "ped_corridor", "get_max": True},
+    )
+    indoor_dynamic_terrain_level = CurrTerm(
+        func=mdp.GetTerrainLevel,
+        params={"terrain_name": "indoor_ped_corridor", "get_max": True},
+    )
 
     pedestrian_density = CurrTerm(
         func=nav_mdp.pedestrian_crowd_curriculum,
@@ -605,8 +613,8 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     env_cfg.curriculum.terrain_levels = None
     env_cfg.curriculum.discrete_obstacles = None
     env_cfg.curriculum.concentric_maze = None
-    env_cfg.curriculum.ped_corridor = None
-    env_cfg.curriculum.indoor_ped_corridor = None
+    env_cfg.curriculum.open_dynamic_terrain_level = None
+    env_cfg.curriculum.indoor_dynamic_terrain_level = None
     env_cfg.curriculum.pedestrian_density = None
 
     env_cfg.events.reset_base = EventTerm(
