@@ -440,6 +440,19 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
             full_stop_probability=0.10,
             normal_coupled_motion_probability=0.40,
             sudden_change_probability=0.30,
+            # Above terrain level 5, sudden targets repeat every 5 s -> 3 s
+            # by level 9, while the 10% full-stop mode becomes a 4 s high-
+            # speed cruise followed by a measured stop-and-repeat cycle.
+            sudden_change_start_terrain_level=5,
+            sudden_change_start_interval_s=5.0,
+            sudden_change_full_interval_s=3.0,
+            stop_cycle_start_terrain_level=5,
+            stop_cycle_cruise_duration_s=4.0,
+            stop_cycle_planar_speed_range_mps=(0.75, 1.5),
+            stop_cycle_settle_planar_speed_mps=0.10,
+            stop_cycle_settle_yaw_rate_radps=0.10,
+            stop_cycle_settle_duration_s=0.5,
+            stop_cycle_max_dwell_s=3.0,
             # Required by CommandTermCfg only; RobustVelocityCommand owns its
             # per-environment schedule and does not use this generic range.
             resampling_time_range=(1.0e6, 1.0e6),
