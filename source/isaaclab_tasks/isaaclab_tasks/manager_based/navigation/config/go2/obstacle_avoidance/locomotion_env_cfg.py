@@ -227,6 +227,11 @@ class EventCfg:
         },
     )
 
+    # Enabled only by ``LocomotionVelEnvCfg_ROBUST`` below.  The default,
+    # play, and rollout tasks intentionally retain their current disturbance
+    # distribution.
+    base_wrench_impulse: EventTerm | None = None
+
 
 @configclass
 class RewardsCfg:
@@ -379,6 +384,31 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         # Torque-offset randomization is deferred for this first robust-policy
         # revision.  Reintroduce it only as an explicit later curriculum.
         self.events.joint_torque_offset_curriculum = None
+        # The term executes each 20 ms RL control step and holds a selected
+        # base-frame force across all four 5 ms physics substeps.  It uses a
+        # per-environment terrain-level gate rather than a global curriculum
+        # activation, so only robots that reached level 5 receive kick pulses.
+        self.events.base_wrench_impulse = EventTerm(
+            func=mdp.BaseWrenchImpulse,
+            mode="interval",
+            interval_range_s=(0.02, 0.02),
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "command_name": "base_velocity",
+                "terrain_level_threshold": 5,
+                "settle_time_s": 1.5,
+                "command_speed_threshold": 0.2,
+                "pulse_interval_range_s": (3.0, 6.0),
+                "pulse_duration_range_s": (0.04, 0.08),
+                # Terrain bands: levels 5-6, 7, 8, and 9+ respectively.
+                "impulse_ranges_by_level": ((5.0, 10.0), (10.0, 16.0), (16.0, 22.0), (22.0, 25.0)),
+                "application_point_range_m": (
+                    (-0.15, 0.15),
+                    (-0.15, 0.15),
+                    (-0.10, 0.10),
+                ),
+            },
+        )
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
