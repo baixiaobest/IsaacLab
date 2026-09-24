@@ -8,7 +8,9 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import shutil
 import sys
+from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
@@ -34,11 +36,25 @@ parser.add_argument("--export_io_descriptors", action="store_true", default=Fals
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument(
+    "--resume_checkpoint_path", type=str, default=None,
+    help="Staged external native RSL-RL checkpoint to restore instead of resolving a local log directory.",
+)
+parser.add_argument("--resume_checkpoint_sha256", type=str, default=None, help="Optional SHA-256 for the staged checkpoint.")
+parser.add_argument("--resume_parent_experiment_id", type=str, default=None, help="Research Agent parent experiment provenance.")
+parser.add_argument("--resume_target_branch", type=str, default=None, help="Pinned target branch provenance.")
+parser.add_argument("--resume_target_commit", type=str, default=None, help="Pinned target commit provenance.")
+parser.add_argument("--preflight_resume", action="store_true", default=False, help="Validate and load a continuation without learning.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+
+if args_cli.resume_checkpoint_path and (args_cli.resume or args_cli.load_run is not None or args_cli.checkpoint is not None):
+    parser.error("--resume_checkpoint_path cannot be combined with local --resume/--load_run/--checkpoint arguments.")
+if args_cli.preflight_resume and not args_cli.resume_checkpoint_path:
+    parser.error("--preflight_resume requires --resume_checkpoint_path.")
 
 # always enable cameras to record video
 if args_cli.video:
@@ -94,11 +110,23 @@ from isaaclab.envs import (
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
 
-from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+from isaaclab_rl.rsl_rl import (
+    RslRlBaseRunnerCfg,
+    RslRlVecEnvWrapper,
+    handle_deprecated_rsl_rl_cfg,
+    handle_deprecated_rsl_rl_checkpoint,
+)
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
+from research_agent_continuation import (
+    ResumeLineage,
+    assert_checkout_matches,
+    inspect_native_checkpoint,
+    resolve_branch_commit,
+    write_resume_lineage,
+)
 
 # import logger
 logger = logging.getLogger(__name__)
@@ -120,6 +148,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     agent_cfg.max_iterations = (
         args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
     )
+    external_resume = args_cli.resume_checkpoint_path is not None
+    if external_resume:
+        if not all((args_cli.resume_parent_experiment_id, args_cli.resume_target_branch, args_cli.resume_target_commit)):
+            raise ValueError(
+                "External Research Agent resume requires parent experiment, target branch, and target commit provenance."
+            )
+        repository = Path(__file__).resolve().parents[3]
+        resolved_commit = resolve_branch_commit(repository, args_cli.resume_target_branch, args_cli.resume_target_commit)
+        assert_checkout_matches(repository, resolved_commit)
+        agent_cfg.resume = True
 
     # handle deprecated configurations
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
@@ -157,6 +195,40 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if agent_cfg.run_name:
         log_dir += f"_{agent_cfg.run_name}"
     log_dir = os.path.join(log_root_path, log_dir)
+    resume_path = None
+    resume_checkpoint = None
+    if external_resume:
+        resume_checkpoint = inspect_native_checkpoint(
+            args_cli.resume_checkpoint_path, expected_sha256=args_cli.resume_checkpoint_sha256
+        )
+        # Preserve the downloaded artifact as an immutable input.  A separate
+        # writable copy accommodates Isaac Lab's existing legacy conversion
+        # helper without ever mutating the downloaded parent checkpoint.
+        input_dir = Path(log_dir) / "inputs"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        immutable_input = input_dir / "parent_checkpoint.pt"
+        shutil.copy2(resume_checkpoint.path, immutable_input)
+        immutable_input.chmod(0o444)
+        work_copy = Path(log_dir) / ".resume_work" / "parent_checkpoint.pt"
+        work_copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(immutable_input, work_copy)
+        resume_path = handle_deprecated_rsl_rl_checkpoint(str(work_copy), installed_version)
+        write_resume_lineage(
+            Path(log_dir) / "params" / "resume_lineage.json",
+            ResumeLineage(
+                parent_experiment_id=args_cli.resume_parent_experiment_id,
+                parent_checkpoint_id=None,
+                parent_checkpoint_path=resume_checkpoint.path,
+                parent_checkpoint_sha256=resume_checkpoint.sha256,
+                parent_checkpoint_iteration=resume_checkpoint.iteration,
+                task=args_cli.task,
+                workflow="rsl_rl",
+                target_branch=args_cli.resume_target_branch,
+                target_commit=resolved_commit,
+                seed=agent_cfg.seed,
+                additional_iterations=agent_cfg.max_iterations,
+            ),
+        )
 
     # set the IO descriptors export flag if requested
     if isinstance(env_cfg, ManagerBasedRLEnvCfg):
@@ -177,7 +249,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = multi_agent_to_single_agent(env)
 
     # save resume path before creating a new log_dir
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if resume_path is None and (agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation"):
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint, [agent_cfg.other_dir])
 
     # wrap for video recording
@@ -207,7 +279,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
     # load the checkpoint
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if resume_path is not None:
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
@@ -215,6 +287,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
+
+    if args_cli.preflight_resume:
+        print("[INFO]: Research Agent resume preflight completed successfully.")
+        env.close()
+        return
 
     # run training
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
