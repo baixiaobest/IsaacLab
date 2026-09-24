@@ -260,6 +260,28 @@ def zero_command_ang_vel_xy_l2(
     return torch.where(command_norm < command_threshold, body_ang_vel_sq, torch.zeros_like(body_ang_vel_sq))
 
 
+def stationary_base_height_l2(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    target_height: float = 0.40,
+    planar_deadzone_mps: float = 0.10,
+    yaw_deadzone_radps: float = 0.10,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize base-height error only while the commanded motion is stationary.
+
+    The planar vector and yaw rate are gated independently so a robot asked to
+    rotate in place is not treated as standing still.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    stationary = (torch.linalg.vector_norm(command[:, :2], dim=1) < planar_deadzone_mps) & (
+        torch.abs(command[:, 2]) < yaw_deadzone_radps
+    )
+    height_error_sq = torch.square(asset.data.root_pos_w[:, 2] - target_height)
+    return torch.where(stationary, height_error_sq, torch.zeros_like(height_error_sq))
+
+
 def excessive_velocity(
     env: ManagerBasedRLEnv,
     speed_threshold: float = 1.0,

@@ -260,6 +260,9 @@ class RewardsCfg:
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
+    # Enabled only by ``LocomotionVelEnvCfg_ROBUST``.  The default, play, and
+    # rollout tasks retain their existing reward definitions.
+    stationary_base_height_l2: RewTerm | None = None
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-2.0e-4)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -384,6 +387,24 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         # Torque-offset randomization is deferred for this first robust-policy
         # revision.  Reintroduce it only as an explicit later curriculum.
         self.events.joint_torque_offset_curriculum = None
+        self.rewards.stationary_base_height_l2 = RewTerm(
+            func=mdp.stationary_base_height_l2,
+            weight=-5.0,
+            params={
+                "command_name": "base_velocity",
+                "target_height": 0.40,
+                "planar_deadzone_mps": 0.10,
+                "yaw_deadzone_radps": 0.10,
+            },
+        )
+        self.rewards.lower_head_contact = RewTerm(
+            func=mdp.undesired_contacts,
+            weight=-2.0,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head_lower"),
+                "threshold": 1.0,
+            },
+        )
         # The term executes each 20 ms RL control step and holds a selected
         # base-frame force across all four 5 ms physics substeps.  It uses a
         # per-environment terrain-level gate rather than a global curriculum

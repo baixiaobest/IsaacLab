@@ -34,6 +34,8 @@ def _bare_command_term(
         max_yaw_delta_radps=0.3,
         max_planar_speed=1.5,
         max_yaw_rate=2.0,
+        planar_deadzone_mps=0.10,
+        yaw_deadzone_radps=0.10,
         normal_yaw_full_cap_speed_mps=1.0,
         normal_yaw_cap_at_max_planar_speed_radps=1.0,
         sudden_change_time_fraction=0.5,
@@ -199,6 +201,25 @@ def test_scripted_command_is_immediate_and_bounded() -> None:
     torch.testing.assert_close(term.command, torch.tensor([[1.5, 0.0, 2.0]]))
     torch.testing.assert_close(term.command, term.emitted_command)
     assert not hasattr(term, "set_delay_ticks")
+
+
+def test_command_deadzone_snaps_planar_and_yaw_independently() -> None:
+    term = _bare_command_term()
+    term._target_command[:] = torch.tensor(
+        [
+            [0.06, 0.06, 0.20],
+        ]
+    )
+    term._update_command()
+    torch.testing.assert_close(term.command, torch.tensor([[0.0, 0.0, 0.20]]))
+
+    term._target_command[:] = torch.tensor([[0.20, 0.0, 0.06]])
+    term._update_command()
+    torch.testing.assert_close(term.command, torch.tensor([[0.20, 0.0, 0.0]]))
+
+    term._target_command[:] = torch.tensor([[0.06, 0.06, 0.06]])
+    term._update_command()
+    torch.testing.assert_close(term.command, torch.zeros(1, 3))
 
 
 def test_tracking_terrain_curriculum_promotes_good_and_demotes_bad_episodes() -> None:

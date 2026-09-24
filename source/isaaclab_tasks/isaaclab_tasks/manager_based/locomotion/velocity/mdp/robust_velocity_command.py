@@ -32,6 +32,10 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     asset_name: str = "robot"
     max_planar_speed: float = 1.5
     max_yaw_rate: float = 2.0
+    planar_deadzone_mps: float = 0.10
+    """Planar commands below this magnitude are emitted as a full stop."""
+    yaw_deadzone_radps: float = 0.10
+    """Yaw commands below this magnitude are emitted as zero."""
     normal_yaw_full_cap_speed_mps: float = 1.0
     """Planar speed through which normal/sudden commands retain ``max_yaw_rate``."""
     normal_yaw_cap_at_max_planar_speed_radps: float = 1.0
@@ -66,6 +70,10 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             self.class_type = RobustVelocityCommand
         if self.max_planar_speed <= 0.0 or self.max_yaw_rate <= 0.0:
             raise ValueError("Velocity limits must be positive.")
+        if not 0.0 <= self.planar_deadzone_mps <= self.max_planar_speed:
+            raise ValueError("planar_deadzone_mps must lie in [0, max_planar_speed].")
+        if not 0.0 <= self.yaw_deadzone_radps <= self.max_yaw_rate:
+            raise ValueError("yaw_deadzone_radps must lie in [0, max_yaw_rate].")
         if not 0.0 < self.normal_yaw_full_cap_speed_mps < self.max_planar_speed:
             raise ValueError("normal_yaw_full_cap_speed_mps must lie strictly within the planar-speed envelope.")
         if not 0.0 <= self.normal_yaw_cap_at_max_planar_speed_radps <= self.max_yaw_rate:
@@ -400,6 +408,10 @@ class RobustVelocityCommand(CommandTerm):
         planar_norm = torch.linalg.vector_norm(bounded[:, :2], dim=-1, keepdim=True)
         bounded[:, :2] *= torch.clamp(self.cfg.max_planar_speed / planar_norm.clamp_min(1.0e-8), max=1.0)
         bounded[:, 2].clamp_(-self.cfg.max_yaw_rate, self.cfg.max_yaw_rate)
+        stationary_planar = planar_norm.squeeze(-1) < self.cfg.planar_deadzone_mps
+        bounded[stationary_planar, :2] = 0.0
+        stationary_yaw = torch.abs(bounded[:, 2]) < self.cfg.yaw_deadzone_radps
+        bounded[stationary_yaw, 2] = 0.0
         return bounded
 
     def _update_metrics(self) -> None:
