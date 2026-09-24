@@ -142,6 +142,53 @@ def _reset_robot_from_pedestrian_modes(
     crossing_samples = torch.where(is_north_start.unsqueeze(-1), north_samples, south_samples)
     rand_samples = torch.where(is_crossing.unsqueeze(-1), crossing_samples, flow_samples)
 
+    # Indoor layouts have physical obstacles.  Although their protected lanes make
+    # invalid robot samples rare, validate the exact generated layout rather than
+    # relying on the range geometry alone.
+    indoor_mask = getattr(env, "is_indoor_pedestrian_env", torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))[env_ids]
+    if bool(indoor_mask.any()):
+        import numpy as np
+        from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.pedestrian_terrains import (
+            indoor_position_is_clear,
+        )
+
+        terrain: TerrainImporter = env.scene.terrain
+        levels = terrain.terrain_levels[env_ids]
+        types = terrain.terrain_types[env_ids]
+        indoor_cfg = terrain.cfg.terrain_generator.sub_terrains.get("indoor_ped_corridor")
+        layout_level_map = indoor_cfg.layout_level_map
+        corridor_origin = terrain.terrain_origins[levels, types][:, :2]
+        base_xy = root_states[:, :2] + env.scene.env_origins[env_ids, :2] - corridor_origin
+
+        def _invalid(samples: torch.Tensor) -> torch.Tensor:
+            invalid = torch.zeros(n, dtype=torch.bool, device=env.device)
+            for local_index in torch.nonzero(indoor_mask, as_tuple=False).squeeze(-1).tolist():
+                local_xy = (base_xy[local_index] + samples[local_index, :2]).detach().cpu().numpy()
+                terrain_level = int(levels[local_index].item())
+                layout_level = layout_level_map[terrain_level] if layout_level_map else terrain_level
+                invalid[local_index] = not indoor_position_is_clear(
+                    layout_level, np.asarray(local_xy), obstacle_clearance_m=0.9, wall_clearance_m=0.6,
+                    seed=indoor_cfg.layout_seed,
+                )
+            return invalid
+
+        invalid = _invalid(rand_samples)
+        for _ in range(32):
+            if not bool(invalid.any()):
+                break
+            flow_samples = _sample(flow_pose_range)
+            south_samples = _sample(crossing_south_pose_range)
+            north_samples = _sample(crossing_north_pose_range)
+            candidate = torch.where(
+                is_crossing.unsqueeze(-1),
+                torch.where(is_north_start.unsqueeze(-1), north_samples, south_samples),
+                flow_samples,
+            )
+            rand_samples = torch.where(invalid.unsqueeze(-1), candidate, rand_samples)
+            invalid = _invalid(rand_samples)
+        if bool(invalid.any()):
+            raise RuntimeError("Unable to sample a robot spawn clear of indoor walls and obstacles.")
+
     positions = root_states[:, 0:3] + env.scene.env_origins[env_ids] + rand_samples[:, 0:3]
     orientations_delta = math_utils.quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
     orientations = math_utils.quat_mul(root_states[:, 3:7], orientations_delta)
@@ -362,12 +409,52 @@ def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir
     size = terrain.cfg.terrain_generator.size
     corridor_length = torch.full((len(env_ids),), size[0], device=env.device)
     corridor_width = torch.full((len(env_ids),), size[1], device=env.device)
+    indoor_mask = getattr(env, "is_indoor_pedestrian_env", torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))[env_ids]
+    # The physical wall inner faces are at +/-6.5 m, so indoor spawn/recycle
+    # sampling uses the 13 m free width rather than the terrain's full 14 m.
+    corridor_width = torch.where(indoor_mask, torch.full_like(corridor_width, 13.0), corridor_width)
     flow_dir_t = torch.full((len(env_ids),), flow_dir, device=env.device)
 
     crowd_manager = env.crowd_manager
     num_active = crowd_manager.active_mask[env_ids].sum(dim=1)
     speed_range = crowd_manager._speed_range[env_ids]
     robot_pos = env.scene["robot"].data.root_pos_w[env_ids, :2]
+
+    # Keep the social-force geometry bit-identical to the generated indoor terrain.
+    # This import is local because the terrain config imports the navigation MDP package.
+    from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.pedestrian_terrains import (
+        INDOOR_MAX_OBSTACLES,
+        indoor_obstacle_layout,
+        indoor_surface_points,
+    )
+
+    q = crowd_manager.cfg.max_static_surface_points
+    rectangles = torch.zeros(len(env_ids), INDOOR_MAX_OBSTACLES, 4, device=env.device)
+    rectangle_mask = torch.zeros(len(env_ids), INDOOR_MAX_OBSTACLES, dtype=torch.bool, device=env.device)
+    surface_points = torch.zeros(len(env_ids), q, 2, device=env.device)
+    surface_weights = torch.zeros(len(env_ids), q, device=env.device)
+    surface_mask = torch.zeros(len(env_ids), q, dtype=torch.bool, device=env.device)
+    indoor_cfg = terrain.cfg.terrain_generator.sub_terrains.get("indoor_ped_corridor")
+    layout_level_map = indoor_cfg.layout_level_map
+    for local_index in torch.nonzero(indoor_mask, as_tuple=False).squeeze(-1).tolist():
+        terrain_level = int(levels[local_index].item())
+        level = layout_level_map[terrain_level] if layout_level_map else terrain_level
+        boxes = indoor_obstacle_layout(level, indoor_cfg.layout_seed)
+        points, weights = indoor_surface_points(
+            level, crowd_manager.cfg.static_surface_point_spacing_m, seed=indoor_cfg.layout_seed
+        )
+        if len(points) > q:
+            raise RuntimeError(f"Indoor force-point layout requires {len(points)} points, capacity is {q}.")
+        box_count = len(boxes)
+        rectangles[local_index, :box_count] = torch.as_tensor(boxes[:, :4], device=env.device)
+        rectangle_mask[local_index, :box_count] = True
+        point_count = len(points)
+        surface_points[local_index, :point_count] = torch.as_tensor(points, device=env.device) + corridor_origin[local_index]
+        surface_weights[local_index, :point_count] = torch.as_tensor(weights, device=env.device)
+        surface_mask[local_index, :point_count] = True
+    crowd_manager.configure_static_obstacle_field(
+        env_ids, rectangles, rectangle_mask, surface_points, surface_weights, surface_mask
+    )
 
     crowd_manager.reset_idx(
         env_ids,

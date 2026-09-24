@@ -92,6 +92,42 @@ class _CorridorPose2dCommandBase(UniformPose2dCommand):
         local_x = torch.where(is_crossing, cross_x, flow_x)
         local_y = torch.where(is_crossing, cross_y, flow_y)
 
+        indoor_mask = getattr(
+            self._env, "is_indoor_pedestrian_env", torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        )[env_ids]
+        if bool(indoor_mask.any()):
+            import numpy as np
+            from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.pedestrian_terrains import (
+                indoor_position_is_clear,
+            )
+
+            levels = self.terrain.terrain_levels[env_ids]
+            indoor_cfg = self.terrain.cfg.terrain_generator.sub_terrains.get("indoor_ped_corridor")
+            layout_level_map = indoor_cfg.layout_level_map
+            for local_index in torch.nonzero(indoor_mask, as_tuple=False).squeeze(-1).tolist():
+                for _ in range(32):
+                    candidate = np.asarray((local_x[local_index].item(), local_y[local_index].item()))
+                    terrain_level = int(levels[local_index].item())
+                    layout_level = layout_level_map[terrain_level] if layout_level_map else terrain_level
+                    if indoor_position_is_clear(
+                        layout_level, candidate, obstacle_clearance_m=0.9, wall_clearance_m=0.6,
+                        seed=indoor_cfg.layout_seed,
+                    ):
+                        break
+                    if bool(is_crossing[local_index]):
+                        local_x[local_index] = torch.empty((), device=self.device).uniform_(*self.cfg.crossing_x_range)
+                        local_y[local_index] = cross_y[local_index]
+                    else:
+                        new_distance = torch.empty((), device=self.device).uniform_(*self.cfg.goal_distance_range)
+                        local_x[local_index] = (direction[local_index] * new_distance).clamp(
+                            -self.cfg.corridor_half_length, self.cfg.corridor_half_length
+                        )
+                        local_y[local_index] = torch.empty((), device=self.device).uniform_(
+                            -self.cfg.corridor_half_width, self.cfg.corridor_half_width
+                        )
+                else:
+                    raise RuntimeError("Unable to sample a navigation goal clear of indoor walls and obstacles.")
+
         self.pos_command_w[env_ids, 0] += local_x
         self.pos_command_w[env_ids, 1] += local_y
         self._set_pos_z(env_ids)

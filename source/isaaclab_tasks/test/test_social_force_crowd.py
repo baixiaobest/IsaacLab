@@ -111,3 +111,31 @@ def test_reset_redraws_assignments_and_recycle_preserves_them(monkeypatch):
 
     _reset(manager, num_active=2)
     assert torch.equal(manager.ignores_robot, torch.tensor([[False, True]]))
+
+
+def test_indoor_surface_points_replace_analytic_wall_force():
+    manager = SocialForceCrowdManager(
+        SocialForceCrowdCfg(max_pedestrians=1, a_ped=0.0, a_robot=0.0, a_wall=5.0), num_envs=1, device="cpu"
+    )
+    _reset(manager, num_active=1)
+    q = manager.cfg.max_static_surface_points
+    rectangles = torch.zeros(1, 8, 4)
+    rectangle_mask = torch.zeros(1, 8, dtype=torch.bool)
+    points = torch.zeros(1, q, 2)
+    points[0, 0] = torch.tensor([0.0, 0.0])
+    weights = torch.zeros(1, q)
+    weights[0, 0] = manager.cfg.static_surface_point_spacing_m
+    point_mask = torch.zeros(1, q, dtype=torch.bool)
+    point_mask[0, 0] = True
+    manager.configure_static_obstacle_field(
+        torch.tensor([0]), rectangles, rectangle_mask, points, weights, point_mask
+    )
+    assert manager.static_surface_enabled[0]
+    assert not manager.analytic_wall_enabled[0]
+
+    manager.pos[:] = torch.tensor([[[1.0, 0.0]]])
+    manager.goal[:] = torch.tensor([[[1.0, 0.0]]])
+    manager.vel.zero_()
+    manager.desired_speed.fill_(1.0)
+    manager.step(dt=0.05)
+    assert manager.vel[0, 0, 0] > 0.0

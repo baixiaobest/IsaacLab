@@ -95,6 +95,15 @@ class SocialForceCrowdCfg:
     b_wall: float = 0.2
     """Corridor-wall repulsion range [m]."""
 
+    static_surface_point_spacing_m: float = 0.2
+    """Nominal spacing represented by indoor wall/obstacle force points [m]."""
+
+    max_static_surface_points: int = 512
+    """Fixed padded capacity for per-environment indoor force points."""
+
+    static_obstacle_clearance: float = 0.3
+    """Extra surface clearance applied when pedestrians spawn near indoor blocks [m]."""
+
     max_force: float = 8.0
     """Clamp applied to the total social force [m/s^2]."""
 
@@ -177,6 +186,8 @@ class SocialForceCrowdManager:
     def __init__(self, cfg: SocialForceCrowdCfg, num_envs: int, device: str):
         if not 0.0 <= cfg.robot_ignore_probability <= 1.0:
             raise ValueError("robot_ignore_probability must lie in [0, 1].")
+        if cfg.static_surface_point_spacing_m <= 0.0:
+            raise ValueError("static_surface_point_spacing_m must be positive.")
 
         self.cfg = cfg
         self.num_envs = num_envs
@@ -228,6 +239,17 @@ class SocialForceCrowdManager:
         self._radius_sum_robot = self.radius + cfg.robot_radius  # (N, P)
         self._pair_mask = torch.zeros(n, p, p, dtype=torch.bool, device=device)  # (N, P, P)
         self._half_width = self.corridor_width.unsqueeze(1) / 2.0  # (N, 1)
+
+        # Indoor-only static geometry. Rectangles are corridor-local for spawn and
+        # recycle validation; force points are world-frame for the dynamics step.
+        q = cfg.max_static_surface_points
+        self.static_surface_points = torch.zeros(n, q, 2, device=device)
+        self.static_surface_weights = torch.zeros(n, q, device=device)
+        self.static_surface_mask = torch.zeros(n, q, dtype=torch.bool, device=device)
+        self.static_surface_enabled = torch.zeros(n, dtype=torch.bool, device=device)
+        self.analytic_wall_enabled = torch.ones(n, dtype=torch.bool, device=device)
+        self.static_rectangles_local = torch.zeros(n, 8, 4, device=device)
+        self.static_rectangle_mask = torch.zeros(n, 8, dtype=torch.bool, device=device)
 
     # ------------------------------------------------------------------
     # Per-instance geometry (capsule radius/height) — set once at startup.
@@ -364,6 +386,36 @@ class SocialForceCrowdManager:
             raise ValueError("Lateral heading maxima must lie in [0, pi/2).")
         self._lateral_heading_max[env_ids] = heading_max
 
+    def configure_static_obstacle_field(
+        self,
+        env_ids: torch.Tensor,
+        rectangles_local: torch.Tensor,
+        rectangle_mask: torch.Tensor,
+        surface_points_world: torch.Tensor,
+        surface_weights: torch.Tensor,
+        surface_mask: torch.Tensor,
+    ) -> None:
+        """Install indoor collision and social-force geometry for selected environments.
+
+        Empty masks configure an ordinary open corridor and restore analytic wall force.
+        """
+        e = env_ids
+        q = self.cfg.max_static_surface_points
+        if rectangles_local.shape != (len(e), 8, 4) or rectangle_mask.shape != (len(e), 8):
+            raise ValueError("Indoor rectangle buffers must have shapes (E, 8, 4) and (E, 8).")
+        if surface_points_world.shape != (len(e), q, 2) or surface_weights.shape != (len(e), q):
+            raise ValueError("Indoor surface buffers must match the configured fixed point capacity.")
+        if surface_mask.shape != (len(e), q):
+            raise ValueError("Indoor surface mask must have shape (E, max_static_surface_points).")
+        self.static_rectangles_local[e] = rectangles_local
+        self.static_rectangle_mask[e] = rectangle_mask
+        self.static_surface_points[e] = surface_points_world
+        self.static_surface_weights[e] = surface_weights
+        self.static_surface_mask[e] = surface_mask
+        enabled = surface_mask.any(dim=1)
+        self.static_surface_enabled[e] = enabled
+        self.analytic_wall_enabled[e] = ~enabled
+
     def _update_pair_mask(self) -> None:
         """Refresh the cached pairwise active-pair mask from ``active_mask``."""
         active = self.active_mask
@@ -412,6 +464,7 @@ class SocialForceCrowdManager:
         local_y = (torch.rand(n, p, device=self.device) * 2.0 - 1.0) * half_width
 
         local_pos = torch.stack([local_x, local_y], dim=-1)
+        local_pos = self._resample_clear_of_static_obstacles(env_ids, local_pos, self.active_mask[env_ids])
         local_pos = self._resample_clear_of_robot(
             env_ids, local_pos, corridor_length, corridor_width, robot_pos, self.active_mask[env_ids]
         )
@@ -433,6 +486,41 @@ class SocialForceCrowdManager:
         b_robot = b_lo + torch.rand(n, p, device=self.device) * (b_hi - b_lo)
 
         return local_pos, vel, goal, speed, b_robot
+
+    def _resample_clear_of_static_obstacles(
+        self, env_ids: torch.Tensor, local_pos: torch.Tensor, candidate_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Reject candidate positions inside or too close to indoor rectangles."""
+        if not bool(candidate_mask.any()) or not bool(self.static_rectangle_mask[env_ids].any()):
+            return local_pos
+        n, p = local_pos.shape[:2]
+        rectangles = self.static_rectangles_local[env_ids]
+        rect_mask = self.static_rectangle_mask[env_ids]
+        clearance = self.radius[env_ids].unsqueeze(-1) + self.cfg.static_obstacle_clearance
+
+        def invalid_positions(candidate: torch.Tensor) -> torch.Tensor:
+            delta = torch.abs(candidate.unsqueeze(2) - rectangles[:, None, :, :2]) - rectangles[:, None, :, 2:] / 2
+            distance = torch.linalg.vector_norm(torch.clamp(delta, min=0.0), dim=-1)
+            return candidate_mask & ((distance < clearance) & rect_mask[:, None, :]).any(dim=-1)
+
+        invalid = invalid_positions(local_pos)
+        if not bool(invalid.any()):
+            return local_pos
+        half_length = self.corridor_length[env_ids].unsqueeze(1) / 2.0
+        half_width = (self.corridor_width[env_ids].unsqueeze(1) / 2.0 - self.cfg.wall_margin).clamp(min=0.0)
+        for _ in range(self.cfg.max_spawn_attempts):
+            candidate = torch.stack(
+                [
+                    torch.rand(n, p, device=self.device) * 2.0 * half_length - half_length,
+                    (torch.rand(n, p, device=self.device) * 2.0 - 1.0) * half_width,
+                ],
+                dim=-1,
+            )
+            local_pos = torch.where(invalid.unsqueeze(-1), candidate, local_pos)
+            invalid = invalid_positions(local_pos)
+            if not bool(invalid.any()):
+                return local_pos
+        raise RuntimeError("Unable to sample pedestrians clear of indoor obstacles.")
 
     def _sample_downstream_goal_and_velocity(
         self,
@@ -557,7 +645,23 @@ class SocialForceCrowdManager:
         else:
             f_robot_goal = torch.zeros_like(f_ped)
 
-        # --- 3. Corridor-wall repulsion (analytic, local-y only) -------------------------
+        # --- 3. Indoor wall/obstacle surface samples -------------------------------------
+        f_static = torch.zeros_like(f_ped)
+        indoor_ids = torch.nonzero(self.static_surface_enabled, as_tuple=False).squeeze(-1)
+        if len(indoor_ids):
+            points = self.static_surface_points[indoor_ids]
+            diff_static = self.pos[indoor_ids].unsqueeze(2) - points.unsqueeze(1)
+            dist_static = torch.linalg.vector_norm(diff_static, dim=-1).clamp(min=1e-6)
+            weights = self.static_surface_weights[indoor_ids] / cfg.static_surface_point_spacing_m
+            magnitude_static = cfg.a_wall * weights.unsqueeze(1) * torch.exp(
+                (self.radius[indoor_ids].unsqueeze(-1) - dist_static) / cfg.b_wall
+            )
+            magnitude_static = torch.where(
+                self.static_surface_mask[indoor_ids].unsqueeze(1), magnitude_static, torch.zeros_like(magnitude_static)
+            )
+            f_static[indoor_ids] = ((magnitude_static / dist_static).unsqueeze(-1) * diff_static).sum(dim=2)
+
+        # --- 3b. Open-corridor wall repulsion (analytic, local-y only) -------------------
         local_y = self.pos[..., 1] - self.corridor_origin[:, 1:2]
         half_width = self._half_width
 
@@ -568,9 +672,10 @@ class SocialForceCrowdManager:
         # (positive direction) — i.e. always back toward the corridor centerline.
         f_wall_y = -cfg.a_wall * torch.exp((self.radius - dist_to_pos_wall) / cfg.b_wall)
         f_wall_y = f_wall_y + cfg.a_wall * torch.exp((self.radius - dist_to_neg_wall) / cfg.b_wall)
+        f_wall_y = torch.where(self.analytic_wall_enabled.unsqueeze(1), f_wall_y, torch.zeros_like(f_wall_y))
 
         # --- 4. Combine, clamp, integrate (semi-implicit Euler) ---------------------------
-        force = f_goal + f_ped + f_robot + f_robot_goal
+        force = f_goal + f_ped + f_robot + f_robot_goal + f_static
         force[..., 1] += f_wall_y
         force_mag = torch.linalg.norm(force, dim=-1, keepdim=True).clamp(min=1e-6)
         force = force * (cfg.max_force / force_mag).clamp(max=1.0)
@@ -625,6 +730,9 @@ class SocialForceCrowdManager:
 
         new_local_x = start_x_b
         new_local_pos = torch.stack([new_local_x, new_y], dim=-1)
+        new_local_pos = self._resample_clear_of_static_obstacles(
+            torch.arange(n, device=self.device), new_local_pos, crossed
+        )
         new_local_pos = self._resample_clear_of_robot(
             torch.arange(n, device=self.device),
             new_local_pos,

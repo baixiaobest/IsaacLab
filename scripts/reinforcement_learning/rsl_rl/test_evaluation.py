@@ -250,6 +250,22 @@ def test_fixed_grid_profile_assignment_is_row_column_deterministic():
         evaluation.fixed_grid_profile_indices(profiles, [8], [0])
 
 
+def test_indoor_dynamic_profiles_cover_only_core_scenarios_and_lower_density_grid():
+    profiles = evaluation.indoor_dynamic_profiles()
+    assert len(profiles) == 12
+    assert {profile.scenario for profile in profiles} == {"crossing", "with_flow", "against_flow"}
+    assert {profile.pedestrian_count for profile in profiles} == {2, 4, 6, 8}
+    assert {profile.terrain_family for profile in profiles} == {"indoor"}
+    assigned = evaluation.fixed_grid_profile_indices(
+        profiles,
+        [row for row in range(4) for _ in range(3)],
+        [column for _ in range(4) for column in range(3)],
+        num_rows=4,
+        num_cols=3,
+    )
+    assert assigned == [column * 4 + row for row in range(4) for column in range(3)]
+
+
 def test_against_flow_geometry_outcomes_and_front_cross_precedence():
     sidestep = {
         "front_cone_qualified": True,

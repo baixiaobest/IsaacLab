@@ -51,7 +51,9 @@ class MixedTerrainPose2dCommand(_CorridorPose2dCommandBase):
         # __init__ body sets env.is_pedestrian_env), derived from the same terrain data.
         env_terrain_names = self.terrain.get_env_terrain_names()
         self._is_pedestrian_env = torch.tensor(
-            [name == "ped_corridor" for name in env_terrain_names], dtype=torch.bool, device=self.device
+            [name in {"ped_corridor", "indoor_ped_corridor"} for name in env_terrain_names],
+            dtype=torch.bool,
+            device=self.device,
         )
 
         # Selects the per-env goal-marker prototype in _debug_vis_callback (prototype i is

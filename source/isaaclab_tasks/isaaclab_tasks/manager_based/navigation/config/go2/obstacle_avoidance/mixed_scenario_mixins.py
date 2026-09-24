@@ -67,6 +67,7 @@ from .pedestrian_scenario_mixins import (
 from .pedestrian_terrains import (
     PEDESTRIAN_CURRICULUM_MAX_LEVEL,
     PEDESTRIAN_CORRIDOR,
+    build_indoor_dynamic_evaluation_terrain,
     build_static_dynamic_evaluation_terrain,
     build_mixed_static_pedestrian_corridor,
 )
@@ -78,6 +79,8 @@ _STATIC_SPAWN_POSE_RANGE = {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-math.pi
 CROSSING_PROB = 0.5
 PED_COUNT_RANGE_LOW = (2, 3)
 PED_COUNT_RANGE_HIGH = (10, 12)
+INDOOR_PED_COUNT_RANGE_LOW = (1, 2)
+INDOOR_PED_COUNT_RANGE_HIGH = (4, 6)
 PED_SPEED_RANGE_LOW = (0.3, 0.7)
 PED_SPEED_RANGE_HIGH = (0.9, 1.5)
 PED_LATERAL_HEADING_MAX_LOW = 0.0
@@ -100,10 +103,11 @@ MIXED_OCCUPANCY_GRID_RESOLUTION = 0.2
 class _MixedSceneCfg:
     terrain: TerrainImporterCfg = ObstacleAvoidanceSceneCfg().terrain.replace(
         terrain_generator=build_mixed_static_pedestrian_corridor(
-            discrete_obstacles_proportion=2.0,
+            discrete_obstacles_proportion=1.0,
             concentric_maze_proportion=1.0,
-            ped_corridor_proportion=2.0,
-            num_cols=5,
+            ped_corridor_proportion=1.0,
+            indoor_ped_corridor_proportion=1.0,
+            num_cols=4,
         )
     )
     pedestrians: RigidObjectCollectionCfg = PedestrianCollectionCfg()
@@ -183,6 +187,7 @@ class _MixedEventCfg:
 @configclass
 class _MixedCurriculumCfg:
     ped_corridor = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "ped_corridor"})
+    indoor_ped_corridor = CurrTerm(func=mdp.GetTerrainLevel, params={"terrain_name": "indoor_ped_corridor"})
 
     pedestrian_density = CurrTerm(
         func=nav_mdp.pedestrian_crowd_curriculum,
@@ -194,6 +199,8 @@ class _MixedCurriculumCfg:
             "speed_range_high": PED_SPEED_RANGE_HIGH,
             "lateral_heading_max_low": PED_LATERAL_HEADING_MAX_LOW,
             "lateral_heading_max_high": PED_LATERAL_HEADING_MAX_HIGH,
+            "indoor_count_range_low": INDOOR_PED_COUNT_RANGE_LOW,
+            "indoor_count_range_high": INDOOR_PED_COUNT_RANGE_HIGH,
         },
     )
 
@@ -599,6 +606,7 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     env_cfg.curriculum.discrete_obstacles = None
     env_cfg.curriculum.concentric_maze = None
     env_cfg.curriculum.ped_corridor = None
+    env_cfg.curriculum.indoor_ped_corridor = None
     env_cfg.curriculum.pedestrian_density = None
 
     env_cfg.events.reset_base = EventTerm(
@@ -671,6 +679,28 @@ def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -
                 EVALUATION_SCENARIO_CODES["crossing_slow"],
             ),
         },
+    )
+    return env_cfg
+
+
+def configure_indoor_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
+    """Overlay the fixed 4-count x 3-scenario indoor dynamic benchmark."""
+    configure_dynamic_crowd_evaluation(env_cfg)
+    env_cfg.scene.terrain.class_type = FixedCoverageEvaluationTerrainImporter
+    env_cfg.scene.terrain.terrain_generator = build_indoor_dynamic_evaluation_terrain()
+    env_cfg.scene.terrain.max_init_terrain_level = None
+    # Indoor profiles top out at eight pedestrians; retain the training-compatible pool.
+    env_cfg.scene.pedestrians = make_pedestrian_collection_cfg(12)
+    if ENABLE_PEDESTRIAN_VISUAL_MESHES:
+        env_cfg.scene.pedestrian_visuals = make_pedestrian_visual_collection_cfg(12)
+    env_cfg.social_force.max_pedestrians = 12
+    env_cfg.pedestrian_init_count = 2
+    # Indoor benchmark contains only the three core scenarios; in particular the
+    # with-flow column must not receive the standard benchmark's slot-zero leader.
+    env_cfg.events.reset_pedestrians = EventTerm(
+        func=nav_mdp.reset_pedestrian_crowd,
+        mode="reset",
+        params={"flow_dir": 1.0},
     )
     return env_cfg
 

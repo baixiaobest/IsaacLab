@@ -47,13 +47,17 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
 
         self._pedestrians: RigidObjectCollection = self.scene["pedestrians"]
 
-        # Per-env mask, fixed for the whole run: True for envs pinned to the "ped_corridor"
-        # terrain column, False for static obstacle/maze columns (mixed env). All-True for
-        # the pure-pedestrian PEDESTRIAN_CORRIDOR terrain.
+        # Per-env masks, fixed for the whole run. Both corridor families host a
+        # social-force crowd; only ``indoor_ped_corridor`` installs static force geometry.
         terrain: TerrainImporter = self.scene["terrain"]
         env_terrain_names = terrain.get_env_terrain_names()
         self.is_pedestrian_env = torch.tensor(
-            [name == "ped_corridor" for name in env_terrain_names], dtype=torch.bool, device=self.device
+            [name in {"ped_corridor", "indoor_ped_corridor"} for name in env_terrain_names],
+            dtype=torch.bool,
+            device=self.device,
+        )
+        self.is_indoor_pedestrian_env = torch.tensor(
+            [name == "indoor_ped_corridor" for name in env_terrain_names], dtype=torch.bool, device=self.device
         )
 
         # Per-env episode scenario, sampled each reset by reset_pedestrian_scenario_robot:
@@ -74,6 +78,7 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
             torch.full((self.num_envs,), cfg.pedestrian_init_count, device=self.device, dtype=torch.long),
             torch.zeros(self.num_envs, device=self.device, dtype=torch.long),
         )
+        init_count = torch.where(self.is_indoor_pedestrian_env, torch.full_like(init_count, 2), init_count)
         init_speed_range = torch.tensor(cfg.pedestrian_init_speed_range, device=self.device).expand(
             self.num_envs, 2
         )

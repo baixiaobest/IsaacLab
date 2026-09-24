@@ -49,6 +49,11 @@ def configure_fixed_level_pedestrian_profiles(env: PedestrianCrowdNavigationEnv,
     low_count = torch.tensor((2.0, 3.0), device=env.device)
     high_count = torch.tensor((10.0, 12.0), device=env.device)
     count_range = low_count + alpha.unsqueeze(-1) * (high_count - low_count)
+    indoor_mask = getattr(env, "is_indoor_pedestrian_env", torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))[ids]
+    indoor_low = torch.tensor((1.0, 2.0), device=env.device)
+    indoor_high = torch.tensor((4.0, 6.0), device=env.device)
+    indoor_range = indoor_low + alpha.unsqueeze(-1) * (indoor_high - indoor_low)
+    count_range = torch.where(indoor_mask.unsqueeze(-1), indoor_range, count_range)
     # Sample once per reset within the level's profile range, just as the former
     # curriculum did, while leaving the assigned terrain level untouched.
     count = (count_range[:, 0] + torch.rand_like(alpha) * (count_range[:, 1] - count_range[:, 0])).round().long()

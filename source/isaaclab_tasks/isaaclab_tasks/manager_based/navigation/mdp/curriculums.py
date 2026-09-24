@@ -69,9 +69,11 @@ def pedestrian_crowd_curriculum(
         count_range_low: tuple[int, int],
         count_range_high: tuple[int, int],
         speed_range_low: tuple[float, float],
-        speed_range_high: tuple[float, float],
-        lateral_heading_max_low: float = 0.0,
-        lateral_heading_max_high: float = 0.0,
+    speed_range_high: tuple[float, float],
+    lateral_heading_max_low: float = 0.0,
+    lateral_heading_max_high: float = 0.0,
+    indoor_count_range_low: tuple[int, int] | None = None,
+    indoor_count_range_high: tuple[int, int] | None = None,
 ):
     """Ramp active count, preferred speed, and lateral heading range with terrain level.
 
@@ -99,6 +101,16 @@ def pedestrian_crowd_curriculum(
 
     count_min = count_range_low[0] + t * (count_range_high[0] - count_range_low[0])
     count_max = count_range_low[1] + t * (count_range_high[1] - count_range_low[1])
+    if indoor_count_range_low is not None or indoor_count_range_high is not None:
+        if indoor_count_range_low is None or indoor_count_range_high is None:
+            raise ValueError("Indoor count curriculum requires both low and high ranges.")
+        indoor_mask = getattr(
+            env, "is_indoor_pedestrian_env", torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+        )[env_ids_t]
+        indoor_min = indoor_count_range_low[0] + t * (indoor_count_range_high[0] - indoor_count_range_low[0])
+        indoor_max = indoor_count_range_low[1] + t * (indoor_count_range_high[1] - indoor_count_range_low[1])
+        count_min = torch.where(indoor_mask, indoor_min, count_min)
+        count_max = torch.where(indoor_mask, indoor_max, count_max)
     num_active = (count_min + torch.rand_like(t) * (count_max - count_min)).round().long()
 
     speed_min = speed_range_low[0] + t * (speed_range_high[0] - speed_range_low[0])

@@ -106,6 +106,7 @@ class BenchmarkProfile:
     obstacle_count: int | None = None
     terrain_column: int | None = None
     terrain_level: int | None = None
+    terrain_family: str = "open"
 
 
 def _json_safe(value: Any) -> Any:
@@ -725,6 +726,7 @@ class CollisionReplayRecorder:
             "obstacle_count": profile.obstacle_count,
             "terrain_column": profile.terrain_column,
             "terrain_level": profile.terrain_level,
+            "terrain_family": profile.terrain_family,
             "environment_id": env_id,
             "outcome": outcome,
             "terminal_time_s": float(frames["time_s"][-1]),
@@ -940,19 +942,31 @@ def dynamic_crowd_profiles(
     return profiles
 
 
+def indoor_dynamic_profiles() -> list[BenchmarkProfile]:
+    """Return the 3 core indoor scenarios x 4 lower-density benchmark cells."""
+    counts = (2, 4, 6, 8)
+    scenarios = ("crossing", "with_flow", "against_flow")
+    return [
+        BenchmarkProfile(scenario, count, terrain_column=column, terrain_level=row, terrain_family="indoor")
+        for column, scenario in enumerate(scenarios)
+        for row, count in enumerate(counts)
+    ]
+
+
 def fixed_grid_profile_indices(
-    profiles: list[BenchmarkProfile], terrain_levels: Iterable[int], terrain_columns: Iterable[int]
+    profiles: list[BenchmarkProfile], terrain_levels: Iterable[int], terrain_columns: Iterable[int],
+    *, num_rows: int = 8, num_cols: int = 7,
 ) -> list[int]:
     """Return the column-major profile index for each row-major 7x8 terrain cell."""
     levels = [int(value) for value in terrain_levels]
     columns = [int(value) for value in terrain_columns]
-    if len(levels) != len(columns) or len(profiles) != 56:
-        raise ValueError("Fixed static/dynamic evaluation requires 56 profiles and matched terrain coordinates.")
+    if len(levels) != len(columns) or len(profiles) != num_rows * num_cols:
+        raise ValueError("Fixed evaluation requires a complete profile grid and matched terrain coordinates.")
     indices = []
     for level, column in zip(levels, columns):
-        if not 0 <= level < 8 or not 0 <= column < 7:
-            raise ValueError("Fixed static/dynamic evaluation terrain coordinates must fit the 7x8 grid.")
-        index = column * 8 + level
+        if not 0 <= level < num_rows or not 0 <= column < num_cols:
+            raise ValueError("Fixed evaluation terrain coordinates do not fit the configured grid.")
+        index = column * num_rows + level
         profile = profiles[index]
         if profile.terrain_column != column or profile.terrain_level != level:
             raise ValueError("Fixed static/dynamic evaluation terrain/profile mapping is inconsistent.")
@@ -2157,6 +2171,9 @@ def _aggregate_rows_from_counts(
         aggregates.append(
             {
                 "scenario": scenario,
+                "terrain_family": next(
+                    (profiles[index].terrain_family for index in profile_indices), "open"
+                ),
                 "pedestrian_count": "all",
                 "episodes": episodes,
                 "successes": successes,
@@ -2215,7 +2232,7 @@ def save_artifacts(
     output_path.mkdir(parents=True, exist_ok=True)
     all_rows = [*rows, *aggregate_rows]
     fieldnames = [
-        "scenario", "pedestrian_count", "obstacle_count", "terrain_column", "terrain_level", "terrain_replicas",
+        "scenario", "terrain_family", "pedestrian_count", "obstacle_count", "terrain_column", "terrain_level", "terrain_replicas",
         "episodes", "successes", "collisions", "goal_region_collisions",
         "all_collisions", "timeouts", "base_contacts", "success_rate", "navigation_success_rate", "collision_rate",
         "goal_region_collision_rate", "all_collision_rate", "timeout_rate", "base_contact_rate",

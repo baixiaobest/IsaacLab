@@ -19,7 +19,8 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
         terrain_generator = build_mixed_static_pedestrian_corridor(
             discrete_obstacles_proportion=1.0,
             concentric_maze_proportion=1.0,
-            ped_corridor_proportion=2.0,
+            ped_corridor_proportion=1.0,
+            indoor_ped_corridor_proportion=1.0,
             num_cols=4,
         )
         # The shared terrain defaults begin the discrete-obstacle curriculum
@@ -37,6 +38,7 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
         self.curriculum.discrete_obstacles = None
         self.curriculum.concentric_maze = None
         self.curriculum.ped_corridor = None
+        self.curriculum.indoor_ped_corridor = None
         self.curriculum.pedestrian_density = None
         self.events.reset_pedestrians = EventTerm(
             func=reset_fixed_level_pedestrian_crowd,
