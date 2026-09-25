@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Sequence
 
 import torch
@@ -22,6 +23,15 @@ class HeldScanLidarCfg:
     max_distance: float = 20.0
     full_fan_ray_count: int = 256
     sparse_sampling_enabled: bool = False
+    density_curriculum_enabled: bool = False
+    target_coverage: float | None = None
+
+
+LIDAR_COVERAGE_STAGES = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, None)
+LIDAR_SUCCESS_WINDOW = 500
+LIDAR_CHECK_INTERVAL = 100
+LIDAR_SUCCESS_THRESHOLD = 0.70
+LIDAR_CURRICULUM_CHECKPOINT_KEY = "goal_reached_lidar_density"
 
 
 class HeldScanLidarCollector:
@@ -50,6 +60,17 @@ class HeldScanLidarCollector:
             )
         if self.cfg.sparse_sampling_enabled and self.num_rays != 256:
             raise ValueError("Sparse lidar sampling requires the 256-ray front fan.")
+        if self.cfg.target_coverage is not None and not (0.0 < self.cfg.target_coverage <= 1.0):
+            raise ValueError("HeldScanLidarCfg.target_coverage must be in (0, 1].")
+        if self.cfg.density_curriculum_enabled and not self.cfg.sparse_sampling_enabled:
+            raise ValueError("The lidar density curriculum requires sparse sampling.")
+
+        self._density_stage = 0
+        self._coverage_target = self.cfg.target_coverage
+        self._episode_density_stage = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._density_outcomes: deque[bool] = deque(maxlen=LIDAR_SUCCESS_WINDOW)
+        self._density_completed = 0
+        self._density_next_check = LIDAR_SUCCESS_WINDOW
 
         self._pending_hit_xy = torch.zeros(self.num_envs, self.num_rays, 2, device=self.device)
         self._pending_policy_hit_xy = torch.zeros_like(self._pending_hit_xy)
@@ -85,6 +106,8 @@ class HeldScanLidarCollector:
         self._latest_reference_time_s[env_ids] = self._time_s
         if getattr(getattr(self, "cfg", None), "sparse_sampling_enabled", False):
             self._reset_sampling_pattern(env_ids)
+            if self.cfg.density_curriculum_enabled:
+                self._episode_density_stage[env_ids] = self._density_stage
             self._pending_policy_state[env_ids] = 0
             self._pending_policy_hit_xy[env_ids] = 0
         self._capture_full_scan(env_ids)
@@ -106,9 +129,89 @@ class HeldScanLidarCollector:
         second = two_cell & (starts + 1 < 256)
         pattern[rows[first], starts[first]] = True
         pattern[rows[second], (starts + 1)[second]] = True
+        if self._coverage_target == 1.0:
+            pattern.fill_(True)
+        elif self._coverage_target is not None:
+            # Fill gaps once per episode, not independently at every capture.
+            # The augmented 360-degree template shifts as a single pattern.
+            desired = round(256 * self._coverage_target)
+            extra = (desired - pattern.sum(dim=1)).clamp_min(0)
+            scores = torch.rand(count, 256, device=self.device).masked_fill(pattern, float("inf"))
+            ranks = scores.argsort(dim=1).argsort(dim=1)
+            pattern |= ranks < extra[:, None]
         self._sampling_pattern[env_ids] = pattern
         self._sampling_phase[env_ids] = torch.randint(0, 256, (count,), device=self.device)
         self._sampling_has_capture[env_ids] = False
+
+    def record_density_outcomes(self, env_ids: torch.Tensor, goal_reached: torch.Tensor) -> dict[str, float]:
+        """Advance at most one density stage using completed current-stage episodes."""
+        if not self.cfg.density_curriculum_enabled:
+            raise RuntimeError("LiDAR density curriculum is disabled for this collector.")
+        current = self._episode_density_stage[env_ids] == self._density_stage
+        for success in goal_reached[current].tolist():
+            self._density_outcomes.append(bool(success))
+            self._density_completed += 1
+            if self._density_completed < self._density_next_check:
+                continue
+            if (
+                self._density_stage < len(LIDAR_COVERAGE_STAGES) - 1
+                and sum(self._density_outcomes) / LIDAR_SUCCESS_WINDOW >= LIDAR_SUCCESS_THRESHOLD
+            ):
+                self._density_stage += 1
+                self._coverage_target = LIDAR_COVERAGE_STAGES[self._density_stage]
+                self._density_outcomes.clear()
+                self._density_completed = 0
+                self._density_next_check = LIDAR_SUCCESS_WINDOW
+                break  # The remaining completions in this batch belong to the old stage.
+            self._density_next_check += LIDAR_CHECK_INTERVAL
+        return self.density_status()
+
+    def density_status(self) -> dict[str, float]:
+        """Scalar curriculum values for Isaac Lab and RSL-RL logging."""
+        return {
+            "target_coverage": self._coverage_target if self._coverage_target is not None else 1.0 / 3.0,
+            "stage": float(self._density_stage),
+            "rolling_goal_fraction": (
+                sum(self._density_outcomes) / len(self._density_outcomes) if self._density_outcomes else 0.0
+            ),
+            "stage_completed_episodes": float(self._density_completed),
+        }
+
+    def density_checkpoint_state(self) -> dict:
+        """Return the state that must travel with a native RSL-RL checkpoint."""
+        return {
+            "version": 1,
+            "stage": self._density_stage,
+            "completed": self._density_completed,
+            "next_check": self._density_next_check,
+            "outcomes": list(self._density_outcomes),
+        }
+
+    def restore_density_checkpoint_state(self, state: dict | None) -> None:
+        """Restore a curriculum, or start at dense coverage for a legacy checkpoint."""
+        if not self.cfg.density_curriculum_enabled:
+            return
+        if state is None:
+            print("[INFO] LiDAR density state absent from checkpoint; starting at 100% coverage.")
+            state = {"version": 1, "stage": 0, "completed": 0, "next_check": 500, "outcomes": []}
+        if state.get("version") != 1:
+            raise ValueError("Unsupported LiDAR density checkpoint state version.")
+        stage = int(state["stage"])
+        completed = int(state["completed"])
+        next_check = int(state["next_check"])
+        outcomes = list(state["outcomes"])
+        if not (0 <= stage < len(LIDAR_COVERAGE_STAGES)) or completed < 0:
+            raise ValueError("Invalid LiDAR density checkpoint stage or episode count.")
+        if len(outcomes) != min(completed, LIDAR_SUCCESS_WINDOW) or next_check < LIDAR_SUCCESS_WINDOW:
+            raise ValueError("Invalid LiDAR density checkpoint rolling window.")
+        self._density_stage = stage
+        self._coverage_target = LIDAR_COVERAGE_STAGES[stage]
+        self._density_completed = completed
+        self._density_next_check = next_check
+        self._density_outcomes = deque((bool(value) for value in outcomes), maxlen=LIDAR_SUCCESS_WINDOW)
+        # A resumed process starts fresh episodes, all assigned to the restored stage.
+        self.reset()
+
 
     def _sparse_ray_mask(self, env_ids: torch.Tensor) -> torch.Tensor:
         """Select one ray in each sampled front cell, shifting toward the left."""
@@ -120,6 +223,9 @@ class HeldScanLidarCollector:
         template_cells = (front_cells[None, :] - self._sampling_phase[env_ids, None]) % 256
         active = self._sampling_pattern[env_ids].gather(1, template_cells.expand(count, -1))
         subray = torch.randint(0, 2, (count, 128), device=self.device)
+        # The 256-ray fan includes +90 degrees, but the 128 policy bins are
+        # half-open [-90, +90).  Ray 255 falls outside the last front bin.
+        subray[:, -1] = 0
         ray_indices = 2 * torch.arange(128, device=self.device)[None, :] + subray
         mask = torch.zeros(count, self.num_rays, dtype=torch.bool, device=self.device)
         mask.scatter_(1, ray_indices.expand(count, -1), active)
@@ -254,6 +360,31 @@ class HeldScanLidarCollector:
             if self._pending_ped_velocity_w is None or self._pending_ped_velocity_w.shape != velocity_w.shape:
                 self._pending_ped_velocity_w = torch.zeros_like(velocity_w)
             self._pending_ped_velocity_w[env_ids] = velocity_w[env_ids]
+
+
+def goal_reached_lidar_density_curriculum(env: ManagerBasedRLEnv, env_ids: Sequence[int]) -> dict[str, float]:
+    """Use the completed episode's termination flag before manager reset clears it."""
+    collector = env._held_scan_lidar_collector
+    ids = collector._resolve_env_ids(env_ids)
+    ids = ids[env.episode_length_buf[ids] > 0]
+    successes = env.termination_manager.get_term("goal_reached")[ids]
+    return collector.record_density_outcomes(ids, successes)
+
+
+def attach_lidar_density_checkpoint_saving(runner, env: ManagerBasedRLEnv) -> HeldScanLidarCollector | None:
+    """Put the task curriculum into RSL-RL's existing native checkpoint ``infos``."""
+    collector = getattr(env, "_held_scan_lidar_collector", None)
+    if collector is None or not collector.cfg.density_curriculum_enabled:
+        return None
+    original_save = runner.save
+
+    def save_with_density(path: str, infos: dict | None = None) -> None:
+        checkpoint_infos = dict(infos or {})
+        checkpoint_infos[LIDAR_CURRICULUM_CHECKPOINT_KEY] = collector.density_checkpoint_state()
+        original_save(path, infos=checkpoint_infos)
+
+    runner.save = save_with_density
+    return collector
 
 
 class HeldScanTemporalLidarRLEnv(ManagerBasedRLEnv):

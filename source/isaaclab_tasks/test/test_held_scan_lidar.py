@@ -11,8 +11,12 @@ from isaaclab_tasks.manager_based.navigation.lidar_geometry import (
     world_to_body_xy,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.held_scan_lidar_env import (
+    LIDAR_COVERAGE_STAGES,
+    LIDAR_CURRICULUM_CHECKPOINT_KEY,
     HeldScanLidarCfg,
     HeldScanLidarCollector,
+    attach_lidar_density_checkpoint_saving,
+    goal_reached_lidar_density_curriculum,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.lidar_velocity_data_env import (
     FixedCoveragePedestrianCrowdNavigationEnv,
@@ -31,6 +35,7 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed
     MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg,
     MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY,
+    configure_static_dynamic_evaluation,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.temporal_lidar_env_cfg import (
     TEMPORAL_LIDAR_COLLECTOR_NAME,
@@ -174,7 +179,7 @@ def test_actor_and_critic_share_held_history_and_scan_age() -> None:
     assert critic.obstacle_scan.noise is None
 
 
-def _make_sparse_collector(num_envs: int = 4) -> HeldScanLidarCollector:
+def _make_sparse_collector(num_envs: int = 4, curriculum: bool = False) -> HeldScanLidarCollector:
     angles = torch.linspace(-math.pi / 2, math.pi / 2, 256)
     directions = torch.stack((angles.cos(), angles.sin(), torch.zeros_like(angles)), dim=-1)
     directions = directions.unsqueeze(0).expand(num_envs, -1, -1).clone()
@@ -192,7 +197,14 @@ def _make_sparse_collector(num_envs: int = 4) -> HeldScanLidarCollector:
         device="cpu",
         scene=SimpleNamespace(sensors={"obstacle_scanner": sensor}),
     )
-    return HeldScanLidarCollector(env, HeldScanLidarCfg(sparse_sampling_enabled=True))
+    return HeldScanLidarCollector(
+        env,
+        HeldScanLidarCfg(
+            sparse_sampling_enabled=True,
+            density_curriculum_enabled=curriculum,
+            target_coverage=1.0 if curriculum else None,
+        ),
+    )
 
 
 def test_sparse_templates_are_independent_with_randomized_wall_occupancy() -> None:
@@ -309,7 +321,20 @@ def test_only_mixed_temporal_configs_enable_sparse_sampling() -> None:
         MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
         MixedTemporalLidarKpPointVelocityDataEnvCfg,
     ):
-        assert cfg_type().held_scan_lidar.sparse_sampling_enabled
+        cfg = cfg_type()
+        assert cfg.held_scan_lidar.sparse_sampling_enabled
+        assert not cfg.held_scan_lidar.density_curriculum_enabled
+        assert cfg.held_scan_lidar.target_coverage is None
+        assert cfg.curriculum.lidar_density is None
+    for cfg_type in (MixedTemporalLidarObstacleAvoidanceEnvCfg, MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg):
+        cfg = cfg_type()
+        assert cfg.held_scan_lidar.density_curriculum_enabled
+        assert cfg.held_scan_lidar.target_coverage == 1.0
+        assert cfg.curriculum.lidar_density is not None
+    eval_cfg = configure_static_dynamic_evaluation(MixedTemporalLidarObstacleAvoidanceEnvCfg())
+    assert eval_cfg.curriculum.lidar_density is None
+    assert not eval_cfg.held_scan_lidar.density_curriculum_enabled
+    assert eval_cfg.held_scan_lidar.target_coverage is None
 
 
 def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
@@ -328,3 +353,105 @@ def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
     assert torch.equal(labels["capture_index"], collector.latest_policy_capture()["capture_index"])
     assert torch.all(labels["point_velocity_b"][~labels["reflection_mask"]] == 0)
     assert full_bins["reflection_mask"].sum() > labels["reflection_mask"].sum()
+
+
+def test_density_filling_keeps_capture_only_shift_and_full_cbf_geometry() -> None:
+    collector = _make_sparse_collector(64, curriculum=True)
+    assert collector._sampling_pattern.all()
+    assert torch.all(collector.latest_policy_capture()["ray_state"].sum(dim=1) == 256)
+    assert torch.all(forward_lidar_reflection_bins(collector.latest_policy_capture())["reflection_mask"])
+    assert torch.all(collector.latest_capture()["ray_state"] == 2)
+    for target in LIDAR_COVERAGE_STAGES[:-1]:
+        collector._coverage_target = target
+        collector.reset()
+        assert torch.all(collector._sampling_pattern.sum(dim=1) == round(256 * target))
+    collector._coverage_target = 0.6
+    collector.reset()
+    pattern = collector._sampling_pattern.clone()
+    phase = collector._sampling_phase.clone()
+    for _ in range(25):
+        collector.on_physics_step()
+    assert torch.equal(pattern, collector._sampling_pattern)
+    assert torch.equal(phase, collector._sampling_phase)
+    collector.on_physics_step()
+    assert torch.equal(pattern, collector._sampling_pattern)
+    reflected = forward_lidar_reflection_bins(collector.latest_policy_capture())["reflection_mask"]
+    assert 0.52 < reflected.float().mean().item() < 0.68
+    assert torch.all(collector.latest_capture()["ray_state"] == 2)
+    collector._coverage_target = None
+    collector.reset()
+    assert 0.29 < collector._sampling_pattern.float().mean().item() < 0.38
+
+
+def test_density_curriculum_window_threshold_checks_and_old_episode_exclusion() -> None:
+    assert LIDAR_COVERAGE_STAGES == (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, None)
+    collector = _make_sparse_collector(500, curriculum=True)
+    ids = torch.arange(500)
+    collector.record_density_outcomes(ids[:499], torch.ones(499, dtype=torch.bool))
+    assert collector._density_stage == 0
+    collector.record_density_outcomes(ids[499:], torch.ones(1, dtype=torch.bool))
+    assert collector._density_stage == 1
+    assert collector._coverage_target == 0.9
+    assert collector._density_completed == 0
+    # The other episodes in flight at stage zero cannot feed the new stage's window.
+    collector.record_density_outcomes(ids, torch.ones(500, dtype=torch.bool))
+    assert collector._density_completed == 0
+    collector.reset(ids)
+    collector.record_density_outcomes(ids[:500], torch.zeros(500, dtype=torch.bool))
+    assert collector._density_stage == 1
+    assert collector._density_next_check == 600
+    collector.record_density_outcomes(ids[:99], torch.ones(99, dtype=torch.bool))
+    assert collector._density_stage == 1
+    collector.record_density_outcomes(ids[:1], torch.ones(1, dtype=torch.bool))
+    assert collector._density_stage == 1  # only 100/500 recent episodes succeeded
+    assert collector._density_next_check == 700
+
+    boundary = _make_sparse_collector(500, curriculum=True)
+    outcomes = torch.cat((torch.ones(350, dtype=torch.bool), torch.zeros(150, dtype=torch.bool)))
+    boundary.record_density_outcomes(ids, outcomes)
+    assert boundary._density_stage == 1  # exactly 70% passes
+    assert LIDAR_COVERAGE_STAGES[-1] is None
+    boundary._density_stage = len(LIDAR_COVERAGE_STAGES) - 1
+    boundary._coverage_target = None
+    boundary.reset(ids)
+    boundary.record_density_outcomes(ids, torch.ones(500, dtype=torch.bool))
+    assert boundary._density_stage == len(LIDAR_COVERAGE_STAGES) - 1
+    assert boundary._coverage_target is None
+
+
+def test_density_curriculum_uses_goal_reached_before_reset_and_ignores_initial_resets() -> None:
+    collector = _make_sparse_collector(3, curriculum=True)
+    collector.env._held_scan_lidar_collector = collector
+    collector.env.episode_length_buf = torch.tensor([20, 0, 5])
+    collector.env.termination_manager = SimpleNamespace(
+        get_term=lambda name: torch.tensor([True, True, False])
+    )
+    goal_reached_lidar_density_curriculum(collector.env, torch.tensor([0, 1, 2]))
+    assert list(collector._density_outcomes) == [True, False]
+    assert collector._density_completed == 2
+
+
+def test_density_checkpoint_infos_restore_and_legacy_fallback() -> None:
+    collector = _make_sparse_collector(4, curriculum=True)
+    collector.env._held_scan_lidar_collector = collector
+    collector._density_stage = 3
+    collector._coverage_target = LIDAR_COVERAGE_STAGES[3]
+    collector._density_completed = 504
+    collector._density_next_check = 600
+    collector._density_outcomes.extend([True] * 400 + [False] * 100)
+    runner = SimpleNamespace(save=lambda path, infos=None: saved.append((path, infos)))
+    saved = []
+    assert attach_lidar_density_checkpoint_saving(runner, collector.env) is collector
+    runner.save("model_10.pt", infos={"existing": 1})
+    infos = saved[0][1]
+    assert infos["existing"] == 1
+    state = infos[LIDAR_CURRICULUM_CHECKPOINT_KEY]
+    restored = _make_sparse_collector(4, curriculum=True)
+    restored.restore_density_checkpoint_state(state)
+    assert restored.density_checkpoint_state() == state
+    assert torch.all(restored._episode_density_stage == 3)
+    assert torch.all(restored._sampling_pattern.sum(dim=1) == round(256 * 0.7))
+    restored.restore_density_checkpoint_state(None)
+    assert restored._density_stage == 0
+    assert restored._density_completed == 0
+    assert restored._sampling_pattern.all()

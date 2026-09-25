@@ -49,7 +49,7 @@ from .obstacle_avoidance_env_cfg import (
     RewardsCfg,
     TerminationsCfg,
 )
-from .held_scan_lidar_env import HeldScanLidarCfg
+from .held_scan_lidar_env import HeldScanLidarCfg, goal_reached_lidar_density_curriculum
 from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
@@ -284,6 +284,11 @@ class MixedCurriculumCfg(_MixedCurriculumCfg, CurriculumCfg):
 
 
 @configclass
+class MixedTemporalLidarCurriculumCfg(MixedCurriculumCfg):
+    lidar_density = CurrTerm(func=goal_reached_lidar_density_curriculum)
+
+
+@configclass
 class MixedRewardsCfg(_MixedRewardsCfg, RewardsCfg):
     pass
 
@@ -391,8 +396,11 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
     """Mixed static/pedestrian co-training with temporal-lidar observations."""
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
+    curriculum: MixedTemporalLidarCurriculumCfg = MixedTemporalLidarCurriculumCfg()
     held_scan_lidar_enabled: bool = True
-    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(sparse_sampling_enabled=True)
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(
+        sparse_sampling_enabled=True, density_curriculum_enabled=True, target_coverage=1.0
+    )
 
     def __post_init__(self):
         super().__post_init__()
@@ -406,8 +414,11 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
     """Mixed static/pedestrian co-training with temporal-lidar + next-frame prediction observations."""
 
     observations: TemporalLidarPredictionObservationsCfg = TemporalLidarPredictionObservationsCfg()
+    curriculum: MixedTemporalLidarCurriculumCfg = MixedTemporalLidarCurriculumCfg()
     held_scan_lidar_enabled: bool = True
-    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(sparse_sampling_enabled=True)
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(
+        sparse_sampling_enabled=True, density_curriculum_enabled=True, target_coverage=1.0
+    )
 
     def __post_init__(self):
         super().__post_init__()
@@ -460,6 +471,9 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLidarObstacleA
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 16
+        self.curriculum.lidar_density = None
+        self.held_scan_lidar.density_curriculum_enabled = False
+        self.held_scan_lidar.target_coverage = None
         # self.scene.env_spacing = 2.5
         # self.scene.terrain.max_init_terrain_level = 0
         # self.observations.policy.enable_corruption = False
@@ -472,6 +486,9 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY(MixedTemporalLida
 
     def __post_init__(self):
         super().__post_init__()
+        self.curriculum.lidar_density = None
+        self.held_scan_lidar.density_curriculum_enabled = False
+        self.held_scan_lidar.target_coverage = None
         # self.scene.num_envs = 16
         # self.scene.env_spacing = 2.5
         # self.scene.terrain.max_init_terrain_level = 0
@@ -616,6 +633,10 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     env_cfg.curriculum.open_dynamic_terrain_level = None
     env_cfg.curriculum.indoor_dynamic_terrain_level = None
     env_cfg.curriculum.pedestrian_density = None
+    if hasattr(env_cfg.curriculum, "lidar_density"):
+        env_cfg.curriculum.lidar_density = None
+        env_cfg.held_scan_lidar.density_curriculum_enabled = False
+        env_cfg.held_scan_lidar.target_coverage = None
 
     env_cfg.events.reset_base = EventTerm(
         func=nav_mdp.reset_evaluation_pedestrian_scenario_robot,
