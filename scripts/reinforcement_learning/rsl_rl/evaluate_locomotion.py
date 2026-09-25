@@ -434,10 +434,17 @@ def _evaluate_checkpoint(
                     int(episode_numbers[env_id]),
                 )
             term.set_target_commands(torch.as_tensor(targets, device=raw_env.device))
-            with torch.inference_mode():
+            # Only the policy is inference-only.  Isaac's environment step
+            # mutates simulation and reset buffers; running it under
+            # ``inference_mode`` converts those buffers to inference tensors.
+            # A second checkpoint then cannot reset the shared environment
+            # because Isaac must update the root-state tensors in place.
+            # ``no_grad`` avoids autograd work without changing the tensor
+            # kind used by the environment.
+            with torch.no_grad():
                 actions = policy(obs)
-                collector.record(raw_env, term, actions, previous_actions, step_counts)
-                obs, _, dones, _ = env.step(actions)
+            collector.record(raw_env, term, actions, previous_actions, step_counts)
+            obs, _, dones, _ = env.step(actions)
             if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                 policy.reset(dones)
             else:
