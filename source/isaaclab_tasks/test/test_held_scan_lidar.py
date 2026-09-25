@@ -455,3 +455,29 @@ def test_density_checkpoint_infos_restore_and_legacy_fallback() -> None:
     assert restored._density_stage == 0
     assert restored._density_completed == 0
     assert restored._sampling_pattern.all()
+
+
+def test_density_curriculum_exposes_progress_through_curriculum_term() -> None:
+    cfg = MixedTemporalLidarObstacleAvoidanceEnvCfg()
+    assert cfg.curriculum.lidar_density.func is goal_reached_lidar_density_curriculum
+    collector = _make_sparse_collector(4, curriculum=True)
+    collector.env._held_scan_lidar_collector = collector
+    collector.env.episode_length_buf = torch.tensor([20, 0, 5, 8])
+    collector.env.termination_manager = SimpleNamespace(
+        get_term=lambda name: torch.tensor([True, True, False, True])
+    )
+
+    logged = cfg.curriculum.lidar_density.func(collector.env, torch.arange(4))
+
+    assert logged["coverage_percent"] == 100.0
+    assert logged["stage"] == 0.0
+    assert logged["rolling_goal_percent"] == 200.0 / 3.0
+    assert logged["goal_threshold_percent"] == 70.0
+    assert logged["rolling_goal_count"] == 2.0
+    assert logged["rolling_episode_count"] == 3.0
+    assert logged["stage_completed_episodes"] == 3.0
+    assert logged["episodes_until_check"] == 497.0
+    collector._density_stage = len(LIDAR_COVERAGE_STAGES) - 1
+    collector._coverage_target = None
+    assert round(collector.density_status()["coverage_percent"], 1) == 33.3
+    assert collector.density_status()["episodes_until_check"] == 0.0
