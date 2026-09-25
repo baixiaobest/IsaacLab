@@ -1,4 +1,4 @@
-"""Physics-rate collection of held, full-fan lidar scans."""
+"""Physics-rate collection of held lidar scans with optional sparse sampling."""
 
 from __future__ import annotations
 
@@ -15,21 +15,17 @@ from isaaclab_tasks.manager_based.navigation.lidar_geometry import forward_lidar
 
 @configclass
 class HeldScanLidarCfg:
-    """Configuration for a complete lidar fan held between fixed-rate captures."""
+    """Configuration for a lidar fan held between fixed-rate captures."""
 
     sensor_name: str = "obstacle_scanner"
     scan_period_s: float = 0.130
     max_distance: float = 20.0
     full_fan_ray_count: int = 256
+    sparse_sampling_enabled: bool = False
 
 
 class HeldScanLidarCollector:
-    """Capture one ideal full lidar fan every ``scan_period_s`` physics seconds.
-
-    The collector deliberately models timing only.  It never re-bins, assembles
-    partial clouds, delays, or corrupts scans: actor-side corruption is applied by
-    the temporal observation term exactly as in the ``640034b`` baseline.
-    """
+    """Hold full geometry scans, optionally sampling sparse policy reflections."""
 
     def __init__(self, env: ManagerBasedRLEnv, cfg: HeldScanLidarCfg | None = None) -> None:
         self.env = env
@@ -52,9 +48,17 @@ class HeldScanLidarCollector:
                 f"HeldScanLidarCollector expected {self.cfg.full_fan_ray_count} full-fan rays, "
                 f"but '{self.sensor_name}' provides {self.num_rays}."
             )
+        if self.cfg.sparse_sampling_enabled and self.num_rays != 256:
+            raise ValueError("Sparse lidar sampling requires the 256-ray front fan.")
 
         self._pending_hit_xy = torch.zeros(self.num_envs, self.num_rays, 2, device=self.device)
+        self._pending_policy_hit_xy = torch.zeros_like(self._pending_hit_xy)
         self._pending_state = torch.zeros(self.num_envs, self.num_rays, dtype=torch.uint8, device=self.device)
+        self._pending_policy_state = torch.zeros_like(self._pending_state)
+        if self.cfg.sparse_sampling_enabled:
+            self._sampling_pattern = torch.zeros(self.num_envs, 256, dtype=torch.bool, device=self.device)
+            self._sampling_phase = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+            self._sampling_has_capture = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # Mesh ids are optional on the base ray caster.  Data-collection tasks enable
         # them to identify which scene object produced each reflection.
         self._pending_ray_mesh_ids = torch.full(
@@ -79,7 +83,47 @@ class HeldScanLidarCollector:
         self._pending_valid[env_ids] = False
         self._has_latest[env_ids] = False
         self._latest_reference_time_s[env_ids] = self._time_s
+        if getattr(getattr(self, "cfg", None), "sparse_sampling_enabled", False):
+            self._reset_sampling_pattern(env_ids)
+            self._pending_policy_state[env_ids] = 0
+            self._pending_policy_hit_xy[env_ids] = 0
         self._capture_full_scan(env_ids)
+
+    def _reset_sampling_pattern(self, env_ids: torch.Tensor) -> None:
+        """Draw independent circular 360-degree templates and initial phases."""
+        count = env_ids.numel()
+        # Even the shortest possible groups occupy three cells, so 86 groups
+        # suffice to cover all 256 cells without a per-environment Python loop.
+        two_cell = torch.rand(count, 86, device=self.device) < 0.75
+        gap_draw = torch.rand(count, 86, device=self.device)
+        gaps = 2 + (gap_draw >= 0.10).long() + (gap_draw >= 0.50).long() + (gap_draw >= 0.90).long()
+        widths = 1 + two_cell.long()
+        lengths = widths + gaps
+        starts = torch.cumsum(lengths, dim=1) - lengths
+        pattern = torch.zeros(count, 256, dtype=torch.bool, device=self.device)
+        rows = torch.arange(count, device=self.device)[:, None].expand_as(starts)
+        first = starts < 256
+        second = two_cell & (starts + 1 < 256)
+        pattern[rows[first], starts[first]] = True
+        pattern[rows[second], (starts + 1)[second]] = True
+        self._sampling_pattern[env_ids] = pattern
+        self._sampling_phase[env_ids] = torch.randint(0, 256, (count,), device=self.device)
+        self._sampling_has_capture[env_ids] = False
+
+    def _sparse_ray_mask(self, env_ids: torch.Tensor) -> torch.Tensor:
+        """Select one ray in each sampled front cell, shifting toward the left."""
+        count = env_ids.numel()
+        # Positive phase moves a template cell toward increasing sensor angle.
+        # Front cells occupy [64, 192); indexing the full circle, rather than
+        # rolling 128 front cells, brings new samples in from the right edge.
+        front_cells = torch.arange(64, 192, device=self.device)
+        template_cells = (front_cells[None, :] - self._sampling_phase[env_ids, None]) % 256
+        active = self._sampling_pattern[env_ids].gather(1, template_cells.expand(count, -1))
+        subray = torch.randint(0, 2, (count, 128), device=self.device)
+        ray_indices = 2 * torch.arange(128, device=self.device)[None, :] + subray
+        mask = torch.zeros(count, self.num_rays, dtype=torch.bool, device=self.device)
+        mask.scatter_(1, ray_indices.expand(count, -1), active)
+        return mask
 
     def on_physics_step(self) -> None:
         self._physics_steps += 1
@@ -115,8 +159,15 @@ class HeldScanLidarCollector:
             "capture_index": self._capture_index,
         }
 
+    def latest_policy_capture(self) -> dict[str, torch.Tensor]:
+        """Return the sparse held capture, with metadata aligned to the full scan."""
+        capture = self.latest_capture()
+        capture["hit_xy"] = getattr(self, "_pending_policy_hit_xy", self._pending_hit_xy)
+        capture["ray_state"] = getattr(self, "_pending_policy_state", self._pending_state)
+        return capture
+
     def consume_completed(self) -> dict[str, torch.Tensor] | None:
-        """Return each queued full scan once, leaving it held thereafter."""
+        """Return each queued policy scan once, leaving it held thereafter."""
         if not torch.any(self._pending_valid):
             return None
         env_ids = self._pending_valid.nonzero(as_tuple=False).squeeze(-1)
@@ -125,8 +176,8 @@ class HeldScanLidarCollector:
         self._latest_reference_time_s[env_ids] = self._pending_reference_time_s[env_ids]
         return {
             "env_ids": env_ids,
-            "hit_xy": self._pending_hit_xy[env_ids],
-            "ray_state": self._pending_state[env_ids],
+            "hit_xy": getattr(self, "_pending_policy_hit_xy", self._pending_hit_xy)[env_ids],
+            "ray_state": getattr(self, "_pending_policy_state", self._pending_state)[env_ids],
             "ego_xy": self._pending_ego_xy[env_ids],
             "ego_yaw": self._pending_ego_yaw[env_ids],
             "scan_age_s": self.scan_age_s()[env_ids],
@@ -165,6 +216,22 @@ class HeldScanLidarCollector:
 
         self._pending_hit_xy[env_ids] = hit_xy[env_ids]
         self._pending_state[env_ids] = torch.where(hit_valid[env_ids], 2, 1).to(torch.uint8)
+        if self.cfg.sparse_sampling_enabled:
+            previously_captured = self._sampling_has_capture[env_ids]
+            phase_draw = torch.rand(env_ids.numel(), device=self.device)
+            phase_step = (phase_draw >= 0.10).long() + (phase_draw >= 0.85).long()
+            self._sampling_phase[env_ids] = (
+                self._sampling_phase[env_ids] + phase_step * previously_captured.long()
+            ) % 256
+            selected = self._sparse_ray_mask(env_ids)
+            self._pending_policy_state[env_ids] = (selected & hit_valid[env_ids]).to(torch.uint8) * 2
+            self._pending_policy_hit_xy[env_ids] = torch.where(
+                (selected & hit_valid[env_ids]).unsqueeze(-1), hit_xy[env_ids], free_endpoint[env_ids, :, :2]
+            )
+            self._sampling_has_capture[env_ids] = True
+        else:
+            self._pending_policy_state[env_ids] = self._pending_state[env_ids]
+            self._pending_policy_hit_xy[env_ids] = hit_xy[env_ids]
         self._pending_ego_xy[env_ids] = pos_w[env_ids, :2]
         self._pending_ego_yaw[env_ids] = yaw[env_ids]
         self._pending_reference_time_s[env_ids] = self._time_s

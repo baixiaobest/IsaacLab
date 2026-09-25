@@ -1,5 +1,6 @@
-"""Unit tests for the held full-scan lidar collector."""
+"""Unit tests for the held full-scan and sparse lidar collector."""
 
+import math
 from types import SimpleNamespace
 
 import torch
@@ -10,7 +11,26 @@ from isaaclab_tasks.manager_based.navigation.lidar_geometry import (
     world_to_body_xy,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.held_scan_lidar_env import (
+    HeldScanLidarCfg,
     HeldScanLidarCollector,
+)
+from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.lidar_velocity_data_env import (
+    FixedCoveragePedestrianCrowdNavigationEnv,
+)
+from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.lidar_velocity_data_env_cfg import (
+    MixedTemporalLidarKpPointVelocityDataEnvCfg,
+)
+from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
+    MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
+    MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
+    MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
+)
+from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.mixed_scenario_mixins import (
+    MixedObstacleAvoidanceEnvCfg,
+    MixedTemporalLidarObstacleAvoidanceEnvCfg,
+    MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY,
+    MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg,
+    MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY,
 )
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.temporal_lidar_env_cfg import (
     TEMPORAL_LIDAR_COLLECTOR_NAME,
@@ -18,6 +38,7 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.tempo
     TEMPORAL_LIDAR_POS_NOISE_STD,
     TEMPORAL_LIDAR_RAYS,
     TemporalLidarObservationsCfg,
+    TemporalLidarObstacleAvoidanceEnvCfg,
 )
 
 
@@ -151,3 +172,159 @@ def test_actor_and_critic_share_held_history_and_scan_age() -> None:
     assert policy.obstacle_scan.noise.n_min == -0.05
     assert policy.obstacle_scan.noise.n_max == 0.05
     assert critic.obstacle_scan.noise is None
+
+
+def _make_sparse_collector(num_envs: int = 4) -> HeldScanLidarCollector:
+    angles = torch.linspace(-math.pi / 2, math.pi / 2, 256)
+    directions = torch.stack((angles.cos(), angles.sin(), torch.zeros_like(angles)), dim=-1)
+    directions = directions.unsqueeze(0).expand(num_envs, -1, -1).clone()
+    positions = torch.zeros(num_envs, 3)
+    data = SimpleNamespace(
+        pos_w=positions,
+        quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).expand(num_envs, -1),
+        ray_hits_w=positions[:, None, :] + directions * 5.0,
+        ray_mesh_ids=torch.zeros(num_envs, 256, 1, dtype=torch.int16),
+    )
+    sensor = SimpleNamespace(data=data, _ray_directions_w=directions)
+    env = SimpleNamespace(
+        physics_dt=0.005,
+        num_envs=num_envs,
+        device="cpu",
+        scene=SimpleNamespace(sensors={"obstacle_scanner": sensor}),
+    )
+    return HeldScanLidarCollector(env, HeldScanLidarCfg(sparse_sampling_enabled=True))
+
+
+def test_sparse_templates_are_independent_with_randomized_wall_occupancy() -> None:
+    collector = _make_sparse_collector(256)
+    patterns = collector._sampling_pattern
+    assert torch.unique(patterns, dim=0).shape[0] > 240
+    assert torch.unique(collector._sampling_phase).numel() > 100
+    assert 0.29 < patterns.float().mean().item() < 0.38
+    # The drawn groups contain both neighboring reflections and several gap lengths.
+    pair_count = (patterns[:, :-1] & patterns[:, 1:]).sum().item()
+    assert pair_count > 1000
+    assert len({int(gap) for gap in torch.diff(patterns[0].nonzero().flatten()) if gap > 1}) >= 3
+    policy_state = collector.latest_policy_capture()["ray_state"]
+    assert set(policy_state.unique().tolist()) == {0, 2}
+    # One of two physical rays is chosen for each populated angular cell.
+    assert 0.14 < (policy_state == 2).float().mean().item() < 0.19
+    reflected_bins = forward_lidar_reflection_bins(collector.latest_policy_capture())["reflection_mask"]
+    assert 0.29 < reflected_bins.float().mean().item() < 0.38
+
+
+def test_sparse_phase_enters_from_right_edge_and_wraps_full_circle(monkeypatch) -> None:
+    collector = _make_sparse_collector(1)
+    collector._sampling_pattern[:] = False
+    collector._sampling_pattern[0, 63] = True  # just outside the right edge
+    collector._sampling_phase[:] = 0
+    collector._sampling_has_capture[:] = True
+    monkeypatch.setattr(torch, "rand", lambda *shape, **kwargs: torch.full(shape, 0.5, device=kwargs["device"]))
+
+    collector._capture_full_scan()
+    assert collector._sampling_phase.item() == 1
+    assert collector.latest_policy_capture()["ray_state"][0, :2].max().item() == 2
+    assert collector.latest_policy_capture()["ray_state"][0, -2:].max().item() == 0
+
+    collector._sampling_pattern[:] = False
+    collector._sampling_pattern[0, 64] = True
+    collector._sampling_phase[:] = 255
+    collector._capture_full_scan()
+    assert collector._sampling_phase.item() == 0
+    assert collector.latest_policy_capture()["ray_state"][0, :2].max().item() == 2
+
+
+def test_sparse_phase_steps_vary_only_on_completed_captures() -> None:
+    collector = _make_sparse_collector(256)
+    observed_steps = []
+    for _ in range(12):
+        prior = collector._sampling_phase.clone()
+        collector._capture_full_scan()
+        observed_steps.append((collector._sampling_phase - prior) % 256)
+    steps = torch.cat(observed_steps)
+    assert set(steps.unique().tolist()) == {0, 1, 2}
+    assert 0.07 < (steps == 0).float().mean().item() < 0.13
+    assert 0.71 < (steps == 1).float().mean().item() < 0.79
+    assert 0.12 < (steps == 2).float().mean().item() < 0.18
+
+
+def test_sparse_capture_holds_and_reset_is_isolated() -> None:
+    collector = _make_sparse_collector(2)
+    before_phase = collector._sampling_phase.clone()
+    before_state = collector.latest_policy_capture()["ray_state"].clone()
+    before_index = collector.latest_policy_capture()["capture_index"].clone()
+    for _ in range(25):
+        collector.on_physics_step()
+    assert torch.equal(collector._sampling_phase, before_phase)
+    assert torch.equal(collector.latest_policy_capture()["ray_state"], before_state)
+    collector.on_physics_step()
+    assert torch.equal(collector.latest_policy_capture()["capture_index"], before_index + 1)
+
+    unaffected_pattern = collector._sampling_pattern[0].clone()
+    unaffected_phase = collector._sampling_phase[0].clone()
+    unaffected_index = collector._capture_index[0].clone()
+    collector.reset(torch.tensor([1]))
+    assert torch.equal(collector._sampling_pattern[0], unaffected_pattern)
+    assert torch.equal(collector._sampling_phase[0], unaffected_phase)
+    assert torch.equal(collector._capture_index[0], unaffected_index)
+    assert collector._sampling_has_capture[1]
+
+
+def test_sparse_policy_has_max_range_invalids_while_cbf_keeps_full_geometry() -> None:
+    collector = _make_sparse_collector(2)
+    full = collector.latest_capture()
+    sparse = collector.latest_policy_capture()
+    missing = sparse["ray_state"] == 0
+    assert torch.all(full["ray_state"] == 2)
+    assert missing.any()
+    sparse_ranges = torch.linalg.vector_norm(sparse["hit_xy"][missing], dim=-1)
+    full_ranges = torch.linalg.vector_norm(full["hit_xy"][missing], dim=-1)
+    assert torch.allclose(sparse_ranges, torch.full_like(sparse_ranges, 20.0))
+    assert torch.allclose(full_ranges, torch.full_like(full_ranges, 5.0))
+    assert torch.equal(full["capture_index"], sparse["capture_index"])
+    assert full["ray_mesh_ids"] is sparse["ray_mesh_ids"]
+    completed = collector.consume_completed()
+    assert completed is not None
+    assert torch.equal(completed["ray_state"], sparse["ray_state"])
+    assert torch.equal(completed["hit_xy"], sparse["hit_xy"])
+    assert collector.consume_completed() is None
+
+    collector.env.scene.sensors["obstacle_scanner"].data.ray_hits_w[:] = float("inf")
+    collector._capture_full_scan()
+    assert not collector.latest_policy_capture()["ray_state"].any()
+    assert torch.all(collector.latest_capture()["ray_state"] == 1)
+
+
+def test_only_mixed_temporal_configs_enable_sparse_sampling() -> None:
+    assert not HeldScanLidarCfg().sparse_sampling_enabled
+    assert not hasattr(MixedObstacleAvoidanceEnvCfg(), "held_scan_lidar")
+    assert not TemporalLidarObstacleAvoidanceEnvCfg().held_scan_lidar.sparse_sampling_enabled
+    assert MixedTemporalLidarObstacleAvoidanceEnvCfg().held_scan_lidar.sparse_sampling_enabled
+    assert MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg().held_scan_lidar.sparse_sampling_enabled
+    for cfg_type in (
+        MixedTemporalLidarObstacleAvoidanceEnvCfg_PLAY,
+        MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg_PLAY,
+        MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
+        MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY,
+        MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
+        MixedTemporalLidarKpPointVelocityDataEnvCfg,
+    ):
+        assert cfg_type().held_scan_lidar.sparse_sampling_enabled
+
+
+def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
+    collector = _make_sparse_collector(2)
+    collector._pending_ray_mesh_ids[:] = 1
+    collector._pending_ped_velocity_w = torch.tensor([[[1.0, 0.0]], [[0.0, 1.0]]])
+    data_env = object.__new__(FixedCoveragePedestrianCrowdNavigationEnv)
+    data_env._held_scan_lidar_collector = collector
+    data_env.crowd_manager = SimpleNamespace(max_pedestrians=1)
+
+    labels = data_env.get_point_velocity_labels()
+    sparse_bins = forward_lidar_reflection_bins(collector.latest_policy_capture())
+    full_bins = forward_lidar_reflection_bins(collector.latest_capture())
+    assert torch.equal(labels["reflection_mask"], sparse_bins["reflection_mask"])
+    assert torch.equal(labels["dynamic_mask"], sparse_bins["reflection_mask"])
+    assert torch.equal(labels["capture_index"], collector.latest_policy_capture()["capture_index"])
+    assert torch.all(labels["point_velocity_b"][~labels["reflection_mask"]] == 0)
+    assert full_bins["reflection_mask"].sum() > labels["reflection_mask"].sum()

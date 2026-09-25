@@ -108,7 +108,9 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         collector = self._held_scan_lidar_collector
         if collector is None:
             raise RuntimeError("LiDAR velocity labels require the held scan collector.")
-        capture = collector.latest_capture()
+        # Labels must describe the same sampled reflections as the temporal
+        # policy history, not the full geometry capture reserved for CBF.
+        capture = collector.latest_policy_capture()
         pedestrian_velocity = capture["pedestrian_velocity_w"]
         if pedestrian_velocity is None:
             raise RuntimeError("No captured pedestrian velocity is available yet; wait for a live LiDAR capture.")

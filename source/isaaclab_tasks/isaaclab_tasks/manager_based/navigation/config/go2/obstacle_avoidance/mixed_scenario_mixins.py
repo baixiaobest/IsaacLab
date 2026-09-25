@@ -392,7 +392,7 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
 
     observations: TemporalLidarObservationsCfg = TemporalLidarObservationsCfg()
     held_scan_lidar_enabled: bool = True
-    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg()
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(sparse_sampling_enabled=True)
 
     def __post_init__(self):
         super().__post_init__()
@@ -407,7 +407,7 @@ class MixedTemporalLidarPredictionObstacleAvoidanceEnvCfg(MixedObstacleAvoidance
 
     observations: TemporalLidarPredictionObservationsCfg = TemporalLidarPredictionObservationsCfg()
     held_scan_lidar_enabled: bool = True
-    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg()
+    held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(sparse_sampling_enabled=True)
 
     def __post_init__(self):
         super().__post_init__()
