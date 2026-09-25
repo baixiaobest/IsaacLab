@@ -469,15 +469,11 @@ def test_density_curriculum_exposes_progress_through_curriculum_term() -> None:
 
     logged = cfg.curriculum.lidar_density.func(collector.env, torch.arange(4))
 
+    assert set(logged) == {"coverage_percent", "rolling_goal_percent"}
     assert logged["coverage_percent"] == 100.0
-    assert logged["stage"] == 0.0
     assert logged["rolling_goal_percent"] == 200.0 / 3.0
-    assert logged["goal_threshold_percent"] == 70.0
-    assert logged["rolling_goal_count"] == 2.0
-    assert logged["rolling_episode_count"] == 3.0
-    assert logged["stage_completed_episodes"] == 3.0
-    assert logged["episodes_until_check"] == 497.0
+    assert collector._density_completed == 3
+    assert collector._density_next_check == 500
     collector._density_stage = len(LIDAR_COVERAGE_STAGES) - 1
     collector._coverage_target = None
     assert round(collector.density_status()["coverage_percent"], 1) == 33.3
-    assert collector.density_status()["episodes_until_check"] == 0.0

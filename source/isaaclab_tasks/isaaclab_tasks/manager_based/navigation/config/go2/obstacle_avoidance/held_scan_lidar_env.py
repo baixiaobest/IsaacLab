@@ -167,20 +167,11 @@ class HeldScanLidarCollector:
         return self.density_status()
 
     def density_status(self) -> dict[str, float]:
-        """Scalar curriculum values for Isaac Lab and RSL-RL logging."""
-        goal_count = sum(self._density_outcomes)
-        window_count = len(self._density_outcomes)
+        """Expose only the two essential curriculum curves to W&B."""
         return {
             "coverage_percent": 100.0 * (self._coverage_target if self._coverage_target is not None else 1.0 / 3.0),
-            "stage": float(self._density_stage),
-            "rolling_goal_percent": 100.0 * goal_count / window_count if window_count else 0.0,
-            "goal_threshold_percent": 100.0 * LIDAR_SUCCESS_THRESHOLD,
-            "rolling_goal_count": float(goal_count),
-            "rolling_episode_count": float(window_count),
-            "stage_completed_episodes": float(self._density_completed),
-            "episodes_until_check": float(
-                max(0, self._density_next_check - self._density_completed)
-                if self._density_stage < len(LIDAR_COVERAGE_STAGES) - 1 else 0
+            "rolling_goal_percent": (
+                100.0 * sum(self._density_outcomes) / len(self._density_outcomes) if self._density_outcomes else 0.0
             ),
         }
 
