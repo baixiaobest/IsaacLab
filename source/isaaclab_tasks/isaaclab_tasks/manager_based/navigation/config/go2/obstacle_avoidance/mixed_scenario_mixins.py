@@ -49,7 +49,7 @@ from .obstacle_avoidance_env_cfg import (
     RewardsCfg,
     TerminationsCfg,
 )
-from .held_scan_lidar_env import HeldScanLidarCfg, goal_reached_lidar_density_curriculum
+from .held_scan_lidar_env import HeldScanLidarCfg, iteration_lidar_density_curriculum
 from .observation_modifiers import policy_base_lin_vel_modifiers, policy_imu_ang_vel_modifiers
 from .pedestrian_scene import (
     ENABLE_PEDESTRIAN_VISUAL_MESHES,
@@ -285,7 +285,7 @@ class MixedCurriculumCfg(_MixedCurriculumCfg, CurriculumCfg):
 
 @configclass
 class MixedTemporalLidarCurriculumCfg(MixedCurriculumCfg):
-    lidar_density = CurrTerm(func=goal_reached_lidar_density_curriculum)
+    lidar_density = CurrTerm(func=iteration_lidar_density_curriculum)
 
 
 @configclass
