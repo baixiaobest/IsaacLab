@@ -328,9 +328,23 @@ class HeldScanLidarCollector:
                 self._sampling_phase[env_ids] + phase_step * previously_captured.long()
             ) % 256
             selected = self._sparse_ray_mask(env_ids)
-            self._pending_policy_state[env_ids] = (selected & hit_valid[env_ids]).to(torch.uint8) * 2
+            # The first curriculum stage is the original dense held scan. Use
+            # the stage assigned at reset so in-flight episodes stay dense when
+            # the global curriculum advances to 90%.
+            if self.cfg.density_curriculum_enabled:
+                dense_episode = self._episode_density_stage[env_ids] == 0
+            else:
+                dense_episode = torch.full(
+                    (env_ids.numel(),), self._coverage_target == 1.0, dtype=torch.bool, device=self.device
+                )
+            selected[dense_episode] = True
+            # A selected no-return ray is measured (state 1); only an
+            # unselected ray is unavailable (state 0).
+            self._pending_policy_state[env_ids] = torch.where(
+                selected, self._pending_state[env_ids], 0
+            )
             self._pending_policy_hit_xy[env_ids] = torch.where(
-                (selected & hit_valid[env_ids]).unsqueeze(-1), hit_xy[env_ids], free_endpoint[env_ids, :, :2]
+                selected.unsqueeze(-1), hit_xy[env_ids], free_endpoint[env_ids, :, :2]
             )
             self._sampling_has_capture[env_ids] = True
         else:

@@ -303,8 +303,70 @@ def test_sparse_policy_has_max_range_invalids_while_cbf_keeps_full_geometry() ->
 
     collector.env.scene.sensors["obstacle_scanner"].data.ray_hits_w[:] = float("inf")
     collector._capture_full_scan()
-    assert not collector.latest_policy_capture()["ray_state"].any()
+    sparse_states = collector.latest_policy_capture()["ray_state"]
+    assert set(sparse_states.unique().tolist()) == {0, 1}
+    assert (sparse_states > 0).any()  # state 1 projects to binary policy validity 1
+    assert not forward_lidar_reflection_bins(collector.latest_policy_capture())["reflection_mask"].any()
+    assert torch.all((sparse_states > 0).reshape(2, 128, 2).sum(dim=-1) <= 1)
+    assert torch.allclose(
+        torch.linalg.vector_norm(collector.latest_policy_capture()["hit_xy"][sparse_states == 1], dim=-1),
+        torch.full_like(sparse_states[sparse_states == 1], 20.0, dtype=torch.float),
+    )
     assert torch.all(collector.latest_capture()["ray_state"] == 1)
+
+
+def test_full_coverage_matches_dense_capture_with_hits_and_no_returns() -> None:
+    collector = _make_sparse_collector(2, curriculum=True)
+    sensor = collector.env.scene.sensors["obstacle_scanner"]
+    sensor.data.ray_hits_w[:, ::3] = float("inf")
+    collector._capture_full_scan()
+
+    full = collector.latest_capture()
+    policy = collector.latest_policy_capture()
+    assert torch.equal(policy["ray_state"], full["ray_state"])
+    assert torch.equal(policy["hit_xy"], full["hit_xy"])
+    assert set(policy["ray_state"].unique().tolist()) == {1, 2}
+    assert torch.all(policy["ray_state"] > 0)
+
+    held_states = policy["ray_state"].clone()
+    held_hits = policy["hit_xy"].clone()
+    for _ in range(25):
+        collector.on_physics_step()
+    assert torch.equal(collector.latest_policy_capture()["ray_state"], held_states)
+    assert torch.equal(collector.latest_policy_capture()["hit_xy"], held_hits)
+
+
+def test_sparse_selected_no_returns_are_valid_and_stage_changes_on_reset() -> None:
+    collector = _make_sparse_collector(2, curriculum=True)
+    sensor = collector.env.scene.sensors["obstacle_scanner"]
+    sensor.data.ray_hits_w[:, ::2] = float("inf")
+    collector._density_stage = 1
+    collector._coverage_target = 0.9
+    collector.reset(torch.tensor([1]))
+    collector._capture_full_scan(torch.tensor([0]))
+
+    full = collector.latest_capture()
+    policy = collector.latest_policy_capture()
+    # The episode still running at stage zero retains the dense capture.
+    assert torch.equal(policy["ray_state"][0], full["ray_state"][0])
+    assert torch.equal(policy["hit_xy"][0], full["hit_xy"][0])
+    assert collector._episode_density_stage.tolist() == [0, 1]
+
+    sparse_states = policy["ray_state"][1]
+    assert set(sparse_states.unique().tolist()) == {0, 1, 2}
+    assert torch.all((sparse_states > 0).reshape(128, 2).sum(dim=-1) <= 1)
+    selected_no_return = sparse_states == 1
+    assert selected_no_return.any()
+    assert torch.allclose(
+        torch.linalg.vector_norm(policy["hit_xy"][1, selected_no_return], dim=-1),
+        torch.full((selected_no_return.sum().item(),), 20.0),
+    )
+    assert torch.all(full["ray_state"][1, ::2] == 1)
+    assert torch.all(full["ray_state"][1, 1::2] == 2)
+
+    collector.reset(torch.tensor([0]))
+    assert collector._episode_density_stage.tolist() == [1, 1]
+    assert (collector.latest_policy_capture()["ray_state"][0] == 0).any()
 
 
 def test_only_mixed_temporal_configs_enable_sparse_sampling() -> None:
@@ -358,13 +420,15 @@ def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
 def test_density_filling_keeps_capture_only_shift_and_full_cbf_geometry() -> None:
     collector = _make_sparse_collector(64, curriculum=True)
     assert collector._sampling_pattern.all()
-    assert torch.all(collector.latest_policy_capture()["ray_state"].sum(dim=1) == 256)
+    assert torch.equal(collector.latest_policy_capture()["ray_state"], collector.latest_capture()["ray_state"])
     assert torch.all(forward_lidar_reflection_bins(collector.latest_policy_capture())["reflection_mask"])
     assert torch.all(collector.latest_capture()["ray_state"] == 2)
-    for target in LIDAR_COVERAGE_STAGES[:-1]:
+    for stage, target in enumerate(LIDAR_COVERAGE_STAGES[:-1]):
+        collector._density_stage = stage
         collector._coverage_target = target
         collector.reset()
         assert torch.all(collector._sampling_pattern.sum(dim=1) == round(256 * target))
+    collector._density_stage = LIDAR_COVERAGE_STAGES.index(0.6)
     collector._coverage_target = 0.6
     collector.reset()
     pattern = collector._sampling_pattern.clone()
@@ -378,6 +442,7 @@ def test_density_filling_keeps_capture_only_shift_and_full_cbf_geometry() -> Non
     reflected = forward_lidar_reflection_bins(collector.latest_policy_capture())["reflection_mask"]
     assert 0.52 < reflected.float().mean().item() < 0.68
     assert torch.all(collector.latest_capture()["ray_state"] == 2)
+    collector._density_stage = len(LIDAR_COVERAGE_STAGES) - 1
     collector._coverage_target = None
     collector.reset()
     assert 0.29 < collector._sampling_pattern.float().mean().item() < 0.38
