@@ -352,18 +352,16 @@ def _aggregate_rows(rows: list[dict[str, Any]], group_keys: tuple[str, ...]) -> 
     return aggregates
 
 
-def _evaluate_checkpoint(
-    env_cfg,
-    agent_cfg,
-    checkpoint: str,
-    label: str,
-    output_dir: Path,
-    reporter: ResearchAgentProgressReporter,
-    completed_offset: int,
-) -> tuple[list[dict[str, Any]], str]:
-    profiles = evaluation_profiles()
-    if args_cli.num_envs < len(profiles):
-        raise ValueError(f"--num_envs must be at least {len(profiles)} for the 24 locomotion evaluation profiles.")
+def _make_evaluation_env(env_cfg, agent_cfg: RslRlBaseRunnerCfg):
+    """Create the one Isaac environment shared by all evaluated checkpoints.
+
+    Isaac Sim keeps its simulation context alive for the lifetime of this
+    process.  Closing a Gym wrapper and then constructing a second manager
+    environment in that same process can leave the second construction
+    spinning in Isaac's teardown/startup path.  Candidate and baseline use an
+    identical fixed profile matrix, so one environment is both safer and the
+    fairer comparison.
+    """
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.seed = args_cli.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
@@ -380,7 +378,22 @@ def _evaluate_checkpoint(
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-    raw_env = env.unwrapped
+    return env, env.unwrapped
+
+
+def _evaluate_checkpoint(
+    env,
+    raw_env,
+    agent_cfg,
+    checkpoint: str,
+    label: str,
+    output_dir: Path,
+    reporter: ResearchAgentProgressReporter,
+    completed_offset: int,
+) -> tuple[list[dict[str, Any]], str]:
+    profiles = evaluation_profiles()
+    if args_cli.num_envs < len(profiles):
+        raise ValueError(f"--num_envs must be at least {len(profiles)} for the 24 locomotion evaluation profiles.")
     policy, policy_nn, resolved_checkpoint = _load_policy(env, agent_cfg, checkpoint)
     assignments = [index % len(profiles) for index in range(args_cli.num_envs)]
     term = raw_env.command_manager.get_term("base_velocity")
@@ -421,10 +434,17 @@ def _evaluate_checkpoint(
                     int(episode_numbers[env_id]),
                 )
             term.set_target_commands(torch.as_tensor(targets, device=raw_env.device))
-            with torch.inference_mode():
+            # Only the policy is inference-only.  Isaac's environment step
+            # mutates simulation and reset buffers; running it under
+            # ``inference_mode`` converts those buffers to inference tensors.
+            # A second checkpoint then cannot reset the shared environment
+            # because Isaac must update the root-state tensors in place.
+            # ``no_grad`` avoids autograd work without changing the tensor
+            # kind used by the environment.
+            with torch.no_grad():
                 actions = policy(obs)
-                collector.record(raw_env, term, actions, previous_actions, step_counts)
-                obs, _, dones, _ = env.step(actions)
+            collector.record(raw_env, term, actions, previous_actions, step_counts)
+            obs, _, dones, _ = env.step(actions)
             if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
                 policy.reset(dones)
             else:
@@ -435,7 +455,10 @@ def _evaluate_checkpoint(
                 completed_offset + int(np.minimum(counts, args_cli.episodes_per_profile).sum()), label
             )
     finally:
-        env.close()
+        # The next checkpoint shares this environment.  Never leave a prior
+        # collector installed, otherwise every reset would be finalized by two
+        # checkpoint-specific recorders.
+        raw_env._reset_idx = original_reset_idx
     if np.any(counts < args_cli.episodes_per_profile):
         raise RuntimeError(f"{label} evaluation stopped before every locomotion profile reached its episode quota.")
     # Concurrent environments can finish one extra episode while another cell
@@ -470,17 +493,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg, agent_cfg: RslRlBaseRun
     per_checkpoint_total = len(profiles) * args_cli.episodes_per_profile
     total_checkpoints = 2 if args_cli.baseline_checkpoint else 1
     reporter = ResearchAgentProgressReporter(per_checkpoint_total * total_checkpoints, len(profiles))
-    reporter.report(0, "candidate", force=True)
-    candidate_rows, candidate_checkpoint = _evaluate_checkpoint(
-        env_cfg, agent_cfg, args_cli.checkpoint, "candidate", output_dir, reporter, 0
-    )
-    baseline_rows: list[dict[str, Any]] = []
-    baseline_checkpoint = None
-    if args_cli.baseline_checkpoint:
-        reporter.report(per_checkpoint_total, "baseline", force=True)
-        baseline_rows, baseline_checkpoint = _evaluate_checkpoint(
-            env_cfg, agent_cfg, args_cli.baseline_checkpoint, "baseline", output_dir, reporter, per_checkpoint_total
+    env, raw_env = _make_evaluation_env(env_cfg, agent_cfg)
+    try:
+        reporter.report(0, "candidate", force=True)
+        candidate_rows, candidate_checkpoint = _evaluate_checkpoint(
+            env, raw_env, agent_cfg, args_cli.checkpoint, "candidate", output_dir, reporter, 0
         )
+        baseline_rows: list[dict[str, Any]] = []
+        baseline_checkpoint = None
+        if args_cli.baseline_checkpoint:
+            reporter.report(per_checkpoint_total, "baseline", force=True)
+            baseline_rows, baseline_checkpoint = _evaluate_checkpoint(
+                env, raw_env, agent_cfg, args_cli.baseline_checkpoint, "baseline", output_dir, reporter, per_checkpoint_total
+            )
+    finally:
+        env.close()
     summary = {
         "evaluation_family": "locomotion",
         "mining_enabled": False,

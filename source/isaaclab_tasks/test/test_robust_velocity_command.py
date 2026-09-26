@@ -34,17 +34,40 @@ def _bare_command_term(
         max_yaw_delta_radps=0.3,
         max_planar_speed=1.5,
         max_yaw_rate=2.0,
+        planar_deadzone_mps=0.10,
+        yaw_deadzone_radps=0.10,
         normal_yaw_full_cap_speed_mps=1.0,
         normal_yaw_cap_at_max_planar_speed_radps=1.0,
         sudden_change_time_fraction=0.5,
+        sudden_change_start_terrain_level=5,
+        sudden_change_start_interval_s=5.0,
+        sudden_change_full_interval_s=3.0,
+        stop_cycle_start_terrain_level=5,
+        stop_cycle_cruise_duration_s=4.0,
+        stop_cycle_planar_speed_range_mps=(0.75, 1.5),
+        stop_cycle_settle_planar_speed_mps=0.10,
+        stop_cycle_settle_yaw_rate_radps=0.10,
+        stop_cycle_settle_duration_s=0.5,
+        stop_cycle_max_dwell_s=3.0,
+        slow_coupled_turn_probability=0.10,
+        rotate_in_place_probability=0.10,
+        full_stop_probability=0.10,
+        normal_coupled_motion_probability=0.40,
+        sudden_change_probability=0.30,
     )
     terrain = SimpleNamespace(terrain_levels=torch.tensor([level], dtype=torch.long))
-    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=terrain), max_episode_length_s=10.0)
+    term._env = SimpleNamespace(scene=SimpleNamespace(terrain=terrain), max_episode_length_s=10.0, step_dt=0.02)
+    term.robot = SimpleNamespace(
+        data=SimpleNamespace(root_lin_vel_b=torch.zeros(1, 3), root_ang_vel_b=torch.zeros(1, 3))
+    )
     term._target_command = torch.tensor([[0.8, 0.2, 0.7]])
     term._emitted_command = torch.zeros(1, 3)
     term._command = torch.zeros(1, 3)
     term._mode = torch.tensor([RobustVelocityCommand.NORMAL_COUPLED_MOTION])
     term._sudden_change_fired = torch.zeros(1, dtype=torch.bool)
+    term._stop_cycle_braking = torch.zeros(1, dtype=torch.bool)
+    term._stop_cycle_settled_time_s = torch.zeros(1)
+    term._stop_cycle_dwell_time_s = torch.zeros(1)
     term.time_left = torch.zeros(1)
     term.command_counter = torch.zeros(1, dtype=torch.long)
     return term
@@ -153,6 +176,63 @@ def test_sudden_change_occurs_once_at_episode_midpoint_and_is_independent() -> N
     torch.testing.assert_close(term.target_command, after)
 
 
+def test_sudden_change_repeats_at_the_level_interpolated_schedule() -> None:
+    expected_periods = {5: 5.0, 6: 4.5, 7: 4.0, 8: 3.5, 9: 3.0, 12: 3.0}
+    for level, expected_period in expected_periods.items():
+        term = _bare_command_term(level=level)
+        term._mode[:] = RobustVelocityCommand.SUDDEN_CHANGE
+        term._set_next_resample_time(torch.tensor([0]))
+        assert term.time_left.item() == pytest.approx(expected_period)
+
+        first = term.target_command.clone()
+        term.command_counter[:] = 1
+        torch.manual_seed(level)
+        term._resample_existing_priors(torch.tensor([0]))
+        assert not torch.equal(term.target_command, first)
+        assert term.time_left.item() == pytest.approx(expected_period)
+
+        second = term.target_command.clone()
+        term._resample_existing_priors(torch.tensor([0]))
+        assert not torch.equal(term.target_command, second)
+        assert term.time_left.item() == pytest.approx(expected_period)
+
+
+def test_full_stop_becomes_high_speed_cruise_then_zero_cycle_from_level_five() -> None:
+    term = _bare_command_term(level=5)
+    term._mode[:] = RobustVelocityCommand.FULL_STOP
+    term._start_stop_cycle_cruise(torch.tensor([0]))
+    cruise_speed = torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item()
+    assert 0.75 <= cruise_speed <= 1.5
+    assert term.time_left.item() == pytest.approx(4.0)
+    assert not term._stop_cycle_braking.item()
+
+    term._resample_existing_priors(torch.tensor([0]))
+    torch.testing.assert_close(term.target_command, torch.zeros(1, 3))
+    assert term._stop_cycle_braking.item()
+    assert term.time_left.item() == pytest.approx(0.02)
+
+    term._stop_cycle_settled_time_s[:] = 0.5
+    term._resample_existing_priors(torch.tensor([0]))
+    resumed_speed = torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item()
+    assert 0.75 <= resumed_speed <= 1.5
+    assert not term._stop_cycle_braking.item()
+    assert term.time_left.item() == pytest.approx(4.0)
+
+
+def test_full_stop_remains_stationary_below_stop_cycle_gate() -> None:
+    term = _bare_command_term(level=4)
+    term.cfg.slow_coupled_turn_probability = 0.0
+    term.cfg.rotate_in_place_probability = 0.0
+    term.cfg.full_stop_probability = 1.0
+    term.cfg.normal_coupled_motion_probability = 0.0
+    term.cfg.sudden_change_probability = 0.0
+    term._resample(torch.tensor([0]))
+
+    torch.testing.assert_close(term.target_command, torch.zeros(1, 3))
+    assert torch.isinf(term.time_left[0])
+    assert not term._stop_cycle_braking.item()
+
+
 def test_normal_prior_updates_have_specified_schedule_and_delta_bounds() -> None:
     expected_periods = {5: 2.0, 6: 1.0 / 0.875, 7: 0.8, 8: 1.0 / 1.625, 9: 0.5, 12: 0.5}
     for level, expected_period in expected_periods.items():
@@ -199,6 +279,25 @@ def test_scripted_command_is_immediate_and_bounded() -> None:
     torch.testing.assert_close(term.command, torch.tensor([[1.5, 0.0, 2.0]]))
     torch.testing.assert_close(term.command, term.emitted_command)
     assert not hasattr(term, "set_delay_ticks")
+
+
+def test_command_deadzone_snaps_planar_and_yaw_independently() -> None:
+    term = _bare_command_term()
+    term._target_command[:] = torch.tensor(
+        [
+            [0.06, 0.06, 0.20],
+        ]
+    )
+    term._update_command()
+    torch.testing.assert_close(term.command, torch.tensor([[0.0, 0.0, 0.20]]))
+
+    term._target_command[:] = torch.tensor([[0.20, 0.0, 0.06]])
+    term._update_command()
+    torch.testing.assert_close(term.command, torch.tensor([[0.20, 0.0, 0.0]]))
+
+    term._target_command[:] = torch.tensor([[0.06, 0.06, 0.06]])
+    term._update_command()
+    torch.testing.assert_close(term.command, torch.zeros(1, 3))
 
 
 def test_tracking_terrain_curriculum_promotes_good_and_demotes_bad_episodes() -> None:

@@ -227,6 +227,11 @@ class EventCfg:
         },
     )
 
+    # Enabled only by ``LocomotionVelEnvCfg_ROBUST`` below.  The default,
+    # play, and rollout tasks intentionally retain their current disturbance
+    # distribution.
+    base_wrench_impulse: EventTerm | None = None
+
 
 @configclass
 class RewardsCfg:
@@ -255,6 +260,9 @@ class RewardsCfg:
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
+    # Enabled only by ``LocomotionVelEnvCfg_ROBUST``.  The default, play, and
+    # rollout tasks retain their existing reward definitions.
+    stationary_base_height_l2: RewTerm | None = None
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-2.0e-4)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -379,6 +387,49 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
         # Torque-offset randomization is deferred for this first robust-policy
         # revision.  Reintroduce it only as an explicit later curriculum.
         self.events.joint_torque_offset_curriculum = None
+        self.rewards.stationary_base_height_l2 = RewTerm(
+            func=mdp.stationary_base_height_l2,
+            weight=-5.0,
+            params={
+                "command_name": "base_velocity",
+                "target_height": 0.40,
+                "planar_deadzone_mps": 0.10,
+                "yaw_deadzone_radps": 0.10,
+            },
+        )
+        self.rewards.lower_head_contact = RewTerm(
+            func=mdp.undesired_contacts,
+            weight=-2.0,
+            params={
+                "sensor_cfg": SceneEntityCfg("contact_forces", body_names="Head_lower"),
+                "threshold": 1.0,
+            },
+        )
+        # The term executes each 20 ms RL control step and holds a selected
+        # base-frame force across all four 5 ms physics substeps.  It uses a
+        # per-environment terrain-level gate rather than a global curriculum
+        # activation, so only robots that reached level 5 receive kick pulses.
+        self.events.base_wrench_impulse = EventTerm(
+            func=mdp.BaseWrenchImpulse,
+            mode="interval",
+            interval_range_s=(0.02, 0.02),
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "command_name": "base_velocity",
+                "terrain_level_threshold": 5,
+                "settle_time_s": 1.5,
+                "command_speed_threshold": 0.2,
+                "pulse_interval_range_s": (3.0, 6.0),
+                "pulse_duration_range_s": (0.04, 0.08),
+                # Terrain bands: levels 5-6, 7, 8, and 9+ respectively.
+                "impulse_ranges_by_level": ((5.0, 10.0), (10.0, 16.0), (16.0, 22.0), (22.0, 25.0)),
+                "application_point_range_m": (
+                    (-0.15, 0.15),
+                    (-0.15, 0.15),
+                    (-0.10, 0.10),
+                ),
+            },
+        )
         self.curriculum = RobustCurriculumCfg()
         self.commands.base_velocity = mdp.RobustVelocityCommandCfg(
             asset_name="robot",
@@ -389,6 +440,19 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
             full_stop_probability=0.10,
             normal_coupled_motion_probability=0.40,
             sudden_change_probability=0.30,
+            # Above terrain level 5, sudden targets repeat every 5 s -> 3 s
+            # by level 9, while the 10% full-stop mode becomes a 4 s high-
+            # speed cruise followed by a measured stop-and-repeat cycle.
+            sudden_change_start_terrain_level=5,
+            sudden_change_start_interval_s=5.0,
+            sudden_change_full_interval_s=3.0,
+            stop_cycle_start_terrain_level=5,
+            stop_cycle_cruise_duration_s=4.0,
+            stop_cycle_planar_speed_range_mps=(0.75, 1.5),
+            stop_cycle_settle_planar_speed_mps=0.10,
+            stop_cycle_settle_yaw_rate_radps=0.10,
+            stop_cycle_settle_duration_s=0.5,
+            stop_cycle_max_dwell_s=3.0,
             # Required by CommandTermCfg only; RobustVelocityCommand owns its
             # per-environment schedule and does not use this generic range.
             resampling_time_range=(1.0e6, 1.0e6),

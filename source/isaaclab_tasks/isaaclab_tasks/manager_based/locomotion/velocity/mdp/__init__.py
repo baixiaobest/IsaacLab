@@ -8,6 +8,7 @@
 from isaaclab.envs.mdp import *  # noqa: F401, F403
 
 from .curriculums import *  # noqa: F401, F403
+from .impulse_events import *  # noqa: F401, F403
 from .rewards import *  # noqa: F401, F403
 from .robust_velocity_command import *  # noqa: F401, F403
 from .terminations import *  # noqa: F401, F403
