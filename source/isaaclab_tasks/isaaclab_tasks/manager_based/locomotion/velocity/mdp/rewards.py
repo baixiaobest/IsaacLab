@@ -26,7 +26,11 @@ if TYPE_CHECKING:
 
 
 def feet_air_time(
-    env: ManagerBasedRLEnv, command_name: str, sensor_cfg: SceneEntityCfg, threshold: float
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float,
+    command_speed_threshold: float = 0.1,
 ) -> torch.Tensor:
     """Reward long steps taken by the feet using L2-kernel.
 
@@ -34,7 +38,7 @@ def feet_air_time(
     that the robot lifts its feet off the ground and takes steps. The reward is computed as the sum of
     the time for which the feet are in the air.
 
-    If the commands are small (i.e. the agent is not supposed to take a step), then the reward is zero.
+    If the planar command does not exceed ``command_speed_threshold``, the reward is zero.
     """
     # extract the used quantities (to enable type-hinting)
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -42,8 +46,8 @@ def feet_air_time(
     first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
     last_air_time = contact_sensor.data.last_air_time[:, sensor_cfg.body_ids]
     reward = torch.sum((last_air_time - threshold) * first_contact, dim=1)
-    # no reward for zero command
-    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    # Neither reward nor penalize short steps below the configured command speed.
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > command_speed_threshold
     return reward
 
 def feet_air_time_range(
@@ -267,19 +271,27 @@ def stationary_base_height_l2(
     planar_deadzone_mps: float = 0.10,
     yaw_deadzone_radps: float = 0.10,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    planar_fade_end_mps: float | None = None,
 ) -> torch.Tensor:
-    """Penalize base-height error only while the commanded motion is stationary.
+    """Penalize base-height error for stationary or slow straight motion.
 
-    The planar vector and yaw rate are gated independently so a robot asked to
-    rotate in place is not treated as standing still.
+    The planar penalty optionally fades out after ``planar_deadzone_mps``.
+    Turning commands do not receive this height penalty.
     """
     asset: Articulation = env.scene[asset_cfg.name]
     command = env.command_manager.get_command(command_name)
-    stationary = (torch.linalg.vector_norm(command[:, :2], dim=1) < planar_deadzone_mps) & (
-        torch.abs(command[:, 2]) < yaw_deadzone_radps
-    )
+    planar_speed = torch.linalg.vector_norm(command[:, :2], dim=1)
+    if planar_fade_end_mps is None:
+        height_weight = (planar_speed < planar_deadzone_mps).to(planar_speed.dtype)
+    else:
+        if planar_fade_end_mps <= planar_deadzone_mps:
+            raise ValueError("planar_fade_end_mps must exceed planar_deadzone_mps.")
+        height_weight = (
+            (planar_fade_end_mps - planar_speed) / (planar_fade_end_mps - planar_deadzone_mps)
+        ).clamp(0.0, 1.0)
+    height_weight *= (torch.abs(command[:, 2]) < yaw_deadzone_radps).to(height_weight.dtype)
     height_error_sq = torch.square(asset.data.root_pos_w[:, 2] - target_height)
-    return torch.where(stationary, height_error_sq, torch.zeros_like(height_error_sq))
+    return height_weight * height_error_sq
 
 
 def excessive_velocity(

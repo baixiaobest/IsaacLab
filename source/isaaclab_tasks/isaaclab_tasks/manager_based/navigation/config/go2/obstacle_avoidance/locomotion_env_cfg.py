@@ -392,10 +392,14 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
             weight=-5.0,
             params={
                 "command_name": "base_velocity",
-                "target_height": 0.40,
-                "planar_deadzone_mps": 0.10,
+                "target_height": 0.37,
+                "planar_deadzone_mps": 0.25,
+                "planar_fade_end_mps": 0.40,
                 "yaw_deadzone_radps": 0.10,
             },
+        )
+        self.rewards.feet_air_time = self.rewards.feet_air_time.replace(
+            params={**self.rewards.feet_air_time.params, "command_speed_threshold": 0.25}
         )
         self.rewards.lower_head_contact = RewTerm(
             func=mdp.undesired_contacts,
@@ -435,7 +439,8 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
             asset_name="robot",
             normal_yaw_full_cap_speed_mps=1.0,
             normal_yaw_cap_at_max_planar_speed_radps=1.0,
-            slow_coupled_turn_probability=0.10,
+            slow_coupled_turn_probability=0.05,
+            slow_straight_probability=0.05,
             rotate_in_place_probability=0.10,
             full_stop_probability=0.10,
             normal_coupled_motion_probability=0.40,

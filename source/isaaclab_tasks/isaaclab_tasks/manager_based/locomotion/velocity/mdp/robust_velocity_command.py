@@ -42,6 +42,7 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     normal_yaw_cap_at_max_planar_speed_radps: float = 1.0
     """Normal/sudden yaw-rate cap at ``max_planar_speed``."""
     slow_coupled_turn_probability: float = 0.15
+    slow_straight_probability: float = 0.0
     rotate_in_place_probability: float = 0.15
     full_stop_probability: float = 0.10
     normal_coupled_motion_probability: float = 0.40
@@ -93,6 +94,7 @@ class RobustVelocityCommandCfg(CommandTermCfg):
         mode_probability_sum = sum(
             (
                 self.slow_coupled_turn_probability,
+                self.slow_straight_probability,
                 self.rotate_in_place_probability,
                 self.full_stop_probability,
                 self.normal_coupled_motion_probability,
@@ -103,6 +105,7 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             probability < 0.0
             for probability in (
                 self.slow_coupled_turn_probability,
+                self.slow_straight_probability,
                 self.rotate_in_place_probability,
                 self.full_stop_probability,
                 self.normal_coupled_motion_probability,
@@ -151,6 +154,7 @@ class RobustVelocityCommand(CommandTerm):
     NORMAL_COUPLED_MOTION = 2
     FULL_STOP = 3
     SUDDEN_CHANGE = 4
+    SLOW_STRAIGHT = 5
 
     def __init__(self, cfg: RobustVelocityCommandCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
@@ -306,6 +310,7 @@ class RobustVelocityCommand(CommandTerm):
                 normal_yaw_full_cap_speed_mps=self.cfg.normal_yaw_full_cap_speed_mps,
                 normal_yaw_cap_at_max_planar_speed_radps=self.cfg.normal_yaw_cap_at_max_planar_speed_radps,
                 slow_coupled_turn_probability=self.cfg.slow_coupled_turn_probability,
+                slow_straight_probability=self.cfg.slow_straight_probability,
                 rotate_in_place_probability=self.cfg.rotate_in_place_probability,
                 full_stop_probability=self.cfg.full_stop_probability,
                 normal_coupled_motion_probability=self.cfg.normal_coupled_motion_probability,
@@ -467,6 +472,7 @@ class RobustVelocityCommand(CommandTerm):
         normal_yaw_full_cap_speed_mps: float = 1.0,
         normal_yaw_cap_at_max_planar_speed_radps: float = 1.0,
         slow_coupled_turn_probability: float = 0.15,
+        slow_straight_probability: float = 0.0,
         rotate_in_place_probability: float = 0.15,
         full_stop_probability: float = 0.10,
         normal_coupled_motion_probability: float = 0.40,
@@ -477,6 +483,7 @@ class RobustVelocityCommand(CommandTerm):
             return torch.empty(0, 3, device=device), torch.empty(0, dtype=torch.long, device=device)
         probabilities = (
             slow_coupled_turn_probability,
+            slow_straight_probability,
             rotate_in_place_probability,
             full_stop_probability,
             normal_coupled_motion_probability,
@@ -494,11 +501,13 @@ class RobustVelocityCommand(CommandTerm):
         mode = torch.empty(count, dtype=torch.long, device=device)
         mixture = torch.rand(count, device=device)
         slow_end = slow_coupled_turn_probability
-        rotate_end = slow_end + rotate_in_place_probability
+        straight_end = slow_end + slow_straight_probability
+        rotate_end = straight_end + rotate_in_place_probability
         stop_end = rotate_end + full_stop_probability
         normal_end = stop_end + normal_coupled_motion_probability
         slow = mixture < slow_end
-        rotate = (mixture >= slow_end) & (mixture < rotate_end)
+        slow_straight = (mixture >= slow_end) & (mixture < straight_end)
+        rotate = (mixture >= straight_end) & (mixture < rotate_end)
         stop = (mixture >= rotate_end) & (mixture < stop_end)
         normal = (mixture >= stop_end) & (mixture < normal_end)
         # The validated unit sum makes the remaining interval precisely the
@@ -511,6 +520,12 @@ class RobustVelocityCommand(CommandTerm):
             command[slow, 0] = speed * torch.cos(angle)
             command[slow, 1] = speed * torch.sin(angle)
             command[slow, 2] = torch.empty(slow_count, device=device).uniform_(-max_yaw_rate, max_yaw_rate)
+        straight_count = int(slow_straight.sum().item())
+        if straight_count:
+            speed = torch.empty(straight_count, device=device).uniform_(0.10, 0.25)
+            angle = torch.empty(straight_count, device=device).uniform_(-math.pi, math.pi)
+            command[slow_straight, 0] = speed * torch.cos(angle)
+            command[slow_straight, 1] = speed * torch.sin(angle)
         rotate_count = int(rotate.sum().item())
         if rotate_count:
             command[rotate, 2] = torch.empty(rotate_count, device=device).uniform_(-max_yaw_rate, max_yaw_rate)
@@ -525,6 +540,7 @@ class RobustVelocityCommand(CommandTerm):
                 normal_yaw_cap_at_max_planar_speed_radps=normal_yaw_cap_at_max_planar_speed_radps,
             )
         mode[slow] = cls.SLOW_COUPLED_TURN
+        mode[slow_straight] = cls.SLOW_STRAIGHT
         mode[rotate] = cls.ROTATE_IN_PLACE
         mode[stop] = cls.FULL_STOP
         mode[normal] = cls.NORMAL_COUPLED_MOTION

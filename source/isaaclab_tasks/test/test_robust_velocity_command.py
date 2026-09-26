@@ -50,6 +50,7 @@ def _bare_command_term(
         stop_cycle_settle_duration_s=0.5,
         stop_cycle_max_dwell_s=3.0,
         slow_coupled_turn_probability=0.10,
+        slow_straight_probability=0.0,
         rotate_in_place_probability=0.10,
         full_stop_probability=0.10,
         normal_coupled_motion_probability=0.40,
@@ -114,6 +115,31 @@ def test_mode_mixture_is_configurable_and_must_sum_to_one() -> None:
             resampling_time_range=(1.0, 1.0),
             full_stop_probability=0.2,
         )
+
+
+def test_robust_slow_modes_split_and_straight_command_range() -> None:
+    torch.manual_seed(17)
+    command, mode = RobustVelocityCommand.sample_direct_targets(
+        100_000,
+        "cpu",
+        slow_coupled_turn_probability=0.05,
+        slow_straight_probability=0.05,
+        rotate_in_place_probability=0.10,
+        full_stop_probability=0.10,
+        normal_coupled_motion_probability=0.40,
+        sudden_change_probability=0.30,
+    )
+    assert abs((mode == RobustVelocityCommand.SLOW_COUPLED_TURN).float().mean().item() - 0.05) < 0.005
+    straight = mode == RobustVelocityCommand.SLOW_STRAIGHT
+    assert abs(straight.float().mean().item() - 0.05) < 0.005
+    speed = torch.linalg.vector_norm(command[straight, :2], dim=-1)
+    assert torch.all(speed >= 0.10 - 1.0e-6)
+    assert torch.all(speed <= 0.25 + 1.0e-6)
+    assert torch.all(command[straight, 2] == 0.0)
+    assert torch.any(command[straight, 0] > 0.0)
+    assert torch.any(command[straight, 0] < 0.0)
+    assert torch.any(command[straight, 1] > 0.0)
+    assert torch.any(command[straight, 1] < 0.0)
 
 
 def test_direct_yaw_has_no_heading_dependency() -> None:
