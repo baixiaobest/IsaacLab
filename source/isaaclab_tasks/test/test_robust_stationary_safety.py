@@ -95,6 +95,11 @@ def test_stationary_and_lower_head_rewards_are_robust_task_only():
     assert robust_cfg.rewards.stationary_base_height_l2.params["planar_fade_end_mps"] == 0.40
     assert robust_cfg.commands.base_velocity.slow_coupled_turn_probability == 0.05
     assert robust_cfg.commands.base_velocity.slow_straight_probability == 0.05
+    assert robust_cfg.commands.base_velocity.rapid_small_change_probability == 0.05
+    assert robust_cfg.commands.base_velocity.normal_coupled_motion_probability == 0.35
+    assert robust_cfg.commands.base_velocity.rapid_small_change_start_terrain_level == 5
+    assert robust_cfg.commands.base_velocity.rapid_small_change_interval_s == 0.5
+    assert robust_cfg.commands.base_velocity.rapid_small_change_max_speed_mps == 0.5
     assert robust_cfg.rewards.feet_air_time.params["command_speed_threshold"] == 0.25
     assert "command_speed_threshold" not in default_cfg.rewards.feet_air_time.params
     assert "command_speed_threshold" not in play_cfg.rewards.feet_air_time.params

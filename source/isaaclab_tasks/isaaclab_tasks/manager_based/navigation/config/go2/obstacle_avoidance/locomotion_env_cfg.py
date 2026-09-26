@@ -441,10 +441,16 @@ class LocomotionVelEnvCfg_ROBUST(LocomotionVelEnvCfg):
             normal_yaw_cap_at_max_planar_speed_radps=1.0,
             slow_coupled_turn_probability=0.05,
             slow_straight_probability=0.05,
+            rapid_small_change_probability=0.05,
             rotate_in_place_probability=0.10,
             full_stop_probability=0.10,
-            normal_coupled_motion_probability=0.40,
+            normal_coupled_motion_probability=0.35,
             sudden_change_probability=0.30,
+            # Below level 5, hold a 0.10-0.25 m/s straight command. From level
+            # 5 onward, independently redraw 0.10-0.50 m/s every 0.5 s.
+            rapid_small_change_start_terrain_level=5,
+            rapid_small_change_interval_s=0.5,
+            rapid_small_change_max_speed_mps=0.5,
             # Above terrain level 5, sudden targets repeat every 5 s -> 3 s
             # by level 9, while the 10% full-stop mode becomes a 4 s high-
             # speed cruise followed by a measured stop-and-repeat cycle.

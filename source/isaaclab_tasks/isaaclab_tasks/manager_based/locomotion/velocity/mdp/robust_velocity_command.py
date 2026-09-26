@@ -24,9 +24,10 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     """Direct body-twist curriculum with fixed priors and bounded updates.
 
     Terrain difficulty alone progresses through levels 0--4. At level 5,
-    normal coupled commands begin making prior-relative updates, sudden-change
-    commands repeat more frequently, and full-stop samples become cruise-to-
-    stop cycles. There is no command delay or filtering.
+    normal coupled commands begin making prior-relative updates, rapid small
+    commands independently resample, sudden-change commands repeat more
+    frequently, and full-stop samples become cruise-to-stop cycles. There is
+    no command delay or filtering.
     """
 
     class_type: type | None = None
@@ -43,6 +44,7 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     """Normal/sudden yaw-rate cap at ``max_planar_speed``."""
     slow_coupled_turn_probability: float = 0.15
     slow_straight_probability: float = 0.0
+    rapid_small_change_probability: float = 0.0
     rotate_in_place_probability: float = 0.15
     full_stop_probability: float = 0.10
     normal_coupled_motion_probability: float = 0.40
@@ -53,6 +55,9 @@ class RobustVelocityCommandCfg(CommandTermCfg):
     incremental_full_frequency_hz: float = 2.0
     max_planar_delta_mps: float = 0.2
     max_yaw_delta_radps: float = 0.3
+    rapid_small_change_start_terrain_level: int = 5
+    rapid_small_change_interval_s: float = 0.5
+    rapid_small_change_max_speed_mps: float = 0.5
     sudden_change_time_fraction: float = 0.5
     """Single sudden-change time fraction retained for terrain levels below 5."""
     sudden_change_start_terrain_level: int = 5
@@ -95,6 +100,7 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             (
                 self.slow_coupled_turn_probability,
                 self.slow_straight_probability,
+                self.rapid_small_change_probability,
                 self.rotate_in_place_probability,
                 self.full_stop_probability,
                 self.normal_coupled_motion_probability,
@@ -106,6 +112,7 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             for probability in (
                 self.slow_coupled_turn_probability,
                 self.slow_straight_probability,
+                self.rapid_small_change_probability,
                 self.rotate_in_place_probability,
                 self.full_stop_probability,
                 self.normal_coupled_motion_probability,
@@ -123,6 +130,12 @@ class RobustVelocityCommandCfg(CommandTermCfg):
             raise ValueError("Incremental command frequency must not decrease with terrain level.")
         if self.max_planar_delta_mps < 0.0 or self.max_yaw_delta_radps < 0.0:
             raise ValueError("Incremental command deltas must be nonnegative.")
+        if self.rapid_small_change_start_terrain_level < 0:
+            raise ValueError("rapid_small_change_start_terrain_level must be nonnegative.")
+        if self.rapid_small_change_interval_s <= 0.0:
+            raise ValueError("rapid_small_change_interval_s must be positive.")
+        if not 0.10 < self.rapid_small_change_max_speed_mps <= self.max_planar_speed:
+            raise ValueError("rapid_small_change_max_speed_mps must lie in (0.10, max_planar_speed].")
         if not 0.0 < self.sudden_change_time_fraction < 1.0:
             raise ValueError("sudden_change_time_fraction must be strictly between zero and one.")
         if self.sudden_change_start_terrain_level < 0:
@@ -155,6 +168,7 @@ class RobustVelocityCommand(CommandTerm):
     FULL_STOP = 3
     SUDDEN_CHANGE = 4
     SLOW_STRAIGHT = 5
+    RAPID_SMALL_CHANGE = 6
 
     def __init__(self, cfg: RobustVelocityCommandCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
@@ -311,6 +325,7 @@ class RobustVelocityCommand(CommandTerm):
                 normal_yaw_cap_at_max_planar_speed_radps=self.cfg.normal_yaw_cap_at_max_planar_speed_radps,
                 slow_coupled_turn_probability=self.cfg.slow_coupled_turn_probability,
                 slow_straight_probability=self.cfg.slow_straight_probability,
+                rapid_small_change_probability=self.cfg.rapid_small_change_probability,
                 rotate_in_place_probability=self.cfg.rotate_in_place_probability,
                 full_stop_probability=self.cfg.full_stop_probability,
                 normal_coupled_motion_probability=self.cfg.normal_coupled_motion_probability,
@@ -318,6 +333,14 @@ class RobustVelocityCommand(CommandTerm):
             )
             self._target_command[initial_ids] = commands
             self._mode[initial_ids] = modes
+            rapid_ids = initial_ids[modes == self.RAPID_SMALL_CHANGE]
+            if len(rapid_ids) > 0:
+                active_ids = rapid_ids[
+                    self._terrain_levels(rapid_ids) >= self.cfg.rapid_small_change_start_terrain_level
+                ]
+                self._target_command[active_ids] = self._sample_small_straight_targets(
+                    len(active_ids), self.device, self.cfg.rapid_small_change_max_speed_mps
+                )
             self._sudden_change_fired[initial_ids] = False
             self._set_next_resample_time(initial_ids)
             full_stop_ids = initial_ids[modes == self.FULL_STOP]
@@ -356,6 +379,10 @@ class RobustVelocityCommand(CommandTerm):
     def _set_next_resample_time(self, env_ids: torch.Tensor) -> None:
         self.time_left[env_ids] = float("inf")
         modes = self._mode[env_ids]
+        rapid_ids = env_ids[modes == self.RAPID_SMALL_CHANGE]
+        if len(rapid_ids) > 0:
+            active_ids = rapid_ids[self._terrain_levels(rapid_ids) >= self.cfg.rapid_small_change_start_terrain_level]
+            self.time_left[active_ids] = self.cfg.rapid_small_change_interval_s
         sudden = modes == self.SUDDEN_CHANGE
         if torch.any(sudden):
             sudden_ids = env_ids[sudden]
@@ -378,6 +405,13 @@ class RobustVelocityCommand(CommandTerm):
     def _resample_existing_priors(self, env_ids: torch.Tensor) -> None:
         modes = self._mode[env_ids]
         self.time_left[env_ids] = float("inf")
+        rapid_ids = env_ids[modes == self.RAPID_SMALL_CHANGE]
+        if len(rapid_ids) > 0:
+            active_ids = rapid_ids[self._terrain_levels(rapid_ids) >= self.cfg.rapid_small_change_start_terrain_level]
+            self._target_command[active_ids] = self._sample_small_straight_targets(
+                len(active_ids), self.device, self.cfg.rapid_small_change_max_speed_mps
+            )
+            self.time_left[active_ids] = self.cfg.rapid_small_change_interval_s
         sudden_modes = modes == self.SUDDEN_CHANGE
         sudden_ids = env_ids[sudden_modes]
         repeated_sudden = torch.zeros(len(sudden_ids), dtype=torch.bool, device=self.device)
@@ -461,6 +495,16 @@ class RobustVelocityCommand(CommandTerm):
         command[:, 2] = torch.empty(count, device=device).uniform_(-1.0, 1.0) * yaw_cap
         return command
 
+    @staticmethod
+    def _sample_small_straight_targets(count: int, device: torch.device | str, max_speed_mps: float) -> torch.Tensor:
+        command = torch.zeros(count, 3, device=device)
+        if count:
+            speed = torch.empty(count, device=device).uniform_(0.10, max_speed_mps)
+            angle = torch.empty(count, device=device).uniform_(-math.pi, math.pi)
+            command[:, 0] = speed * torch.cos(angle)
+            command[:, 1] = speed * torch.sin(angle)
+        return command
+
     @classmethod
     def sample_direct_targets(
         cls,
@@ -473,6 +517,7 @@ class RobustVelocityCommand(CommandTerm):
         normal_yaw_cap_at_max_planar_speed_radps: float = 1.0,
         slow_coupled_turn_probability: float = 0.15,
         slow_straight_probability: float = 0.0,
+        rapid_small_change_probability: float = 0.0,
         rotate_in_place_probability: float = 0.15,
         full_stop_probability: float = 0.10,
         normal_coupled_motion_probability: float = 0.40,
@@ -484,6 +529,7 @@ class RobustVelocityCommand(CommandTerm):
         probabilities = (
             slow_coupled_turn_probability,
             slow_straight_probability,
+            rapid_small_change_probability,
             rotate_in_place_probability,
             full_stop_probability,
             normal_coupled_motion_probability,
@@ -502,12 +548,14 @@ class RobustVelocityCommand(CommandTerm):
         mixture = torch.rand(count, device=device)
         slow_end = slow_coupled_turn_probability
         straight_end = slow_end + slow_straight_probability
-        rotate_end = straight_end + rotate_in_place_probability
+        rapid_end = straight_end + rapid_small_change_probability
+        rotate_end = rapid_end + rotate_in_place_probability
         stop_end = rotate_end + full_stop_probability
         normal_end = stop_end + normal_coupled_motion_probability
         slow = mixture < slow_end
         slow_straight = (mixture >= slow_end) & (mixture < straight_end)
-        rotate = (mixture >= straight_end) & (mixture < rotate_end)
+        rapid_small = (mixture >= straight_end) & (mixture < rapid_end)
+        rotate = (mixture >= rapid_end) & (mixture < rotate_end)
         stop = (mixture >= rotate_end) & (mixture < stop_end)
         normal = (mixture >= stop_end) & (mixture < normal_end)
         # The validated unit sum makes the remaining interval precisely the
@@ -520,12 +568,11 @@ class RobustVelocityCommand(CommandTerm):
             command[slow, 0] = speed * torch.cos(angle)
             command[slow, 1] = speed * torch.sin(angle)
             command[slow, 2] = torch.empty(slow_count, device=device).uniform_(-max_yaw_rate, max_yaw_rate)
-        straight_count = int(slow_straight.sum().item())
+        straight_count = int((slow_straight | rapid_small).sum().item())
         if straight_count:
-            speed = torch.empty(straight_count, device=device).uniform_(0.10, 0.25)
-            angle = torch.empty(straight_count, device=device).uniform_(-math.pi, math.pi)
-            command[slow_straight, 0] = speed * torch.cos(angle)
-            command[slow_straight, 1] = speed * torch.sin(angle)
+            command[slow_straight | rapid_small] = cls._sample_small_straight_targets(
+                straight_count, device, 0.25
+            )
         rotate_count = int(rotate.sum().item())
         if rotate_count:
             command[rotate, 2] = torch.empty(rotate_count, device=device).uniform_(-max_yaw_rate, max_yaw_rate)
@@ -541,6 +588,7 @@ class RobustVelocityCommand(CommandTerm):
             )
         mode[slow] = cls.SLOW_COUPLED_TURN
         mode[slow_straight] = cls.SLOW_STRAIGHT
+        mode[rapid_small] = cls.RAPID_SMALL_CHANGE
         mode[rotate] = cls.ROTATE_IN_PLACE
         mode[stop] = cls.FULL_STOP
         mode[normal] = cls.NORMAL_COUPLED_MOTION

@@ -51,6 +51,10 @@ def _bare_command_term(
         stop_cycle_max_dwell_s=3.0,
         slow_coupled_turn_probability=0.10,
         slow_straight_probability=0.0,
+        rapid_small_change_probability=0.0,
+        rapid_small_change_start_terrain_level=5,
+        rapid_small_change_interval_s=0.5,
+        rapid_small_change_max_speed_mps=0.5,
         rotate_in_place_probability=0.10,
         full_stop_probability=0.10,
         normal_coupled_motion_probability=0.40,
@@ -140,6 +144,64 @@ def test_robust_slow_modes_split_and_straight_command_range() -> None:
     assert torch.any(command[straight, 0] < 0.0)
     assert torch.any(command[straight, 1] > 0.0)
     assert torch.any(command[straight, 1] < 0.0)
+
+
+def test_rapid_small_mode_takes_five_percent_from_normal_motion() -> None:
+    torch.manual_seed(23)
+    command, mode = RobustVelocityCommand.sample_direct_targets(
+        100_000,
+        "cpu",
+        slow_coupled_turn_probability=0.05,
+        slow_straight_probability=0.05,
+        rapid_small_change_probability=0.05,
+        rotate_in_place_probability=0.10,
+        full_stop_probability=0.10,
+        normal_coupled_motion_probability=0.35,
+        sudden_change_probability=0.30,
+    )
+    rapid = mode == RobustVelocityCommand.RAPID_SMALL_CHANGE
+    assert abs(rapid.float().mean().item() - 0.05) < 0.005
+    assert abs((mode == RobustVelocityCommand.NORMAL_COUPLED_MOTION).float().mean().item() - 0.35) < 0.005
+    speed = torch.linalg.vector_norm(command[rapid, :2], dim=-1)
+    assert torch.all(speed >= 0.10 - 1.0e-6)
+    assert torch.all(speed <= 0.25 + 1.0e-6)
+    assert torch.all(command[rapid, 2] == 0.0)
+
+
+def test_rapid_small_mode_holds_below_level_five_and_redraws_independently_above_it() -> None:
+    for level in (4, 5):
+        term = _bare_command_term(level)
+        term.cfg.slow_coupled_turn_probability = 0.0
+        term.cfg.slow_straight_probability = 0.0
+        term.cfg.rapid_small_change_probability = 1.0
+        term.cfg.rotate_in_place_probability = 0.0
+        term.cfg.full_stop_probability = 0.0
+        term.cfg.normal_coupled_motion_probability = 0.0
+        term.cfg.sudden_change_probability = 0.0
+        term._resample(torch.tensor([0]))
+        first_speed = torch.linalg.vector_norm(term.target_command[:, :2], dim=-1).item()
+        assert 0.10 - 1.0e-6 <= first_speed <= (0.25 if level == 4 else 0.50) + 1.0e-6
+        assert term.target_command[0, 2].item() == 0.0
+        if level == 4:
+            assert torch.isinf(term.time_left[0])
+            return_target = term.target_command.clone()
+            term._resample_existing_priors(torch.tensor([0]))
+            torch.testing.assert_close(term.target_command, return_target)
+            assert torch.isinf(term.time_left[0])
+        else:
+            assert term.time_left.item() == pytest.approx(0.5)
+            term._target_command[:] = torch.tensor([[1.0, 0.0, 0.0]])
+            torch.manual_seed(47)
+            term._resample_existing_priors(torch.tensor([0]))
+            next_target = term.target_command.clone()
+            next_speed = torch.linalg.vector_norm(next_target[:, :2], dim=-1).item()
+            assert 0.10 - 1.0e-6 <= next_speed <= 0.50 + 1.0e-6
+            assert next_target[0, 2].item() == 0.0
+            assert term.time_left.item() == pytest.approx(0.5)
+            term._target_command[:] = torch.tensor([[-1.0, 0.0, 0.0]])
+            torch.manual_seed(47)
+            term._resample_existing_priors(torch.tensor([0]))
+            torch.testing.assert_close(term.target_command, next_target)
 
 
 def test_direct_yaw_has_no_heading_dependency() -> None:
