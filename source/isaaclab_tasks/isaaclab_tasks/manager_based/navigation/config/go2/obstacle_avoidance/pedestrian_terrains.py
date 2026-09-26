@@ -294,10 +294,13 @@ _DISCRETE_OBSTACLES_KWARGS = dict(
     platform_width=1.1,
 )
 _CONCENTRIC_MAZE_KWARGS = dict(
-    fence_height_range=(0.5, 1.5),
-    fence_spacing_range=(2.0, 3.0),
-    opening_width_range=(1.0, 2.0),
-    num_openings_range=(1, 3),
+    # Start with a single, wide-gate ring at level 0.  Difficulty then comes
+    # from tighter spacing and gates, while retaining enough clearance for the
+    # Kp-smoothed navigation action to traverse reliably.
+    fence_height_range=(0.8, 0.8),
+    fence_spacing_range=(2.2, 3.5),
+    opening_width_range=(1.5, 2.4),
+    num_openings_range=(2, 3),
 )
 
 
