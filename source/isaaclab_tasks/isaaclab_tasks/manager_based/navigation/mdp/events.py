@@ -435,7 +435,9 @@ def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir
     surface_weights = torch.zeros(len(env_ids), q, device=env.device)
     surface_mask = torch.zeros(len(env_ids), q, dtype=torch.bool, device=env.device)
     indoor_cfg = terrain.cfg.terrain_generator.sub_terrains.get("indoor_ped_corridor")
-    layout_level_map = indoor_cfg.layout_level_map
+    if bool(indoor_mask.any()) and indoor_cfg is None:
+        raise RuntimeError("Indoor pedestrian environments require the indoor_ped_corridor terrain.")
+    layout_level_map = indoor_cfg.layout_level_map if indoor_cfg is not None else None
     for local_index in torch.nonzero(indoor_mask, as_tuple=False).squeeze(-1).tolist():
         terrain_level = int(levels[local_index].item())
         level = layout_level_map[terrain_level] if layout_level_map else terrain_level
