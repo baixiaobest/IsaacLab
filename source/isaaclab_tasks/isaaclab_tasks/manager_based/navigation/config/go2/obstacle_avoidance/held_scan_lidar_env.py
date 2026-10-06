@@ -64,6 +64,10 @@ class HeldScanLidarCollector:
 
         self._density_stage = 0
         self._coverage_target = self.cfg.target_coverage
+        self._episode_coverage_target = torch.full(
+            (self.num_envs,), float("nan") if self.cfg.target_coverage is None else self.cfg.target_coverage,
+            device=self.device,
+        )
         self._episode_density_stage = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._training_start_iteration = 0
         self._steps_per_iteration: int | None = None
@@ -101,6 +105,10 @@ class HeldScanLidarCollector:
         self._has_latest[env_ids] = False
         self._latest_reference_time_s[env_ids] = self._time_s
         if getattr(getattr(self, "cfg", None), "sparse_sampling_enabled", False):
+            if self.cfg.density_curriculum_enabled:
+                self._episode_coverage_target[env_ids] = (
+                    float("nan") if self._coverage_target is None else self._coverage_target
+                )
             self._reset_sampling_pattern(env_ids)
             if self.cfg.density_curriculum_enabled:
                 self._episode_density_stage[env_ids] = self._density_stage
@@ -125,12 +133,13 @@ class HeldScanLidarCollector:
         second = two_cell & (starts + 1 < 256)
         pattern[rows[first], starts[first]] = True
         pattern[rows[second], (starts + 1)[second]] = True
-        if self._coverage_target == 1.0:
-            pattern.fill_(True)
-        elif self._coverage_target is not None:
+        targets = self._episode_coverage_target[env_ids]
+        dense = targets == 1.0
+        pattern[dense] = True
+        if torch.isfinite(targets).any():
             # Fill gaps once per episode, not independently at every capture.
             # The augmented 360-degree template shifts as a single pattern.
-            desired = round(256 * self._coverage_target)
+            desired = torch.round(256 * torch.nan_to_num(targets, nan=0.0)).long()
             extra = (desired - pattern.sum(dim=1)).clamp_min(0)
             scores = torch.rand(count, 256, device=self.device).masked_fill(pattern, float("inf"))
             ranks = scores.argsort(dim=1).argsort(dim=1)
@@ -138,6 +147,12 @@ class HeldScanLidarCollector:
         self._sampling_pattern[env_ids] = pattern
         self._sampling_phase[env_ids] = torch.randint(0, 256, (count,), device=self.device)
         self._sampling_has_capture[env_ids] = False
+
+    def set_episode_coverage_targets(self, env_ids: torch.Tensor, targets: torch.Tensor) -> None:
+        """Set per-episode ray coverage; NaN retains the natural sparse template."""
+        if targets.shape != env_ids.shape or not torch.all(torch.isnan(targets) | ((targets > 0) & (targets <= 1))):
+            raise ValueError("Episode coverage targets must match env_ids and lie in (0, 1] or be NaN.")
+        self._episode_coverage_target[env_ids] = targets
 
     def configure_density_schedule(self, start_iteration: int, steps_per_iteration: int) -> bool:
         """Anchor the schedule to RSL-RL's current iteration, including after resume.
@@ -209,6 +224,11 @@ class HeldScanLidarCollector:
         age[available] = self._time_s - self._latest_reference_time_s[available]
         return torch.clamp(age, min=0.0)
 
+    @property
+    def current_time_s(self) -> float:
+        """Simulation time at the most recently completed physics step."""
+        return self._time_s
+
     def latest_capture(self) -> dict[str, torch.Tensor]:
         """Return the most recently captured ideal scan without consuming it.
 
@@ -228,6 +248,7 @@ class HeldScanLidarCollector:
             "ray_mesh_ids": self._pending_ray_mesh_ids,
             "pedestrian_velocity_w": self._pending_ped_velocity_w,
             "capture_index": self._capture_index,
+            "capture_time_s": self._pending_reference_time_s,
         }
 
     def latest_policy_capture(self) -> dict[str, torch.Tensor]:
@@ -301,9 +322,7 @@ class HeldScanLidarCollector:
             if self.cfg.density_curriculum_enabled:
                 dense_episode = self._episode_density_stage[env_ids] == 0
             else:
-                dense_episode = torch.full(
-                    (env_ids.numel(),), self._coverage_target == 1.0, dtype=torch.bool, device=self.device
-                )
+                dense_episode = self._episode_coverage_target[env_ids] == 1.0
             selected[dense_episode] = True
             # A selected no-return ray is measured (state 1); only an
             # unselected ray is unavailable (state 0).

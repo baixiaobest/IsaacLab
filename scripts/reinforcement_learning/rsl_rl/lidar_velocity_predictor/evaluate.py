@@ -15,28 +15,44 @@ from src.model import TemporalLidarVelocityCNN
 
 
 def _evaluate(model, dataset, device, batch_size):
-    totals: dict[str, list[float]] = {}
+    totals: dict[str, dict[str, list[float]]] = {}
     model.eval()
     with torch.inference_mode():
         for batch in DataLoader(dataset, batch_size=batch_size):
             prediction = model(batch["lidar"].to(device, dtype=torch.float32))
-            results = masked_metrics(prediction, batch["target"].to(device), batch["reflection_mask"].to(device), batch["dynamic_mask"].to(device), batch["range_m"].to(device))
-            for key, (value, count) in results.items():
-                total = totals.setdefault(key, [0.0, 0.0])
-                total[0] += value
-                total[1] += count
-    raw = {key: value / count for key, (value, count) in totals.items() if count}
-    output = {"velocity_frame": "body_xy"}
-    for subset in ("all", "static", "dynamic", "within_5m", "within_2m", "dynamic_within_5m", "dynamic_within_2m"):
-        if subset in raw:
-            output[f"{subset}_rmse"] = raw[subset] ** 0.5
-        if f"{subset}_abs" in raw:
-            output[f"{subset}_mae"] = raw[f"{subset}_abs"] / 2.0
-        if f"zero_{subset}" in raw:
-            output[f"zero_{subset}_rmse"] = raw[f"zero_{subset}"] ** 0.5
-    for key in ("static_false_motion", "dynamic_heading_error"):
-        if key in raw:
-            output[key] = raw[key]
+            coverage = batch["ray_coverage"]
+            bands = torch.bucketize(coverage, torch.tensor((0.37, 0.44, 0.50, 0.57, 0.64, 0.70, 0.77)))
+            groups = {"all": torch.ones_like(coverage, dtype=torch.bool),
+                      "first_capture": batch["first_after_capture"],
+                      "held_pose": ~batch["first_after_capture"]}
+            groups.update({f"coverage_{band}": bands == band for band in range(8)})
+            for group_name, sample_mask in groups.items():
+                if not sample_mask.any():
+                    continue
+                results = masked_metrics(
+                    prediction[sample_mask.to(device)], batch["target"][sample_mask].to(device),
+                    batch["reflection_mask"][sample_mask].to(device),
+                    batch["dynamic_mask"][sample_mask].to(device), batch["range_m"][sample_mask].to(device),
+                )
+                for key, (value, count) in results.items():
+                    total = totals.setdefault(group_name, {}).setdefault(key, [0.0, 0.0])
+                    total[0] += value
+                    total[1] += count
+    output = {"velocity_frame": "evaluation_yaw_xy", "contract": "temporal_lidar_v3"}
+    for group_name, values in totals.items():
+        raw = {key: value / count for key, (value, count) in values.items() if count}
+        metrics = {}
+        for subset in ("all", "static", "dynamic", "within_5m", "within_2m", "dynamic_within_5m", "dynamic_within_2m"):
+            if subset in raw:
+                metrics[f"{subset}_rmse"] = raw[subset] ** 0.5
+            if f"{subset}_abs" in raw:
+                metrics[f"{subset}_mae"] = raw[f"{subset}_abs"] / 2.0
+            if f"zero_{subset}" in raw:
+                metrics[f"zero_{subset}_rmse"] = raw[f"zero_{subset}"] ** 0.5
+        for key in ("static_false_motion", "dynamic_heading_error"):
+            if key in raw:
+                metrics[key] = raw[key]
+        output[group_name] = metrics
     return output
 
 
@@ -49,7 +65,10 @@ def main():
     args = parser.parse_args()
     device = torch.device(args.device)
     model = TemporalLidarVelocityCNN().to(device)
-    model.load_state_dict(torch.load(args.checkpoint, map_location=device)["model_state_dict"])
+    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    if checkpoint.get("projection_contract") != "temporal_lidar_v3":
+        raise RuntimeError("Evaluation requires a schema-v3 predictor checkpoint.")
+    model.load_state_dict(checkpoint["model_state_dict"])
     output = {}
     for name in ("lidar_noisy", "lidar_clean"):
         dataset = PointVelocityDataset(args.dataset_path, input_name=name)

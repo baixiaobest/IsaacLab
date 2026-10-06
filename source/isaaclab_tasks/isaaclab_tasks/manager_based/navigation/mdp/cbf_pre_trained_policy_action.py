@@ -227,6 +227,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._velocity_predictor = self._load_velocity_predictor(cfg)
         self._predicted_velocity_b = torch.zeros(self.num_envs, 128, 2, device=self.device)
         self._predictor_capture_index = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
+        self._predictor_evaluation_xy = torch.full((self.num_envs, 2), float("nan"), device=self.device)
+        self._predictor_evaluation_yaw = torch.full((self.num_envs,), float("nan"), device=self.device)
         self._safe_acceleration_w = torch.zeros(self.num_envs, 2, device=self.device)
         self._slack = torch.zeros(self.num_envs, device=self.device)
         self._mean_slack = torch.zeros(self.num_envs, device=self.device)
@@ -264,9 +266,13 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         if not path.is_file():
             raise FileNotFoundError(f"Dynamic CBF velocity predictor was not found: {path}")
         try:
-            return torch.jit.load(str(path), map_location=self.device).to(self.device).eval()
+            extra_files = {"projection_contract.txt": b""}
+            predictor = torch.jit.load(str(path), map_location=self.device, _extra_files=extra_files)
         except Exception as error:
             raise RuntimeError(f"Could not load dynamic CBF velocity predictor: {path}") from error
+        if extra_files["projection_contract.txt"] != b"temporal_lidar_v3":
+            raise RuntimeError("Velocity predictor lacks the temporal_lidar_v3 evaluation-pose contract.")
+        return predictor.to(self.device).eval()
 
     @property
     def cbf_control_dt(self) -> float:
@@ -359,6 +365,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._safe_acceleration_w[env_ids] = 0.0
         self._predicted_velocity_b[env_ids] = 0.0
         self._predictor_capture_index[env_ids] = -1
+        self._predictor_evaluation_xy[env_ids] = float("nan")
+        self._predictor_evaluation_yaw[env_ids] = float("nan")
         self._slack[env_ids] = 0.0
         self._mean_slack[env_ids] = 0.0
         self._minimum_barrier_residual[env_ids] = 0.0
@@ -528,11 +536,17 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._slack_max = torch.maximum(self._slack_max, slack)
 
     def _predict_velocity_b(self, capture: dict[str, torch.Tensor]) -> torch.Tensor:
-        """Return cached body-frame velocities, updating exactly once per held scan."""
+        """Cache predictions only while capture and evaluation pose are unchanged."""
         if self._velocity_predictor is None:
             return torch.zeros_like(self._predicted_velocity_b)
         capture_index = capture["capture_index"].clone()
-        update = capture_index != self._predictor_capture_index
+        collector = getattr(self._env, self.cfg.lidar_collector_name)
+        sensor = self._env.scene.sensors[collector.sensor_name]
+        current_xy = sensor.data.pos_w[:, :2]
+        _, _, current_yaw = math_utils.euler_xyz_from_quat(sensor.data.quat_w)
+        update = (capture_index != self._predictor_capture_index) | torch.any(
+            current_xy != self._predictor_evaluation_xy, dim=1
+        ) | (current_yaw != self._predictor_evaluation_yaw)
         if not torch.any(update):
             return self._predicted_velocity_b
 
@@ -554,6 +568,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             raise RuntimeError("Dynamic CBF velocity predictor produced non-finite values.")
         self._predicted_velocity_b[update] = prediction[update]
         self._predictor_capture_index[update] = capture_index[update]
+        self._predictor_evaluation_xy[update] = current_xy[update]
+        self._predictor_evaluation_yaw[update] = current_yaw[update]
         return self._predicted_velocity_b
 
     def _refresh_predictor_lidar_history(self):

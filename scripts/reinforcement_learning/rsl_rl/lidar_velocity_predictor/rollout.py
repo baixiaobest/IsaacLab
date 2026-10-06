@@ -67,7 +67,9 @@ def _slice_term(env: ManagerBasedRLEnv, observations: dict, group: str, term_nam
 @dataclass
 class EpisodeBuffer:
     fields: dict[str, list[torch.Tensor]] = field(default_factory=lambda: {key: [] for key in (
-        "lidar_noisy", "lidar_clean", "point_velocity_b", "reflection_mask", "dynamic_mask", "range_m", "capture_index"
+        "lidar_noisy", "lidar_clean", "point_velocity_b", "reflection_mask", "dynamic_mask", "range_m",
+        "capture_index", "capture_time_s", "evaluation_time_s", "evaluation_xy", "evaluation_yaw",
+        "ray_coverage", "reflection_coverage", "first_after_capture",
     )})
     terrain_name: str = "unknown"
     terrain_level: int = -1
@@ -98,10 +100,9 @@ class ChunkWriter:
                     existing_metadata = json.loads(encoded) if encoded is not None else {}
                 except (TypeError, json.JSONDecodeError) as error:
                     raise RuntimeError(f"Cannot safely resume dataset: invalid metadata in {path}.") from error
-                if existing_metadata.get("schema_version") != 2 or existing_metadata.get("velocity_frame") != "body_xy":
+                if existing_metadata.get("schema_version") != 3 or existing_metadata.get("velocity_frame") != "evaluation_yaw_xy":
                     raise RuntimeError(
-                        f"{path} uses an incompatible LiDAR velocity schema. Archive or remove the old world-frame "
-                        "files before collecting body-frame schema-v2 samples."
+                        f"{path} uses an incompatible LiDAR velocity schema. Use a new dataset name or archive old files."
                     )
         self.file_index = int(existing[-1].stem.rsplit("_", 1)[-1]) + 1 if existing else 0
         self.episode_index = 0
@@ -160,8 +161,11 @@ def main() -> None:
     terrain_names = terrain.get_env_terrain_names()
     replicas = getattr(terrain, "tile_replicas", torch.zeros(env.num_envs, dtype=torch.long, device=env.device))
     writer = ChunkWriter(args_cli.dataset_root, args_cli.dataset_name, args_cli.episodes_per_file, {
-        "task": args_cli.task, "checkpoint": checkpoint, "num_envs": env.num_envs, "sample_period_s": 0.130,
-        "schema_version": 2, "velocity_frame": "body_xy", "seed": args_cli.seed,
+        "task": args_cli.task, "checkpoint": checkpoint, "num_envs": env.num_envs,
+        "scan_period_s": env_cfg.held_scan_lidar.scan_period_s,
+        "observation_step_s": env.unwrapped.step_dt,
+        "schema_version": 3, "velocity_frame": "evaluation_yaw_xy", "seed": args_cli.seed,
+        "projection_contract": "temporal_lidar_v3", "sample_timing": "each_observation_step",
     })
     buffers = [EpisodeBuffer() for _ in range(env.num_envs)]
     previous_capture = torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long)
@@ -169,12 +173,12 @@ def main() -> None:
     observations = env.get_observations()
     try:
         while simulation_app.is_running() and completed < args_cli.max_episodes:
-            labels = env.unwrapped.get_point_velocity_labels()
-            capture_index = labels["capture_index"]
-            new_scan = capture_index != previous_capture
             noisy = _slice_term(env.unwrapped, observations, "policy", "obstacle_scan")
             clean = _slice_term(env.unwrapped, observations, "critic", "obstacle_scan")
-            for env_id in new_scan.nonzero(as_tuple=False).squeeze(-1).tolist():
+            labels = env.unwrapped.get_point_velocity_sample(noisy, clean)
+            capture_index = labels["capture_index"]
+            new_scan = capture_index != previous_capture
+            for env_id in range(env.num_envs):
                 buffer = buffers[env_id]
                 if len(buffer) == 0:
                     buffer.terrain_name = terrain_names[env_id]
@@ -182,10 +186,8 @@ def main() -> None:
                     buffer.replica_index = int(replicas[env_id].item())
                     buffer.scenario_mode = int(env.unwrapped.pedestrian_scenario_mode[env_id].item())
                 buffer.append(
-                    lidar_noisy=noisy[env_id], lidar_clean=clean[env_id],
-                    point_velocity_b=labels["point_velocity_b"][env_id],
-                    reflection_mask=labels["reflection_mask"][env_id], dynamic_mask=labels["dynamic_mask"][env_id],
-                    range_m=labels["range_m"][env_id], capture_index=capture_index[env_id].reshape(1),
+                    **{key: value[env_id] for key, value in labels.items()},
+                    first_after_capture=new_scan[env_id],
                 )
             previous_capture = capture_index.clone()
             with torch.inference_mode():

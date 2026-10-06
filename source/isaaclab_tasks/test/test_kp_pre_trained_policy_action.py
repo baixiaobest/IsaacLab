@@ -229,6 +229,15 @@ def test_dynamic_predictor_is_cached_per_held_scan() -> None:
     term._velocity_predictor = lambda lidar: torch.full((2, 128, 2), 0.4)
     term._predicted_velocity_b = torch.zeros(2, 128, 2)
     term._predictor_capture_index = torch.full((2,), -1, dtype=torch.long)
+    term._predictor_evaluation_xy = torch.full((2, 2), float("nan"))
+    term._predictor_evaluation_yaw = torch.full((2,), float("nan"))
+    pose = torch.zeros(2, 3)
+    term.cfg = SimpleNamespace(lidar_collector_name="collector")
+    term._env = SimpleNamespace(collector=SimpleNamespace(sensor_name="scanner"), scene=SimpleNamespace(
+        sensors={"scanner": SimpleNamespace(data=SimpleNamespace(
+            pos_w=pose, quat_w=torch.tensor([[1., 0., 0., 0.]]).expand(2, -1)
+        ))}
+    ))
     refresh_count = [0]
     def refresh():
         refresh_count[0] += 1
@@ -243,6 +252,9 @@ def test_dynamic_predictor_is_cached_per_held_scan() -> None:
     assert refresh_count == [1]
     assert torch.allclose(first, torch.full((2, 128, 2), 0.4))
     assert torch.equal(first, second)
+    pose[0, 0] = 0.1
+    term._predict_velocity_b(capture)
+    assert refresh_count == [2]
 
 
 def test_dynamic_predictor_rejects_scan_history_mismatch() -> None:
@@ -251,6 +263,14 @@ def test_dynamic_predictor_rejects_scan_history_mismatch() -> None:
     term._velocity_predictor = lambda lidar: torch.zeros(1, 128, 2)
     term._predicted_velocity_b = torch.zeros(1, 128, 2)
     term._predictor_capture_index = torch.tensor([-1])
+    term._predictor_evaluation_xy = torch.full((1, 2), float("nan"))
+    term._predictor_evaluation_yaw = torch.full((1,), float("nan"))
+    term.cfg = SimpleNamespace(lidar_collector_name="collector")
+    term._env = SimpleNamespace(collector=SimpleNamespace(sensor_name="scanner"), scene=SimpleNamespace(
+        sensors={"scanner": SimpleNamespace(data=SimpleNamespace(
+            pos_w=torch.zeros(1, 3), quat_w=torch.tensor([[1., 0., 0., 0.]])
+        ))}
+    ))
     term._refresh_predictor_lidar_history = lambda: SimpleNamespace(capture_index=torch.tensor([6]))
     term._policy_lidar_tensor = lambda: pytest.fail("Predictor input must not be read after a mismatch")
     with pytest.raises(RuntimeError, match="capture index does not match"):

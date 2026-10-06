@@ -221,9 +221,19 @@ def main() -> None:
                 metadata = json.loads(data.attrs.get("metadata", "{}"))
             except (TypeError, json.JSONDecodeError) as error:
                 raise RuntimeError(f"{file_path} has invalid dataset metadata.") from error
-            if metadata.get("schema_version") != 2 or metadata.get("velocity_frame") != "body_xy":
-                raise RuntimeError(f"{file_path} is not a body-frame schema-v2 LiDAR velocity dataset.")
+            if metadata.get("schema_version") != 3 or metadata.get("velocity_frame") != "evaluation_yaw_xy":
+                raise RuntimeError(f"{file_path} is not an evaluation-pose schema-v3 LiDAR velocity dataset.")
             for group in data.values():
+                ray_coverage = np.asarray(group["ray_coverage"], dtype=np.float32)
+                reflection_coverage = np.asarray(group["reflection_coverage"], dtype=np.float32)
+                first = np.asarray(group["first_after_capture"], dtype=bool)
+                for band in range(8):
+                    edges = (0.0, 0.37, 0.44, 0.50, 0.57, 0.64, 0.70, 0.77, 1.01)
+                    counts[f"coverage_{band}_samples"] += int(((ray_coverage >= edges[band]) & (ray_coverage < edges[band + 1])).sum())
+                counts["first_capture_samples"] += int(first.sum())
+                counts["held_pose_samples"] += int((~first).sum())
+                counts["measured_ray_coverage_sum"] += float(ray_coverage.sum())
+                counts["measured_reflection_coverage_sum"] += float(reflection_coverage.sum())
                 reflection = np.asarray(group["reflection_mask"], dtype=bool)
                 dynamic = np.asarray(group["dynamic_mask"], dtype=bool)
                 ranges = np.asarray(group["range_m"], dtype=np.float32)
@@ -258,16 +268,18 @@ def main() -> None:
     weight_static = float(distance_weight(torch.from_numpy(static_distance)).sum().item()) if static_distance.size else 0.0
     weight_dynamic = float(distance_weight(torch.from_numpy(dynamic_distance)).sum().item()) if dynamic_distance.size else 0.0
     summary = {
-        "schema_version": 2,
-        "velocity_frame": "body_xy",
+        "schema_version": 3,
+        "velocity_frame": "evaluation_yaw_xy",
         "counts": dict(counts),
-        "fractions": {name: value / counts["total_cells"] for name, value in counts.items() if name != "total_cells"},
+        "fractions": {name: counts[name] / counts["total_cells"] for name in ("no_return", "static", "dynamic")},
         "close_dynamic": dict(close),
         "static_distance_quantiles_m": np.quantile(static_distance, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if static_distance.size else [],
         "dynamic_distance_quantiles_m": np.quantile(dynamic_distance, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist(),
         "dynamic_speed_quantiles_mps": np.quantile(speed, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if speed.size else [],
         "dynamic_heading_quantiles_rad": np.quantile(heading, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if heading.size else [],
         "effective_distance_weight": {"static": weight_static, "dynamic": weight_dynamic},
+        "mean_ray_coverage": counts["measured_ray_coverage_sum"] / max(counts["first_capture_samples"] + counts["held_pose_samples"], 1),
+        "mean_reflection_coverage": counts["measured_reflection_coverage_sum"] / max(counts["first_capture_samples"] + counts["held_pose_samples"], 1),
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     with (output / "strata.csv").open("w", newline="", encoding="utf-8") as file:

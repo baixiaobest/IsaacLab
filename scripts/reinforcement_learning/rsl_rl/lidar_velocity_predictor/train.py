@@ -107,7 +107,10 @@ def _upload_file_to_wandb(wandb_run: Any, file_path: Path, base_path: Path) -> N
 def _save_torchscript(model: torch.nn.Module, output_path: Path) -> None:
     """Export the current model with its deployment input/output signature."""
     model.eval()
-    torch.jit.script(model).save(str(output_path))
+    torch.jit.save(
+        torch.jit.script(model), str(output_path),
+        _extra_files={"projection_contract.txt": b"temporal_lidar_v3"},
+    )
 
 
 def _publish_deployment_torchscript(model: torch.nn.Module, output_path: Path) -> None:
@@ -142,6 +145,8 @@ def _load_resume_checkpoint(
             f"{checkpoint_path} is not a LiDAR predictor training checkpoint. "
             "Expected a dictionary containing model_state_dict."
         )
+    if checkpoint.get("projection_contract") != "temporal_lidar_v3":
+        raise RuntimeError(f"{checkpoint_path} predates the evaluation-pose projection contract; retrain from schema-v3 data.")
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     if model_only:
         return 1, float("inf")
@@ -205,6 +210,19 @@ def evaluate(
                 total = totals.setdefault(key, [0.0, 0.0])
                 total[0] += value
                 total[1] += count
+            coverage = batch["ray_coverage"]
+            for name, subset in (("sparse", coverage < 0.37), ("dense", coverage >= 0.77)):
+                if not subset.any():
+                    continue
+                selected = subset.to(device)
+                for key, (value, count) in masked_metrics(
+                    prediction[selected], target[selected], reflection[selected], dynamic[selected], ranges[selected]
+                ).items():
+                    if key not in ("dynamic", "zero_dynamic"):
+                        continue
+                    total = totals.setdefault(f"{name}_{key}", [0.0, 0.0])
+                    total[0] += value
+                    total[1] += count
     metrics: dict[str, float] = {}
     class_losses = []
     for class_name in ("static", "dynamic"):
@@ -225,6 +243,10 @@ def evaluate(
     for key, (value, count) in totals.items():
         if count:
             metrics[key] = value / count
+    metrics["coverage_endpoints_pass"] = float(all(
+        metrics.get(f"{name}_dynamic", float("inf")) < metrics.get(f"{name}_zero_dynamic", 0.0)
+        for name in ("sparse", "dense")
+    ))
     for name in ("all", "static", "dynamic", "within_5m", "within_2m", "dynamic_within_5m", "dynamic_within_2m"):
         if name in metrics:
             metrics[f"{name}_rmse"] = metrics[name] ** 0.5
@@ -288,7 +310,8 @@ def main() -> None:
         periodic_checkpoint_dir.mkdir(exist_ok=True)
     metadata = {
         "args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test),
-        "target_velocity_frame": "body_xy", "deployment_jit_path": str(deployment_jit_path),
+        "target_velocity_frame": "evaluation_yaw_xy", "projection_contract": "temporal_lidar_v3",
+        "deployment_jit_path": str(deployment_jit_path),
         "resume_checkpoint": str(resume_checkpoint_path) if resume_checkpoint_path is not None else None,
         "resume_model_only": args.resume_model_only,
         "start_epoch": start_epoch,
@@ -306,7 +329,7 @@ def main() -> None:
                 "num_test_samples": len(test),
                 "input_shape": [2, 4, 128],
                 "target_shape": [128, 2],
-                "target_velocity_frame": "body_xy",
+                "target_velocity_frame": "evaluation_yaw_xy",
             },
             allow_val_change=True,
         )
@@ -347,7 +370,7 @@ def main() -> None:
             average_train_loss = train_loss / max(len(train_loader), 1)
             metrics = evaluate(model, validation_loader, device, args.static_loss_weight)
             score = metrics.get("loss", float("inf"))
-            is_best = score < best_validation_loss
+            is_best = score < best_validation_loss and bool(metrics["coverage_endpoints_pass"])
             if is_best:
                 best_validation_loss = score
             checkpoint = {
@@ -357,6 +380,7 @@ def main() -> None:
                 "metrics": metrics,
                 "best_validation_loss": best_validation_loss,
                 "model": "TemporalLidarVelocityCNN",
+                "projection_contract": "temporal_lidar_v3",
                 "args": vars(args),
             }
             torch.save(checkpoint, output / "last.pt")

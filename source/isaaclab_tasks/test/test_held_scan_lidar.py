@@ -113,6 +113,17 @@ def test_scan_age_grows_while_a_full_scan_is_held() -> None:
     assert torch.allclose(age, torch.tensor([0.080, 0.130]))
 
 
+def test_history_records_exact_observation_projection_pose() -> None:
+    store = LidarHistoryStore(1, 4, 4, 20.0, "cpu")
+    store.record_projection_pose(torch.tensor([[0.4, -0.2]]), torch.tensor([0.3]), 9)
+    xy, yaw, step = store.projection_pose
+    assert torch.allclose(xy, torch.tensor([[0.4, -0.2]]))
+    assert torch.allclose(yaw, torch.tensor([0.3]))
+    assert step == 9
+    store.reset()
+    assert store.projection_pose[2] == -1
+
+
 def test_reset_queues_an_immediate_scan_for_only_reset_environments() -> None:
     """Reset environments get a valid scan before their next policy action."""
     collector = object.__new__(HeldScanLidarCollector)
@@ -458,15 +469,57 @@ def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
     data_env = object.__new__(FixedCoveragePedestrianCrowdNavigationEnv)
     data_env._held_scan_lidar_collector = collector
     data_env.crowd_manager = SimpleNamespace(max_pedestrians=1)
-
-    labels = data_env.get_point_velocity_labels()
     sparse_bins = forward_lidar_reflection_bins(collector.latest_policy_capture())
+    data_env.num_envs = 2
+    data_env.scene = collector.env.scene
+    data_env.common_step_counter = 0
+    data_env._lidar_history_stores = {"held_full_scan": SimpleNamespace(
+        capture_index=collector.latest_policy_capture()["capture_index"].clone(),
+        projection_pose=(torch.zeros(2, 2), torch.zeros(2), 0),
+    )}
+    clean = torch.ones(2, 2, 4, 128)
+    clean[:, 1] = 0
+    clean[:, 0, 0][sparse_bins["reflection_mask"]] = sparse_bins["range_m"][sparse_bins["reflection_mask"]] / 20.0
+    clean[:, 1, 0] = sparse_bins["reflection_mask"].float()
+    labels = data_env.get_point_velocity_sample(clean.flatten(1), clean.flatten(1))
     full_bins = forward_lidar_reflection_bins(collector.latest_capture())
     assert torch.equal(labels["reflection_mask"], sparse_bins["reflection_mask"])
     assert torch.equal(labels["dynamic_mask"], sparse_bins["reflection_mask"])
     assert torch.equal(labels["capture_index"], collector.latest_policy_capture()["capture_index"])
     assert torch.all(labels["point_velocity_b"][~labels["reflection_mask"]] == 0)
     assert full_bins["reflection_mask"].sum() > labels["reflection_mask"].sum()
+
+    # The scan remains held while the robot translates and turns. Its world
+    # hits and captured pedestrian velocity are unchanged; the target bins and
+    # body-frame labels follow the new evaluation pose.
+    sensor = collector.env.scene.sensors["obstacle_scanner"]
+    sensor.data.pos_w[:, 0] = 0.4
+    yaw = torch.tensor(0.15)
+    sensor.data.quat_w = torch.tensor([[torch.cos(yaw / 2), 0., 0., torch.sin(yaw / 2)]]).expand(2, -1)
+    shifted_bins = forward_lidar_reflection_bins({
+        **collector.latest_policy_capture(),
+        "ego_xy": sensor.data.pos_w[:, :2],
+        "ego_yaw": yaw.expand(2),
+    })
+    shifted_clean = torch.ones_like(clean)
+    shifted_clean[:, 1] = 0
+    shifted_clean[:, 0, 0][shifted_bins["reflection_mask"]] = (
+        shifted_bins["range_m"][shifted_bins["reflection_mask"]] / 20.0
+    )
+    shifted_clean[:, 1, 0] = shifted_bins["reflection_mask"].float()
+    data_env._lidar_history_stores["held_full_scan"].projection_pose = (
+        sensor.data.pos_w[:, :2].clone(), yaw.expand(2).clone(), 0,
+    )
+    shifted = data_env.get_point_velocity_sample(shifted_clean.flatten(1), shifted_clean.flatten(1))
+    assert torch.equal(shifted["reflection_mask"], shifted_bins["reflection_mask"])
+    assert torch.allclose(
+        body_to_world_xy(shifted["point_velocity_b"], shifted["evaluation_yaw"])[shifted["dynamic_mask"]],
+        collector._pending_ped_velocity_w.expand(-1, 128, -1)[shifted["dynamic_mask"]], atol=1.0e-5,
+    )
+    data_env._lidar_history_stores["held_full_scan"].capture_index += 1
+    import pytest
+    with pytest.raises(RuntimeError, match="indices differ"):
+        data_env.get_point_velocity_sample(shifted_clean.flatten(1), shifted_clean.flatten(1))
 
 
 def test_density_filling_keeps_capture_only_shift_and_full_cbf_geometry() -> None:
@@ -498,6 +551,22 @@ def test_density_filling_keeps_capture_only_shift_and_full_cbf_geometry() -> Non
     collector._coverage_target = None
     collector.reset()
     assert 0.29 < collector._sampling_pattern.float().mean().item() < 0.38
+
+
+def test_data_coverage_targets_preserve_sparse_template_and_phase() -> None:
+    collector = _make_sparse_collector(8)
+    targets = torch.tensor([float("nan"), 0.4, 0.47, 0.54, 0.6, 0.67, 0.73, 0.8])
+    env_ids = torch.arange(8)
+    collector.set_episode_coverage_targets(env_ids, targets)
+    collector.reset(env_ids)
+    counts = collector._sampling_pattern.sum(dim=1)
+    for env_id in range(1, 8):
+        assert counts[env_id] == round(256 * float(targets[env_id]))
+    assert 0.29 < counts[0].float() / 256 < 0.38
+    pattern = collector._sampling_pattern.clone()
+    collector._capture_full_scan()
+    assert torch.equal(pattern, collector._sampling_pattern)
+    assert torch.all((collector.latest_policy_capture()["ray_state"] > 0).reshape(8, 128, 2).sum(dim=-1) <= 1)
 
 
 def test_density_curriculum_follows_iteration_boundaries() -> None:

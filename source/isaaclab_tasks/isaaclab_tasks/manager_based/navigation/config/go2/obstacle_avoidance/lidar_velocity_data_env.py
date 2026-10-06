@@ -86,8 +86,26 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         reset_pedestrian_crowd(self, env_ids, flow_dir=cfg.pedestrian_flow_dir)
         self._write_pedestrians_to_sim()
         if self._held_scan_lidar_collector is not None:
+            self._assign_coverage(env_ids)
             self._held_scan_lidar_collector.reset(env_ids)
         self._validate_velocity_label_scene()
+
+    def _assign_coverage(self, env_ids: torch.Tensor) -> None:
+        # Each environment cycles through all coverage bands independently of
+        # its fixed terrain tile. NaN means the original natural sparse pattern.
+        if not hasattr(self, "_velocity_episode_count"):
+            self._velocity_episode_count = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        bands = torch.tensor((float("nan"), 0.4, 0.47, 0.54, 0.6, 0.67, 0.73, 0.8), device=self.device)
+        band_id = (self._velocity_episode_count[env_ids] + env_ids) % bands.numel()
+        self._held_scan_lidar_collector.set_episode_coverage_targets(env_ids, bands[band_id])
+        self._velocity_episode_count[env_ids] += 1
+
+    def _reset_idx(self, env_ids) -> None:
+        if getattr(self, "_held_scan_lidar_collector", None) is not None:
+            ids = (torch.arange(self.num_envs, device=self.device) if env_ids is None
+                   else torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
+            self._assign_coverage(ids)
+        super()._reset_idx(env_ids)
 
     def _validate_velocity_label_scene(self) -> None:
         sensor = self.scene.sensors["obstacle_scanner"]
@@ -103,21 +121,41 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
                 f"got target mesh counts {counts}."
             )
 
-    def get_point_velocity_labels(self) -> dict[str, torch.Tensor]:
-        """Return body-frame labels aligned to the policy's current 128-bin forward LiDAR arc."""
+    def get_point_velocity_sample(
+        self, lidar_noisy: torch.Tensor, lidar_clean: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
+        """Bind the saved observation and labels to one evaluation pose and capture."""
         collector = self._held_scan_lidar_collector
         if collector is None:
             raise RuntimeError("LiDAR velocity labels require the held scan collector.")
-        # Labels must describe the same sampled reflections as the temporal
-        # policy history, not the full geometry capture reserved for CBF.
         capture = collector.latest_policy_capture()
+        store = self._lidar_history_stores["held_full_scan"]
+        if not torch.equal(store.capture_index, capture["capture_index"]):
+            raise RuntimeError("Velocity sample history and sparse capture indices differ.")
+        evaluation_xy, evaluation_yaw, projection_step = store.projection_pose
+        if projection_step != self.common_step_counter:
+            raise RuntimeError("Velocity sample has no temporal LiDAR projection for the current observation step.")
+        evaluation_xy = evaluation_xy.clone()
+        evaluation_yaw = evaluation_yaw.clone()
+        projection = {**capture, "ego_xy": evaluation_xy, "ego_yaw": evaluation_yaw}
         pedestrian_velocity = capture["pedestrian_velocity_w"]
         if pedestrian_velocity is None:
             raise RuntimeError("No captured pedestrian velocity is available yet; wait for a live LiDAR capture.")
 
         mesh_ids = capture["ray_mesh_ids"].to(torch.long)
-        binned = forward_lidar_reflection_bins(capture)
+        binned = forward_lidar_reflection_bins(projection)
         reflection_mask = binned["reflection_mask"]
+        # The critic has no lidar corruption. Its newest temporal slice must
+        # agree with this binning before any label is written to disk.
+        clean = lidar_clean.reshape(self.num_envs, 2, 4, 128)
+        expected_distance = torch.where(
+            reflection_mask, binned["range_m"].clamp(max=collector.max_distance),
+            torch.full_like(binned["range_m"], collector.max_distance),
+        ) / collector.max_distance
+        if not torch.allclose(clean[:, 0, 0], expected_distance, atol=2.0e-5, rtol=0.0):
+            raise RuntimeError("Velocity label bins disagree with the newest clean temporal LiDAR observation.")
+        if torch.any(reflection_mask & (clean[:, 1, 0] < 0.5)):
+            raise RuntimeError("Reflected velocity label has an invalid temporal LiDAR input bin.")
         winner_mesh = torch.gather(mesh_ids, 1, binned["winner_ray"])
         dynamic_mask = reflection_mask & (winner_mesh >= 1) & (winner_mesh <= self.crowd_manager.max_pedestrians)
         slot = (winner_mesh - 1).clamp(0, self.crowd_manager.max_pedestrians - 1)
@@ -129,9 +167,17 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         velocity_b = world_to_body_xy(velocity_w, binned["ego_yaw"])
         velocity_b = torch.where(dynamic_mask.unsqueeze(-1), velocity_b, torch.zeros_like(velocity_b))
         return {
+            "lidar_noisy": lidar_noisy,
+            "lidar_clean": lidar_clean,
             "point_velocity_b": velocity_b,
             "reflection_mask": reflection_mask,
             "dynamic_mask": dynamic_mask,
             "range_m": binned["range_m"],
             "capture_index": capture["capture_index"],
+            "capture_time_s": capture["capture_time_s"],
+            "evaluation_time_s": torch.full_like(capture["capture_time_s"], collector.current_time_s),
+            "evaluation_xy": evaluation_xy,
+            "evaluation_yaw": evaluation_yaw,
+            "ray_coverage": ((capture["ray_state"] > 0).float().sum(dim=1) / 128.0).clamp(max=1.0),
+            "reflection_coverage": reflection_mask.float().mean(dim=1),
         }
