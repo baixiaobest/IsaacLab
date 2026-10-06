@@ -195,7 +195,13 @@ def test_dynamic_cbf_play_task_requires_the_fixed_body_frame_jit() -> None:
     assert isinstance(cfg.actions.pre_trained_policy_action, DynamicObstacleCbfPreTrainedPolicyActionCfg)
     assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == "logs/lidar_velocity_predictor/best_jit.pt"
     assert cfg.actions.pre_trained_policy_action.require_velocity_predictor
+    assert cfg.actions.pre_trained_policy_action.cbf_scan_source == "policy"
     assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
+
+
+def test_static_cbf_uses_full_capture() -> None:
+    cfg = load_cfg_from_registry(CBF_PLAY_TASK_ID, "env_cfg_entry_point")
+    assert cfg.actions.pre_trained_policy_action.cbf_scan_source == "full"
 
 
 def test_dynamic_barrier_offset_uses_relative_point_velocity() -> None:
@@ -224,7 +230,10 @@ def test_dynamic_predictor_is_cached_per_held_scan() -> None:
     term._predicted_velocity_b = torch.zeros(2, 128, 2)
     term._predictor_capture_index = torch.full((2,), -1, dtype=torch.long)
     refresh_count = [0]
-    term._refresh_predictor_lidar_history = lambda: refresh_count.__setitem__(0, refresh_count[0] + 1)
+    def refresh():
+        refresh_count[0] += 1
+        return SimpleNamespace(capture_index=torch.tensor([4, 7]))
+    term._refresh_predictor_lidar_history = refresh
     term._policy_lidar_tensor = lambda: torch.zeros(2, 2, 4, 128)
     capture = {"capture_index": torch.tensor([4, 7])}
 
@@ -234,6 +243,18 @@ def test_dynamic_predictor_is_cached_per_held_scan() -> None:
     assert refresh_count == [1]
     assert torch.allclose(first, torch.full((2, 128, 2), 0.4))
     assert torch.equal(first, second)
+
+
+def test_dynamic_predictor_rejects_scan_history_mismatch() -> None:
+    term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
+    term.num_envs = 1
+    term._velocity_predictor = lambda lidar: torch.zeros(1, 128, 2)
+    term._predicted_velocity_b = torch.zeros(1, 128, 2)
+    term._predictor_capture_index = torch.tensor([-1])
+    term._refresh_predictor_lidar_history = lambda: SimpleNamespace(capture_index=torch.tensor([6]))
+    term._policy_lidar_tensor = lambda: pytest.fail("Predictor input must not be read after a mismatch")
+    with pytest.raises(RuntimeError, match="capture index does not match"):
+        term._predict_velocity_b({"capture_index": torch.tensor([7])})
 
 
 def test_cbf_zoh_mapping_rebases_on_measured_velocity() -> None:

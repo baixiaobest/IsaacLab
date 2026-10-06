@@ -218,6 +218,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             raise ValueError("CBF gains, slack_penalty, and tracking_tau_s must be positive.")
         if cfg.max_lidar_points < 1:
             raise ValueError("max_lidar_points must be at least one.")
+        if cfg.cbf_scan_source not in ("full", "policy"):
+            raise ValueError("cbf_scan_source must be 'full' or 'policy'.")
 
         self._control_dt = cfg.low_level_decimation * env.physics_dt
         self._zoh_gain_s = zoh_average_acceleration_gain(self._control_dt, cfg.tracking_tau_s)
@@ -408,7 +410,7 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         )[:, :2]
 
         capture = self._latest_lidar_capture()
-        binned = forward_lidar_reflection_bins(capture)
+        binned = self._bin_cbf_capture(capture)
         predicted_velocity_b = self._predict_velocity_b(capture)
         predicted_velocity_w = body_to_world_xy(predicted_velocity_b, binned["ego_yaw"])
         safe_acceleration_w = torch.empty_like(nominal_acceleration_w)
@@ -529,12 +531,16 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         """Return cached body-frame velocities, updating exactly once per held scan."""
         if self._velocity_predictor is None:
             return torch.zeros_like(self._predicted_velocity_b)
-        capture_index = capture["capture_index"]
+        capture_index = capture["capture_index"].clone()
         update = capture_index != self._predictor_capture_index
         if not torch.any(update):
             return self._predicted_velocity_b
 
-        self._refresh_predictor_lidar_history()
+        store = self._refresh_predictor_lidar_history()
+        if not torch.equal(store.capture_index, capture_index):
+            raise RuntimeError(
+                "Dynamic CBF LiDAR history capture index does not match the selected CBF scan."
+            )
         lidar = self._policy_lidar_tensor()
         with torch.inference_mode():
             prediction = self._velocity_predictor(lidar)
@@ -550,8 +556,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._predictor_capture_index[update] = capture_index[update]
         return self._predicted_velocity_b
 
-    def _refresh_predictor_lidar_history(self) -> None:
-        """Consume a scan that completed between low-level CBF updates."""
+    def _refresh_predictor_lidar_history(self):
+        """Consume a scan that completed between low-level CBF updates and return its store."""
         stores = getattr(self._env, "_lidar_history_stores", None)
         store = stores.get(self.cfg.predictor_history_key) if stores is not None else None
         collector = getattr(self._env, self.cfg.lidar_collector_name, None)
@@ -560,6 +566,7 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 "Dynamic CBF requires the temporal-LiDAR history store and held-scan collector before predictor use."
             )
         store.ensure_collector_updated(self._env, collector, force=True)
+        return store
 
     def _policy_lidar_tensor(self) -> torch.Tensor:
         """Read the exact noisy actor temporal-LiDAR observation term for the JIT."""
@@ -604,7 +611,21 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 f"CBF PLAY requires the held LiDAR collector '{self.cfg.lidar_collector_name}'. "
                 "Use the temporal-LiDAR PLAY environment entry point."
             )
+        if self.cfg.cbf_scan_source == "policy":
+            return collector.latest_policy_capture()
         return collector.latest_capture()
+
+    def _bin_cbf_capture(self, capture: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        if self.cfg.cbf_scan_source == "full":
+            return forward_lidar_reflection_bins(capture)
+        # TemporalLidarScan projects the held history about the sensor's current
+        # pose, so the predictor output bins must use that same projection.
+        collector = getattr(self._env, self.cfg.lidar_collector_name)
+        sensor = self._env.scene.sensors[collector.sensor_name]
+        _, _, current_yaw = math_utils.euler_xyz_from_quat(sensor.data.quat_w)
+        return forward_lidar_reflection_bins({
+            **capture, "ego_xy": sensor.data.pos_w[:, :2], "ego_yaw": current_yaw,
+        })
 
 
 @configclass
@@ -626,6 +647,8 @@ class DynamicObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
     """Maximum nearest valid active-range reflections retained per QP."""
     lidar_collector_name: str = "_held_scan_lidar_collector"
     """Name of the held-scan collector supplied by the temporal-LiDAR environment."""
+    cbf_scan_source: str = "full"
+    """Use the ideal full scan or the sparse policy scan for CBF obstacles."""
     velocity_predictor_jit_path: str | None = None
     """Optional body-frame LiDAR velocity TorchScript path; ``None`` is static zero-velocity mode."""
     require_velocity_predictor: bool = False

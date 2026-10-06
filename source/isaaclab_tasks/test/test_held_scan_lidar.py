@@ -4,6 +4,7 @@ import math
 from types import SimpleNamespace
 
 import torch
+from isaaclab.envs.mdp.observations import LidarHistoryStore
 
 from isaaclab_tasks.manager_based.navigation.lidar_geometry import (
     body_to_world_xy,
@@ -45,6 +46,9 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.tempo
     TemporalLidarObservationsCfg,
     TemporalLidarObstacleAvoidanceEnvCfg,
 )
+from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action import (
+    DynamicObstacleCbfPreTrainedPolicyAction,
+)
 
 
 def test_full_scan_clock_fires_every_twenty_six_physics_steps() -> None:
@@ -84,6 +88,7 @@ def test_consume_returns_full_scan_once_then_holds_it() -> None:
     collector._pending_state = torch.tensor([[2, 1, 2, 1], [1, 1, 1, 1]], dtype=torch.uint8)
     collector._pending_ego_xy = torch.zeros(2, 2)
     collector._pending_ego_yaw = torch.zeros(2)
+    collector._capture_index = torch.tensor([3, 4])
 
     completed = collector.consume_completed()
 
@@ -314,6 +319,52 @@ def test_sparse_policy_has_max_range_invalids_while_cbf_keeps_full_geometry() ->
         torch.full_like(sparse_states[sparse_states == 1], 20.0, dtype=torch.float),
     )
     assert torch.all(collector.latest_capture()["ray_state"] == 1)
+
+
+def test_dynamic_cbf_bins_follow_sparse_policy_capture_across_phase_shift() -> None:
+    collector = _make_sparse_collector(1)
+    term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
+    term.cfg = SimpleNamespace(cbf_scan_source="policy", lidar_collector_name="_held_scan_lidar_collector")
+    term._env = SimpleNamespace(
+        _held_scan_lidar_collector=collector,
+        scene=collector.env.scene,
+    )
+    for _ in range(3):
+        capture = term._latest_lidar_capture()
+        sparse = term._bin_cbf_capture(capture)
+        full = forward_lidar_reflection_bins(collector.latest_capture())
+        assert sparse["reflection_mask"].sum() < full["reflection_mask"].sum()
+        assert torch.equal(sparse["reflection_mask"], forward_lidar_reflection_bins(capture)["reflection_mask"])
+        assert torch.equal(sparse["hit_xy"][sparse["reflection_mask"]],
+                           full["hit_xy"][sparse["reflection_mask"]])
+        collector._capture_full_scan()
+
+    # The actor observation reprojects the held scan around the current sensor
+    # pose, so the dynamic CBF must use the same forward-arc indices.
+    sensor = collector.env.scene.sensors["obstacle_scanner"]
+    sensor.data.pos_w[0, 0] = 0.4
+    sensor.data.quat_w[0] = torch.tensor([math.cos(0.2), 0.0, 0.0, math.sin(0.2)])
+    capture = term._latest_lidar_capture()
+    rebinned = term._bin_cbf_capture(capture)
+    expected = forward_lidar_reflection_bins({
+        **capture, "ego_xy": sensor.data.pos_w[:, :2], "ego_yaw": torch.tensor([0.4]),
+    })
+    assert torch.equal(rebinned["winner_ray"], expected["winner_ray"])
+    assert torch.equal(rebinned["reflection_mask"], expected["reflection_mask"])
+
+
+def test_history_store_tracks_consumed_sparse_capture_index() -> None:
+    collector = _make_sparse_collector(2)
+    store = LidarHistoryStore(2, 256, 4, 20.0, "cpu")
+    store.ensure_collector_updated(SimpleNamespace(common_step_counter=0), collector)
+    assert torch.equal(store.capture_index, collector.latest_policy_capture()["capture_index"])
+    held_index = store.capture_index.clone()
+    collector._capture_full_scan(torch.tensor([1]))
+    store.ensure_collector_updated(SimpleNamespace(common_step_counter=0), collector, force=True)
+    assert store.capture_index[0] == held_index[0]
+    assert store.capture_index[1] == held_index[1] + 1
+    store.reset(torch.tensor([1]))
+    assert store.capture_index.tolist() == [int(held_index[0]), -1]
 
 
 def test_full_coverage_matches_dense_capture_with_hits_and_no_returns() -> None:

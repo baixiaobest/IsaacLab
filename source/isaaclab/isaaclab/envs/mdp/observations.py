@@ -991,6 +991,7 @@ class LidarHistoryStore:
         self._steps_since_reset = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._scan_age_s = torch.zeros(num_envs, device=device)
         self._scan_updated = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self._capture_index = torch.full((num_envs,), -1, dtype=torch.long, device=device)
 
     def ensure_updated(self, env: "ManagerBasedEnv", sensor: RayCaster):
         """Push the current RayCaster scan, unless this store was already touched this step."""
@@ -1042,6 +1043,7 @@ class LidarHistoryStore:
                 completed["ego_yaw"],
                 completed["scan_age_s"],
             )
+            self._capture_index[env_ids] = completed["capture_index"]
         self._scan_age_s.copy_(collector.scan_age_s())
         self._last_owner_step = step
 
@@ -1090,6 +1092,7 @@ class LidarHistoryStore:
             self._head[:] = 0
             self._scan_age_s[:] = 0.0
             self._scan_updated[:] = False
+            self._capture_index[:] = -1
         else:
             self._hit_pos_buffer[:, env_ids] = 0.0
             self._ray_state_buffer[:, env_ids] = 0
@@ -1099,6 +1102,7 @@ class LidarHistoryStore:
             self._head[env_ids] = 0
             self._scan_age_s[env_ids] = 0.0
             self._scan_updated[env_ids] = False
+            self._capture_index[env_ids] = -1
 
     def frame(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(hit_xy, ray_state)`` for the scan ``age`` steps ago (0 = newest)."""
@@ -1123,6 +1127,11 @@ class LidarHistoryStore:
     @property
     def scan_updated(self) -> torch.Tensor:
         return self._scan_updated
+
+    @property
+    def capture_index(self) -> torch.Tensor:
+        """Per-environment collector scan index represented by the newest frame."""
+        return self._capture_index
 
 
 def _get_lidar_history_store(
