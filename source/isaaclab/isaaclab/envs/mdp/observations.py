@@ -11,6 +11,7 @@ the observation introduced by the function.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -980,11 +981,15 @@ class LidarHistoryStore:
         # 1 = free-space ray, 2 = surface hit.
         self._hit_pos_buffer = torch.zeros(depth, num_envs, num_rays, 2, device=device)
         self._ray_state_buffer = torch.zeros(depth, num_envs, num_rays, dtype=torch.uint8, device=device)
+        self._ray_mesh_id_buffer = torch.full((depth, num_envs, num_rays), -1, dtype=torch.int16, device=device)
 
         # Ego pose history (XY + yaw), used by TemporalLidarPredictionTarget to
         # reproject the newest scan into the previous step's frame.
         self._ego_xy = torch.zeros(depth, num_envs, 2, device=device)
         self._ego_yaw = torch.zeros(depth, num_envs, device=device)
+        self._yaw_drift_std_rad_per_scan = 0.0
+        self._yaw_error = torch.zeros(num_envs, device=device)
+        self._capture_yaw_error = torch.zeros(depth, num_envs, device=device)
 
         # Number of consecutive updates since the last reset, per env. Used to know
         # whether `ego(age)` / `frame(age)` slots hold real (post-reset) data.
@@ -995,6 +1000,7 @@ class LidarHistoryStore:
         self._projection_xy = torch.zeros(num_envs, 2, device=device)
         self._projection_yaw = torch.zeros(num_envs, device=device)
         self._projection_step = -1
+        self._projection_returns = None
 
     def ensure_updated(self, env: "ManagerBasedEnv", sensor: RayCaster):
         """Push the current RayCaster scan, unless this store was already touched this step."""
@@ -1018,6 +1024,7 @@ class LidarHistoryStore:
             pos_w[:, :2],
             cur_yaw,
             torch.zeros(self.num_envs, device=ray_hits_w.device),
+            getattr(sensor.data, "ray_mesh_ids", None),
         )
         self._last_owner_step = step
 
@@ -1045,6 +1052,7 @@ class LidarHistoryStore:
                 completed["ego_xy"],
                 completed["ego_yaw"],
                 completed["scan_age_s"],
+                completed.get("ray_mesh_ids"),
             )
             self._capture_index[env_ids] = completed["capture_index"]
         self._scan_age_s.copy_(collector.scan_age_s())
@@ -1058,16 +1066,29 @@ class LidarHistoryStore:
         ego_xy: torch.Tensor,
         ego_yaw: torch.Tensor,
         scan_age_s: torch.Tensor,
+        ray_mesh_ids: torch.Tensor | None = None,
     ) -> None:
         """Push one scan per selected environment into independent ring heads."""
         if env_ids.numel() == 0:
             return
         slots = (self._head[env_ids] - 1) % self.depth
+        if self._yaw_drift_std_rad_per_scan > 0.0:
+            previous = self._steps_since_reset[env_ids] > 0
+            self._yaw_error[env_ids] += (
+                torch.randn(env_ids.numel(), device=self._yaw_error.device)
+                * self._yaw_drift_std_rad_per_scan
+                * previous
+            )
         self._head[env_ids] = slots
         self._hit_pos_buffer[slots, env_ids] = hit_xy
         self._ray_state_buffer[slots, env_ids] = ray_state
+        if ray_mesh_ids is None:
+            self._ray_mesh_id_buffer[slots, env_ids] = -1
+        else:
+            self._ray_mesh_id_buffer[slots, env_ids] = ray_mesh_ids.reshape(env_ids.numel(), -1).to(torch.int16)
         self._ego_xy[slots, env_ids] = ego_xy
         self._ego_yaw[slots, env_ids] = ego_yaw
+        self._capture_yaw_error[slots, env_ids] = self._yaw_error[env_ids]
         self._steps_since_reset[env_ids] += 1
         self._scan_age_s[env_ids] = scan_age_s
         self._scan_updated[env_ids] = True
@@ -1087,6 +1108,33 @@ class LidarHistoryStore:
         self._projection_xy.copy_(xy)
         self._projection_yaw.copy_(yaw)
         self._projection_step = step
+        self._projection_returns = None
+
+    def record_projection_returns(
+        self, range_m: torch.Tensor, reflection_mask: torch.Tensor, dynamic_mask: torch.Tensor, step: int
+    ) -> None:
+        """Save audit-only classes from the same noisy-pose projection as the actor scan."""
+        self._projection_returns = (
+            range_m.clone(), reflection_mask.clone(), dynamic_mask.clone(), step
+        )
+
+    @property
+    def projection_returns(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        if self._projection_returns is None:
+            raise RuntimeError("Temporal LiDAR history has no projected return labels for this observation step.")
+        return self._projection_returns
+
+    def configure_yaw_drift(self, std_rad_per_scan: float) -> None:
+        """Set the owner's capture-rate yaw random walk; readers share the clean history."""
+        if not math.isfinite(std_rad_per_scan) or std_rad_per_scan < 0.0:
+            raise ValueError("yaw_drift_std_rad_per_scan must be finite and non-negative.")
+        self._yaw_drift_std_rad_per_scan = std_rad_per_scan
+
+    def relative_yaw_error(self, age: int) -> torch.Tensor:
+        """Current cumulative yaw error minus the error saved with an older capture."""
+        slot = (self._head + age) % self.depth
+        env_ids = torch.arange(self.num_envs, device=slot.device)
+        return self._yaw_error - self._capture_yaw_error[slot, env_ids]
 
     def reset(self, env_ids: torch.Tensor | None = None):
         # A user-initiated reset can compute observations without advancing
@@ -1095,31 +1143,45 @@ class LidarHistoryStore:
         if env_ids is None:
             self._hit_pos_buffer[:] = 0.0
             self._ray_state_buffer[:] = 0
+            self._ray_mesh_id_buffer[:] = -1
             self._ego_xy[:] = 0.0
             self._ego_yaw[:] = 0.0
+            self._yaw_error[:] = 0.0
+            self._capture_yaw_error[:] = 0.0
             self._steps_since_reset[:] = 0
             self._head[:] = 0
             self._scan_age_s[:] = 0.0
             self._scan_updated[:] = False
             self._capture_index[:] = -1
             self._projection_step = -1
+            self._projection_returns = None
         else:
             self._hit_pos_buffer[:, env_ids] = 0.0
             self._ray_state_buffer[:, env_ids] = 0
+            self._ray_mesh_id_buffer[:, env_ids] = -1
             self._ego_xy[:, env_ids] = 0.0
             self._ego_yaw[:, env_ids] = 0.0
+            self._yaw_error[env_ids] = 0.0
+            self._capture_yaw_error[:, env_ids] = 0.0
             self._steps_since_reset[env_ids] = 0
             self._head[env_ids] = 0
             self._scan_age_s[env_ids] = 0.0
             self._scan_updated[env_ids] = False
             self._capture_index[env_ids] = -1
             self._projection_step = -1
+            self._projection_returns = None
 
     def frame(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(hit_xy, ray_state)`` for the scan ``age`` steps ago (0 = newest)."""
         slot = (self._head + age) % self.depth
         env_ids = torch.arange(self.num_envs, device=slot.device)
         return self._hit_pos_buffer[slot, env_ids], self._ray_state_buffer[slot, env_ids]
+
+    def frame_mesh_ids(self, age: int) -> torch.Tensor:
+        """Return captured mesh IDs aligned with the rays in ``frame(age)``."""
+        slot = (self._head + age) % self.depth
+        env_ids = torch.arange(self.num_envs, device=slot.device)
+        return self._ray_mesh_id_buffer[slot, env_ids]
 
     def ego(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(xy, yaw)`` ego pose ``age`` steps ago (0 = newest)."""
@@ -1214,6 +1276,8 @@ class TemporalLidarScan(ManagerTermBase):
         self._store = _get_lidar_history_store(
             env, sensor_cfg.name, num_envs, num_rays, horizon, max_distance, device, history_key
         )
+        if owns_history:
+            self._store.configure_yaw_drift(params.get("yaw_drift_std_rad_per_scan", 0.0))
 
     def reset(self, env_ids=None):
         # Only the owner resets the shared store; readers no-op (the owner's reset call
@@ -1230,6 +1294,8 @@ class TemporalLidarScan(ManagerTermBase):
         fov_degrees: float,
         max_distance: float,
         pos_noise_std: float = 0.0,
+        yaw_drift_std_rad_per_scan: float = 0.0,
+        record_reflection_classes: bool = False,
         include_validity: bool = True,
         owns_history: bool = False,
         history_key: str | None = None,
@@ -1246,6 +1312,10 @@ class TemporalLidarScan(ManagerTermBase):
             max_distance: Maximum lidar range (used for normalisation and hit detection).
             pos_noise_std: Std-dev of Gaussian position noise (metres) added to the
                 projection centre for timesteps h > 0 to simulate odometry drift.
+            yaw_drift_std_rad_per_scan: Std-dev of capture-rate yaw increments (radians).
+                Older scans are rotated around their saved sensor position by their
+                accumulated error relative to the newest scan; zero disables it.
+            record_reflection_classes: Save per-frame nearest-return classes for dataset audit.
             include_validity: If True (default), output both a normalised-distance and a
                 validity channel. If False, output the distance channel only, halving the
                 observation size. The validity computation is skipped entirely when disabled.
@@ -1289,6 +1359,9 @@ class TemporalLidarScan(ManagerTermBase):
 
         # --- Accumulate per-timestep bin distances and (optionally) validity ---
         bin_dist_all = torch.full((num_envs, horizon, num_bins), max_distance, device=device)
+        if record_reflection_classes:
+            bin_reflection_all = torch.zeros(num_envs, horizon, num_bins, dtype=torch.bool, device=device)
+            bin_dynamic_all = torch.zeros_like(bin_reflection_all)
         if include_validity:
             bin_valid_all = torch.zeros(num_envs, horizon, num_bins, dtype=torch.bool, device=device)
 
@@ -1297,6 +1370,19 @@ class TemporalLidarScan(ManagerTermBase):
         for h in range(horizon):
             # h is the age in steps (0 = most recent); read from the shared store.
             hits, state = store.frame(h)               # hits: (num_envs, num_rays, 2) — XY only
+            if yaw_drift_std_rad_per_scan > 0.0 and h > 0:
+                capture_xy, _ = store.ego(h)
+                delta = store.relative_yaw_error(h)
+                relative = hits - capture_xy.unsqueeze(1)
+                cosine = torch.cos(delta).unsqueeze(1)
+                sine = torch.sin(delta).unsqueeze(1)
+                hits = capture_xy.unsqueeze(1) + torch.stack(
+                    (
+                        cosine * relative[..., 0] - sine * relative[..., 1],
+                        sine * relative[..., 0] + cosine * relative[..., 1],
+                    ),
+                    dim=-1,
+                )
             hit_mask = state == 2                      # surface hit vs free-space ray
             real_mask = state > 0                      # real measurement vs reset placeholder
 
@@ -1336,6 +1422,22 @@ class TemporalLidarScan(ManagerTermBase):
             bin_dist_h.scatter_reduce_(1, safe_bin_idx, safe_dist, reduce="amin", include_self=True)
             bin_dist_all[:, h, :] = bin_dist_h[:, :num_bins]
 
+            if record_reflection_classes:
+                mesh_ids = store.frame_mesh_ids(h)
+                if torch.any(hit_mask & (mesh_ids < 0)):
+                    raise RuntimeError("LiDAR audit labels require captured mesh IDs for every reflected ray.")
+                ray_count = hits.shape[1]
+                nearest = bin_dist_h.gather(1, safe_bin_idx)
+                wins = hit_mask & real_mask & (ray_dist < max_distance) & (ray_dist == nearest)
+                candidate = torch.arange(ray_count, device=device).unsqueeze(0).expand(num_envs, -1)
+                candidate = torch.where(wins, candidate, ray_count)
+                winner = torch.full((num_envs, num_bins + 1), ray_count, dtype=torch.long, device=device)
+                winner.scatter_reduce_(1, safe_bin_idx, candidate, reduce="amin", include_self=True)
+                reflected = winner[:, :num_bins] < ray_count
+                winner_mesh = mesh_ids.gather(1, winner[:, :num_bins].clamp(max=ray_count - 1))
+                bin_reflection_all[:, h] = reflected
+                bin_dynamic_all[:, h] = reflected & (winner_mesh > 0)
+
             # Validity: a bin is valid when at least one real ray (hit OR free-space)
             # lands in it — i.e. the direction was actually observed this frame.
             if include_validity:
@@ -1355,6 +1457,13 @@ class TemporalLidarScan(ManagerTermBase):
         indices_exp = indices.unsqueeze(1).expand(-1, horizon, -1)
 
         fov_dist = torch.gather(bin_dist_all, 2, indices_exp)    # (num_envs, horizon, fov_bins)
+        if record_reflection_classes:
+            store.record_projection_returns(
+                fov_dist,
+                torch.gather(bin_reflection_all, 2, indices_exp),
+                torch.gather(bin_dynamic_all, 2, indices_exp),
+                env.common_step_counter,
+            )
 
         # Normalise distances to [0, 1]
         fov_dist = fov_dist / max_distance

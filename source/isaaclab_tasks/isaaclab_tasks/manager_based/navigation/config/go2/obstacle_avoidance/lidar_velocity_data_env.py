@@ -158,6 +158,16 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
             raise RuntimeError("Reflected velocity label has an invalid temporal LiDAR input bin.")
         winner_mesh = torch.gather(mesh_ids, 1, binned["winner_ray"])
         dynamic_mask = reflection_mask & (winner_mesh >= 1) & (winner_mesh <= self.crowd_manager.max_pedestrians)
+        history_range_m, history_reflection_mask, history_dynamic_mask, returns_step = store.projection_returns
+        if returns_step != projection_step:
+            raise RuntimeError("Historical return labels are from a different temporal LiDAR projection step.")
+        # Returns beyond the 20 m observation limit saturate to max range and
+        # cannot appear as visible reflections in the policy's projected scan.
+        visible_label = reflection_mask & (binned["range_m"] < collector.max_distance)
+        if not torch.equal(history_reflection_mask[:, 0], visible_label) or not torch.equal(
+            history_dynamic_mask[:, 0], dynamic_mask & visible_label
+        ):
+            raise RuntimeError("Newest historical return classes disagree with the velocity labels.")
         slot = (winner_mesh - 1).clamp(0, self.crowd_manager.max_pedestrians - 1)
         velocity_w = torch.gather(
             pedestrian_velocity,
@@ -172,6 +182,9 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
             "point_velocity_b": velocity_b,
             "reflection_mask": reflection_mask,
             "dynamic_mask": dynamic_mask,
+            "history_range_m": history_range_m,
+            "history_reflection_mask": history_reflection_mask,
+            "history_dynamic_mask": history_dynamic_mask,
             "range_m": binned["range_m"],
             "capture_index": capture["capture_index"],
             "capture_time_s": capture["capture_time_s"],

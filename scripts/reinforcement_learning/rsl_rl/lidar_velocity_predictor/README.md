@@ -16,8 +16,11 @@ Audit before training:
 
 The audit also writes four sampled static and four sampled dynamic labelled-scan plots by default to
 `audit/scan_samples/`, with their source file, episode, capture index, and plot path recorded in
-`audit/scan_samples.json`. They use robot-body coordinates (forward +X, left +Y): grey returns are
-static zero-velocity labels, and red arrows show body-frame pedestrian velocity labels. Adjust the
+`audit/scan_samples.json`. Each plot overlays the four newest-first policy frames in the evaluation-yaw
+coordinates (forward +X, left +Y), including the modeled yaw drift and XY projection noise. Pedestrian
+returns progress from red to yellow and static returns from dark grey to light grey as frames age.
+Velocity arrows show newest-frame pedestrian labels. Older dataset files lack per-frame return classes
+and must be recollected for these plots. Adjust the
 number, range, or arrow scale with `--num_scan_samples`, `--scan_plot_range_m`, and
 `--velocity_arrow_seconds`.
 
@@ -34,6 +37,8 @@ Train, evaluate, and export:
 
 The exported model takes `(batch, 2, 4, 128)` and returns `(batch, 128, 2)` absolute obstacle velocities in the yaw-aligned frame of the **evaluation pose**. Only reflected bins have supervised outputs; ignore predictions in other bins. The rollout writes schema-v3 labels and evaluation-pose, capture-time, and measured-coverage metadata. Use a new dataset name or archive schema-v2 files before collecting into the same dataset root. Each newly selected best model is also atomically published to
 `logs/lidar_velocity_predictor/best_jit.pt` for the dynamic CBF PLAY task.
+
+Temporal-LiDAR policy scans include capture-stable yaw drift in both mixed and non-mixed tasks: each new scan adds an independent Gaussian increment with 0.5° standard deviation, and older world-point scans rotate around their capture position by their accumulated error relative to the newest scan. The newest policy scan and clean critic scan remain aligned with the velocity labels. Existing XY projection noise remains enabled. The rollout records the yaw drift rate in file metadata and refuses to append to files collected with another rate. Collect a new dataset and retrain before using a predictor with this observation distribution.
 
 `src/projection.py` defines the portable `temporal_lidar_v3` projection contract. Four newest-first sparse world-point scans are projected around one evaluation-time position and yaw into 256 world angular bins, then the yaw-centred 128-bin forward arc is returned. Distance is divided by 20 m; validity is 1 for a sampled hit or no-return ray and 0 for an unavailable direction. A no-return ray contributes 20 m, never a close obstacle. `fixtures/projection_fixture_v3.json` contains input scans, pose, expected tensor, reflection mask, and winner ray IDs for a ROS parity test. ROS should rebuild the tensor at its snapshot pose and rotate each valid output with that same yaw. The current ROS CBF does not yet run this predictor.
 

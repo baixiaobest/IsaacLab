@@ -49,6 +49,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, handl
 
 import importlib.metadata as metadata
 import isaaclab_tasks  # noqa: F401
+from src.dataset import validate_collection_metadata
 
 
 def _slice_term(env: ManagerBasedRLEnv, observations: dict, group: str, term_name: str) -> torch.Tensor:
@@ -68,6 +69,7 @@ def _slice_term(env: ManagerBasedRLEnv, observations: dict, group: str, term_nam
 class EpisodeBuffer:
     fields: dict[str, list[torch.Tensor]] = field(default_factory=lambda: {key: [] for key in (
         "lidar_noisy", "lidar_clean", "point_velocity_b", "reflection_mask", "dynamic_mask", "range_m",
+        "history_range_m", "history_reflection_mask", "history_dynamic_mask",
         "capture_index", "capture_time_s", "evaluation_time_s", "evaluation_xy", "evaluation_yaw",
         "ray_coverage", "reflection_coverage", "first_after_capture",
     )})
@@ -100,10 +102,7 @@ class ChunkWriter:
                     existing_metadata = json.loads(encoded) if encoded is not None else {}
                 except (TypeError, json.JSONDecodeError) as error:
                     raise RuntimeError(f"Cannot safely resume dataset: invalid metadata in {path}.") from error
-                if existing_metadata.get("schema_version") != 3 or existing_metadata.get("velocity_frame") != "evaluation_yaw_xy":
-                    raise RuntimeError(
-                        f"{path} uses an incompatible LiDAR velocity schema. Use a new dataset name or archive old files."
-                    )
+                validate_collection_metadata(existing_metadata, metadata, path)
         self.file_index = int(existing[-1].stem.rsplit("_", 1)[-1]) + 1 if existing else 0
         self.episode_index = 0
         self.pending: list[EpisodeBuffer] = []
@@ -166,6 +165,10 @@ def main() -> None:
         "observation_step_s": env.unwrapped.step_dt,
         "schema_version": 3, "velocity_frame": "evaluation_yaw_xy", "seed": args_cli.seed,
         "projection_contract": "temporal_lidar_v3", "sample_timing": "each_observation_step",
+        "audit_history_format": 1,
+        "yaw_drift_std_rad_per_scan": env_cfg.observations.policy.obstacle_scan.params.get(
+            "yaw_drift_std_rad_per_scan", 0.0
+        ),
     })
     buffers = [EpisodeBuffer() for _ in range(env.num_envs)]
     previous_capture = torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long)

@@ -86,7 +86,7 @@ def _bin_positions(range_m: np.ndarray) -> np.ndarray:
 
 
 def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arrow_seconds: float) -> dict:
-    """Render one labelled scan in body coordinates and return manifest metadata."""
+    """Render all four projected policy frames in evaluation-yaw coordinates."""
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -94,33 +94,46 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
 
     with h5py.File(sample.file_path, "r") as handle:
         group = handle["data"][sample.episode_name]
-        reflection = np.asarray(group["reflection_mask"][sample.sample_index], dtype=bool)
-        dynamic = np.asarray(group["dynamic_mask"][sample.sample_index], dtype=bool)
-        ranges = np.asarray(group["range_m"][sample.sample_index], dtype=np.float32)
+        ranges = np.asarray(group["history_range_m"][sample.sample_index], dtype=np.float32)
+        reflection = np.asarray(group["history_reflection_mask"][sample.sample_index], dtype=bool)
+        dynamic = np.asarray(group["history_dynamic_mask"][sample.sample_index], dtype=bool)
         velocity = np.asarray(group["point_velocity_b"][sample.sample_index], dtype=np.float32)
         capture_index = int(np.asarray(group["capture_index"][sample.sample_index]).reshape(-1)[0])
         terrain_name = str(group.attrs.get("terrain_name", "unknown"))
         terrain_level = int(group.attrs.get("terrain_level", -1))
         scenario_mode = int(group.attrs.get("scenario_mode", -1))
 
+    if ranges.shape != (4, 128) or reflection.shape != ranges.shape or dynamic.shape != ranges.shape:
+        raise RuntimeError(f"{sample.file_path}:{sample.episode_name} has invalid four-frame audit scan shapes.")
     valid = reflection & np.isfinite(ranges) & (ranges > 0.0) & (ranges <= max_range_m)
-    points = _bin_positions(ranges)
     static = valid & ~dynamic
     moving = valid & dynamic
+    static_colors = ("#303030", "#686868", "#a6a6a6", "#e3e3e3")
+    dynamic_colors = ("#d7191c", "#f46d43", "#fdae61", "#ffe34d")
     fig, axes = plt.subplots(figsize=(7, 7))
-    if static.any():
-        axes.scatter(points[static, 0], points[static, 1], s=12, c="0.55", label="static return (v = 0)")
-    if moving.any():
-        axes.scatter(points[moving, 0], points[moving, 1], s=22, c="tab:orange", label="pedestrian return")
+    # Draw oldest first so newer returns remain visible where scans overlap.
+    for age in reversed(range(4)):
+        points = _bin_positions(ranges[age])
+        label = f"current −{age}" if age else "current"
+        if static[age].any():
+            axes.scatter(points[static[age], 0], points[static[age], 1], s=14,
+                         c=static_colors[age], edgecolors="0.3" if age == 3 else "none",
+                         linewidths=0.3, label=f"static {label}")
+        if moving[age].any():
+            axes.scatter(points[moving[age], 0], points[moving[age], 1], s=22,
+                         c=dynamic_colors[age], edgecolors="0.25", linewidths=0.2,
+                         label=f"pedestrian {label}")
+    newest_points = _bin_positions(ranges[0])
+    if moving[0].any():
         axes.quiver(
-            points[moving, 0],
-            points[moving, 1],
-            velocity[moving, 0] * arrow_seconds,
-            velocity[moving, 1] * arrow_seconds,
+            newest_points[moving[0], 0],
+            newest_points[moving[0], 1],
+            velocity[moving[0], 0] * arrow_seconds,
+            velocity[moving[0], 1] * arrow_seconds,
             angles="xy",
             scale_units="xy",
             scale=1.0,
-            color="tab:red",
+            color=dynamic_colors[0],
             width=0.005,
             headwidth=4.0,
             headlength=5.0,
@@ -135,10 +148,19 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
     axes.set_xlabel("body X: forward (m)")
     axes.set_ylabel("body Y: left (m)")
     axes.set_title(
-        f"{sample.category} labelled scan | {terrain_name}, level {terrain_level}, scenario {scenario_mode}\n"
+        f"{sample.category} | four projected frames with localization drift\n"
+        f"{terrain_name}, level {terrain_level}, scenario {scenario_mode}\n"
         f"{Path(sample.file_path).name}:{sample.episode_name}, capture {capture_index}"
     )
-    axes.legend(loc="upper right", fontsize=8)
+    handles, labels = axes.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    legend_order = (
+        ["pedestrian current"] + [f"pedestrian current −{age}" for age in range(1, 4)]
+        + ["static current"] + [f"static current −{age}" for age in range(1, 4)]
+        + [f"body-frame velocity × {arrow_seconds:g} s", "robot"]
+    )
+    shown = [label for label in legend_order if label in by_label]
+    axes.legend([by_label[label] for label in shown], shown, loc="upper right", fontsize=7, ncol=2)
     axes.grid(alpha=0.2)
     fig.tight_layout()
     filename = f"{sample.category}_{Path(sample.file_path).stem}_{sample.episode_name}_{sample.sample_index:06d}.png"
@@ -155,6 +177,8 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
         "scenario_mode": scenario_mode,
         "valid_returns_plotted": int(valid.sum()),
         "dynamic_returns_plotted": int(moving.sum()),
+        "valid_returns_by_frame": valid.sum(axis=1).astype(int).tolist(),
+        "dynamic_returns_by_frame": moving.sum(axis=1).astype(int).tolist(),
         "max_range_m": max_range_m,
         "velocity_arrow_seconds": arrow_seconds,
     }
@@ -224,6 +248,13 @@ def main() -> None:
             if metadata.get("schema_version") != 3 or metadata.get("velocity_frame") != "evaluation_yaw_xy":
                 raise RuntimeError(f"{file_path} is not an evaluation-pose schema-v3 LiDAR velocity dataset.")
             for group in data.values():
+                if args.num_scan_samples and not {
+                    "history_range_m", "history_reflection_mask", "history_dynamic_mask"
+                }.issubset(group.keys()):
+                    raise RuntimeError(
+                        f"{file_path}:{group.name} lacks per-frame audit labels. Recollect the dataset to plot "
+                        "static and pedestrian returns across all four history frames."
+                    )
                 ray_coverage = np.asarray(group["ray_coverage"], dtype=np.float32)
                 reflection_coverage = np.asarray(group["reflection_coverage"], dtype=np.float32)
                 first = np.asarray(group["first_after_capture"], dtype=bool)

@@ -32,6 +32,7 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
         self.scene.terrain.terrain_generator = terrain_generator
         self.scene.terrain.max_init_terrain_level = None
         self.scene.obstacle_scanner.update_mesh_ids = True
+        self.observations.policy.obstacle_scan.params["record_reflection_classes"] = True
 
         # No terrain/density curriculum may mutate the fixed coverage assignment.
         self.curriculum.terrain_levels = None

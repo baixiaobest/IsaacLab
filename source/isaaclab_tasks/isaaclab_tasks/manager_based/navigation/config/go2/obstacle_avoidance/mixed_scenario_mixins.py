@@ -71,7 +71,10 @@ from .pedestrian_terrains import (
     build_static_dynamic_evaluation_terrain,
     build_mixed_static_pedestrian_corridor,
 )
-from .temporal_lidar_env_cfg import TemporalLidarObservationsCfg, TemporalLidarPredictionObservationsCfg
+from .temporal_lidar_env_cfg import (
+    TemporalLidarObservationsCfg,
+    TemporalLidarPredictionObservationsCfg,
+)
 
 # Static-env robot reset pose/velocity ranges, copied from EventCfg.reset_base.
 _STATIC_SPAWN_POSE_RANGE = {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-math.pi, math.pi)}

@@ -4,7 +4,7 @@ import math
 from types import SimpleNamespace
 
 import torch
-from isaaclab.envs.mdp.observations import LidarHistoryStore
+from isaaclab.envs.mdp.observations import LidarHistoryStore, TemporalLidarScan
 
 from isaaclab_tasks.manager_based.navigation.lidar_geometry import (
     body_to_world_xy,
@@ -42,6 +42,7 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.tempo
     TEMPORAL_LIDAR_COLLECTOR_NAME,
     TEMPORAL_LIDAR_HISTORY_KEY,
     TEMPORAL_LIDAR_POS_NOISE_STD,
+    TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN,
     TEMPORAL_LIDAR_RAYS,
     TemporalLidarObservationsCfg,
     TemporalLidarObstacleAvoidanceEnvCfg,
@@ -190,9 +191,159 @@ def test_actor_and_critic_share_held_history_and_scan_age() -> None:
     assert critic.obstacle_scan.params["history_num_rays"] == TEMPORAL_LIDAR_RAYS
     assert policy.obstacle_scan.params["pos_noise_std"] == TEMPORAL_LIDAR_POS_NOISE_STD
     assert critic.obstacle_scan.params["pos_noise_std"] == 0.0
+    assert critic.obstacle_scan.params["yaw_drift_std_rad_per_scan"] == 0.0
+    assert policy.obstacle_scan.params["yaw_drift_std_rad_per_scan"] == TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN
+    assert math.isclose(
+        MixedTemporalLidarObstacleAvoidanceEnvCfg().observations.policy.obstacle_scan.params[
+            "yaw_drift_std_rad_per_scan"
+        ],
+        TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN,
+    )
+    assert math.isclose(
+        MixedTemporalLidarKpPointVelocityDataEnvCfg().observations.policy.obstacle_scan.params[
+            "yaw_drift_std_rad_per_scan"
+        ],
+        math.radians(0.5),
+    )
+    assert TemporalLidarObstacleAvoidanceEnvCfg().observations.policy.obstacle_scan.params[
+        "yaw_drift_std_rad_per_scan"
+    ] == TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN
     assert policy.obstacle_scan.noise.n_min == -0.05
     assert policy.obstacle_scan.noise.n_max == 0.05
     assert critic.obstacle_scan.noise is None
+
+
+def test_capture_yaw_drift_is_stable_and_rotates_about_capture_origin(monkeypatch) -> None:
+    increments = iter((0.0, 0.1, 0.2, 0.3))
+    monkeypatch.setattr(torch, "randn", lambda *args, **kwargs: torch.tensor([next(increments)]))
+    store = LidarHistoryStore(1, 2, 4, 20.0, "cpu")
+    store.configure_yaw_drift(1.0)
+    for _ in range(4):
+        store._push(
+            torch.tensor([0]),
+            torch.tensor([[[3.0, 1.0], [4.0, 1.0]]]),
+            torch.tensor([[2, 1]], dtype=torch.uint8),
+            torch.tensor([[2.0, 1.0]]),
+            torch.zeros(1),
+            torch.zeros(1),
+            torch.tensor([[1, -1]], dtype=torch.int16),
+        )
+    assert torch.allclose(
+        torch.stack([store.relative_yaw_error(h) for h in range(4)]).flatten(),
+        torch.tensor([0.0, 0.3, 0.5, 0.6]),
+    )
+
+    sensor = SimpleNamespace(
+        data=SimpleNamespace(
+            pos_w=torch.tensor([[0.0, 0.0, 0.0]]),
+            quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+    )
+    env = SimpleNamespace(
+        num_envs=1, device="cpu", common_step_counter=7, scene=SimpleNamespace(sensors={"scan": sensor})
+    )
+    store._last_owner_step = 7
+    term = object.__new__(TemporalLidarScan)
+    term._store = store
+    kwargs = dict(
+        sensor_cfg=SimpleNamespace(name="scan"),
+        horizon=4,
+        num_bins=256,
+        fov_degrees=180.0,
+        max_distance=20.0,
+        pos_noise_std=0.0,
+        include_validity=True,
+    )
+    noisy = term(env, yaw_drift_std_rad_per_scan=1.0, record_reflection_classes=True, **kwargs).reshape(1, 2, 4, 128)
+    clean = term(env, yaw_drift_std_rad_per_scan=0.0, **kwargs).reshape(1, 2, 4, 128)
+    projected_range, projected_reflection, projected_dynamic, projection_step = store.projection_returns
+    assert projection_step == 7
+    assert torch.equal(projected_reflection, projected_dynamic)
+    assert torch.all(projected_reflection.sum(dim=-1) == 1)
+    assert torch.equal(noisy[:, :, 0], clean[:, :, 0])
+    assert torch.allclose(clean[:, 1].sum(dim=-1), torch.full((1, 4), 2.0))
+    for h, delta in enumerate((0.0, 0.3, 0.5, 0.6)):
+        rotated = torch.tensor([2.0 + math.cos(delta), 1.0 + math.sin(delta)])
+        angle = math.atan2(rotated[1].item(), rotated[0].item())
+        expected_bin = int((angle + math.pi) / (2.0 * math.pi) * 256) - 64
+        assert noisy[0, 0, h, expected_bin] < 1.0
+        assert noisy[0, 1, h, expected_bin] == 1.0
+        free_endpoint = torch.tensor([2.0 + 2.0 * math.cos(delta), 1.0 + 2.0 * math.sin(delta)])
+        free_angle = math.atan2(free_endpoint[1].item(), free_endpoint[0].item())
+        free_bin = int((free_angle + math.pi) / (2.0 * math.pi) * 256) - 64
+        assert noisy[0, 1, h, free_bin] == 1.0
+        if free_bin != expected_bin:
+            assert noisy[0, 0, h, free_bin] == 1.0
+
+    held_error = store.relative_yaw_error(2).clone()
+    sensor.data.pos_w[0, 0] = 0.4
+    moved = term(env, yaw_drift_std_rad_per_scan=1.0, **kwargs).reshape(1, 2, 4, 128)
+    assert torch.equal(store.relative_yaw_error(2), held_error)
+    assert not torch.equal(moved[:, 0], noisy[:, 0])
+
+    store.reset(torch.tensor([0]))
+    assert torch.equal(store._yaw_error, torch.zeros(1))
+    assert torch.equal(store._capture_yaw_error, torch.zeros_like(store._capture_yaw_error))
+
+
+def test_yaw_drift_tracks_per_env_captures_and_resets_independently() -> None:
+    torch.manual_seed(19)
+    store = LidarHistoryStore(2, 2, 4, 20.0, "cpu")
+    store.configure_yaw_drift(0.1)
+    env_ids = torch.tensor([0, 1])
+    origins = torch.zeros(2, 2)
+    hits = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]] * 2)
+    state = torch.tensor([[2, 0], [0, 2]], dtype=torch.uint8)
+    store._push(env_ids, hits, state, origins, torch.zeros(2), torch.zeros(2))
+    assert torch.equal(store.relative_yaw_error(0), torch.zeros(2))
+
+    # Only env 0 receives a new scan, with the selected ray shifted to the other index.
+    store._push(torch.tensor([0]), hits[:1], state[1:2], origins[:1], torch.zeros(1), torch.zeros(1))
+    assert store.relative_yaw_error(0)[0] == 0.0
+    assert store.relative_yaw_error(1)[0] != 0.0
+    assert store.relative_yaw_error(0)[1] == 0.0
+    assert torch.equal(store.frame(0)[1], torch.tensor([[0, 2], [0, 2]], dtype=torch.uint8))
+    assert torch.equal(store.frame(1)[1][0], state[0])
+
+    env_1_error = store._yaw_error[1].clone()
+    store.reset(torch.tensor([0]))
+    assert store._yaw_error[0] == 0.0
+    assert store._yaw_error[1] == env_1_error
+
+
+def test_audit_projection_classes_follow_nearest_captured_mesh() -> None:
+    store = LidarHistoryStore(1, 3, 4, 20.0, "cpu")
+    store._push(
+        torch.tensor([0]),
+        torch.tensor([[[2.0, 0.0], [3.0, 1.0], [20.0, 0.0]]]),
+        torch.tensor([[2, 2, 1]], dtype=torch.uint8),
+        torch.zeros(1, 2),
+        torch.zeros(1),
+        torch.zeros(1),
+        torch.tensor([[0, 1, -1]], dtype=torch.int16),
+    )
+    store._last_owner_step = 5
+    sensor = SimpleNamespace(
+        data=SimpleNamespace(
+            pos_w=torch.tensor([[0.0, 0.0, 0.0]]),
+            quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+    )
+    env = SimpleNamespace(
+        num_envs=1, device="cpu", common_step_counter=5, scene=SimpleNamespace(sensors={"scan": sensor})
+    )
+    term = object.__new__(TemporalLidarScan)
+    term._store = store
+    term(
+        env, SimpleNamespace(name="scan"), horizon=4, num_bins=256, fov_degrees=180.0,
+        max_distance=20.0, record_reflection_classes=True,
+    )
+    ranges, reflected, dynamic, step = store.projection_returns
+    assert step == 5
+    assert reflected[0, 0, 64] and not dynamic[0, 0, 64]
+    assert reflected[0, 0, 77] and dynamic[0, 0, 77]
+    assert torch.all(~reflected[:, 1:])
+    assert ranges[0, 0, 64] == 2.0
 
 
 def _make_sparse_collector(num_envs: int = 4, curriculum: bool = False) -> HeldScanLidarCollector:
@@ -476,6 +627,12 @@ def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
     data_env._lidar_history_stores = {"held_full_scan": SimpleNamespace(
         capture_index=collector.latest_policy_capture()["capture_index"].clone(),
         projection_pose=(torch.zeros(2, 2), torch.zeros(2), 0),
+        projection_returns=(
+            sparse_bins["range_m"].unsqueeze(1).expand(-1, 4, -1),
+            sparse_bins["reflection_mask"].unsqueeze(1).expand(-1, 4, -1),
+            sparse_bins["reflection_mask"].unsqueeze(1).expand(-1, 4, -1),
+            0,
+        ),
     )}
     clean = torch.ones(2, 2, 4, 128)
     clean[:, 1] = 0
@@ -485,6 +642,8 @@ def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
     full_bins = forward_lidar_reflection_bins(collector.latest_capture())
     assert torch.equal(labels["reflection_mask"], sparse_bins["reflection_mask"])
     assert torch.equal(labels["dynamic_mask"], sparse_bins["reflection_mask"])
+    assert torch.equal(labels["history_dynamic_mask"][:, 0], labels["dynamic_mask"])
+    assert labels["history_range_m"].shape == (2, 4, 128)
     assert torch.equal(labels["capture_index"], collector.latest_policy_capture()["capture_index"])
     assert torch.all(labels["point_velocity_b"][~labels["reflection_mask"]] == 0)
     assert full_bins["reflection_mask"].sum() > labels["reflection_mask"].sum()
@@ -509,6 +668,12 @@ def test_velocity_labels_use_sparse_capture_with_aligned_metadata() -> None:
     shifted_clean[:, 1, 0] = shifted_bins["reflection_mask"].float()
     data_env._lidar_history_stores["held_full_scan"].projection_pose = (
         sensor.data.pos_w[:, :2].clone(), yaw.expand(2).clone(), 0,
+    )
+    data_env._lidar_history_stores["held_full_scan"].projection_returns = (
+        shifted_bins["range_m"].unsqueeze(1).expand(-1, 4, -1),
+        shifted_bins["reflection_mask"].unsqueeze(1).expand(-1, 4, -1),
+        shifted_bins["reflection_mask"].unsqueeze(1).expand(-1, 4, -1),
+        0,
     )
     shifted = data_env.get_point_velocity_sample(shifted_clean.flatten(1), shifted_clean.flatten(1))
     assert torch.equal(shifted["reflection_mask"], shifted_bins["reflection_mask"])

@@ -30,6 +30,18 @@ def _files(dataset_path: str) -> list[Path]:
     return candidates
 
 
+def validate_collection_metadata(existing: dict, requested: dict, path: Path) -> None:
+    """Reject appending a rollout to files with different labels or yaw drift."""
+    if existing.get("schema_version") != 3 or existing.get("velocity_frame") != "evaluation_yaw_xy":
+        raise RuntimeError(
+            f"{path} uses an incompatible LiDAR velocity schema. Use a new dataset name or archive old files."
+        )
+    if existing.get("yaw_drift_std_rad_per_scan", 0.0) != requested.get("yaw_drift_std_rad_per_scan", 0.0):
+        raise RuntimeError(f"{path} has a different LiDAR yaw drift setting. Use a new dataset name.")
+    if existing.get("audit_history_format") != requested.get("audit_history_format"):
+        raise RuntimeError(f"{path} has a different historical scan audit format. Use a new dataset name.")
+
+
 class PointVelocityDataset(Dataset):
     """Lazy individual scan-event samples stored in point-velocity HDF5 episodes."""
 

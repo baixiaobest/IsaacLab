@@ -7,6 +7,8 @@ world-aligned 360° bin grid and returns a FOV-centred arc to the policy.
 
 from __future__ import annotations
 
+import math
+
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -32,7 +34,8 @@ TEMPORAL_LIDAR_HORIZON = 4       # H – number of historical timesteps
 TEMPORAL_LIDAR_NUM_BINS = 256    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
 TEMPORAL_LIDAR_RAYS = NUM_LIDAR_RAYS
-TEMPORAL_LIDAR_POS_NOISE_STD = 0.05  # Matches the 640034b actor projection noise.
+TEMPORAL_LIDAR_POS_NOISE_STD = 0.1  # Matches the 640034b actor projection noise.
+TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN = math.radians(0.5)
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = True  # emit the per-bin validity channel alongside distance
 TEMPORAL_LIDAR_HISTORY_KEY = "held_full_scan"
 TEMPORAL_LIDAR_COLLECTOR_NAME = "_held_scan_lidar_collector"
@@ -103,6 +106,7 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
                 "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
                 "max_distance": LIDAR_MAX_DISTANCE,
                 "pos_noise_std": TEMPORAL_LIDAR_POS_NOISE_STD,
+                "yaw_drift_std_rad_per_scan": TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN,
                 "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
                 "history_key": TEMPORAL_LIDAR_HISTORY_KEY,
                 "history_num_rays": TEMPORAL_LIDAR_RAYS,
@@ -158,6 +162,7 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
                 "fov_degrees": TEMPORAL_LIDAR_FOV_DEG,
                 "max_distance": LIDAR_MAX_DISTANCE,
                 "pos_noise_std": 0.0,
+                "yaw_drift_std_rad_per_scan": 0.0,
                 "include_validity": TEMPORAL_LIDAR_INCLUDE_VALIDITY,
                 "history_key": TEMPORAL_LIDAR_HISTORY_KEY,
                 "history_num_rays": TEMPORAL_LIDAR_RAYS,

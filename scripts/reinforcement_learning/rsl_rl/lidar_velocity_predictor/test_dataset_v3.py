@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import pytest
 
-from src.dataset import PointVelocityDataset
+from src.dataset import PointVelocityDataset, validate_collection_metadata
 
 
 def _write_episode(group, capture_index):
@@ -46,3 +46,13 @@ def test_schema_v2_is_rejected(tmp_path):
         data.attrs["metadata"] = json.dumps({"schema_version": 2, "velocity_frame": "body_xy"})
     with pytest.raises(RuntimeError, match="schema-v3"):
         PointVelocityDataset(str(path))
+
+
+def test_rollout_rejects_different_yaw_drift_when_appending(tmp_path):
+    metadata = {"schema_version": 3, "velocity_frame": "evaluation_yaw_xy", "yaw_drift_std_rad_per_scan": 0.0}
+    path = tmp_path / "samples.hdf5"
+    validate_collection_metadata(metadata, metadata, path)
+    with pytest.raises(RuntimeError, match="different LiDAR yaw drift"):
+        validate_collection_metadata(metadata, {**metadata, "yaw_drift_std_rad_per_scan": np.deg2rad(0.5)}, path)
+    with pytest.raises(RuntimeError, match="historical scan audit format"):
+        validate_collection_metadata(metadata, {**metadata, "audit_history_format": 1}, path)

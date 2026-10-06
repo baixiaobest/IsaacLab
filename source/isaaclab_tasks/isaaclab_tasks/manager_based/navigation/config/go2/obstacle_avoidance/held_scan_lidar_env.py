@@ -273,7 +273,9 @@ class HeldScanLidarCollector:
             "ego_xy": self._pending_ego_xy[env_ids],
             "ego_yaw": self._pending_ego_yaw[env_ids],
             "scan_age_s": self.scan_age_s()[env_ids],
-            "ray_mesh_ids": self._pending_ray_mesh_ids[env_ids],
+            "ray_mesh_ids": (
+                self._pending_ray_mesh_ids[env_ids] if hasattr(self, "_pending_ray_mesh_ids") else None
+            ),
             "pedestrian_velocity_w": (
                 self._pending_ped_velocity_w[env_ids] if self._pending_ped_velocity_w is not None else None
             ),
