@@ -86,7 +86,7 @@ def _bin_positions(range_m: np.ndarray) -> np.ndarray:
 
 
 def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arrow_seconds: float) -> dict:
-    """Render all four projected policy frames in evaluation-yaw coordinates."""
+    """Render projected predictor frames in evaluation-yaw coordinates."""
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -103,21 +103,32 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
         terrain_level = int(group.attrs.get("terrain_level", -1))
         scenario_mode = int(group.attrs.get("scenario_mode", -1))
 
-    if ranges.shape != (4, 128) or reflection.shape != ranges.shape or dynamic.shape != ranges.shape:
-        raise RuntimeError(f"{sample.file_path}:{sample.episode_name} has invalid four-frame audit scan shapes.")
+    if ranges.ndim != 2 or ranges.shape[0] < 1 or ranges.shape[1] != 128 or reflection.shape != ranges.shape or dynamic.shape != ranges.shape:
+        raise RuntimeError(f"{sample.file_path}:{sample.episode_name} has invalid audit scan shapes.")
     valid = reflection & np.isfinite(ranges) & (ranges > 0.0) & (ranges <= max_range_m)
     static = valid & ~dynamic
     moving = valid & dynamic
-    static_colors = ("#303030", "#686868", "#a6a6a6", "#e3e3e3")
-    dynamic_colors = ("#d7191c", "#f46d43", "#fdae61", "#ffe34d")
+    frame_count = ranges.shape[0]
+    if frame_count == 4:
+        static_colors = ("#303030", "#686868", "#a6a6a6", "#e3e3e3")
+        dynamic_colors = ("#d7191c", "#f46d43", "#fdae61", "#ffe34d")
+    else:
+        from matplotlib.colors import to_hex, to_rgb
+
+        def ramp(start, end):
+            first, last = np.asarray(to_rgb(start)), np.asarray(to_rgb(end))
+            return tuple(to_hex(first + (last - first) * age / max(frame_count - 1, 1)) for age in range(frame_count))
+
+        static_colors = ramp("#303030", "#e3e3e3")
+        dynamic_colors = ramp("#d7191c", "#ffe34d")
     fig, axes = plt.subplots(figsize=(7, 7))
     # Draw oldest first so newer returns remain visible where scans overlap.
-    for age in reversed(range(4)):
+    for age in reversed(range(frame_count)):
         points = _bin_positions(ranges[age])
         label = f"current −{age}" if age else "current"
         if static[age].any():
             axes.scatter(points[static[age], 0], points[static[age], 1], s=14,
-                         c=static_colors[age], edgecolors="0.3" if age == 3 else "none",
+                         c=static_colors[age], edgecolors="0.3" if age == frame_count - 1 else "none",
                          linewidths=0.3, label=f"static {label}")
         if moving[age].any():
             axes.scatter(points[moving[age], 0], points[moving[age], 1], s=22,
@@ -148,19 +159,28 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
     axes.set_xlabel("body X: forward (m)")
     axes.set_ylabel("body Y: left (m)")
     axes.set_title(
-        f"{sample.category} | four projected frames with localization drift\n"
+        f"{sample.category} | {frame_count} projected frames with localization drift\n"
         f"{terrain_name}, level {terrain_level}, scenario {scenario_mode}\n"
         f"{Path(sample.file_path).name}:{sample.episode_name}, capture {capture_index}"
     )
+    # Two color rows encode all frame ages without filling the plot with labels.
+    from matplotlib.colors import ListedColormap
+
+    age_key = axes.inset_axes((0.63, 0.80, 0.34, 0.12))
+    age_colors = list(dynamic_colors) + list(static_colors)
+    age_key.imshow(np.arange(2 * frame_count).reshape(2, frame_count),
+                   cmap=ListedColormap(age_colors), vmin=-0.5, vmax=2 * frame_count - 0.5,
+                   aspect="auto", interpolation="nearest")
+    age_key.set_yticks([0, 1], ["pedestrian", "static"], fontsize=7)
+    age_key.set_xticks([0, frame_count - 1], ["now", f"−{frame_count - 1}"], fontsize=7)
+    age_key.tick_params(length=0, pad=2)
+    for spine in age_key.spines.values():
+        spine.set_visible(False)
     handles, labels = axes.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    legend_order = (
-        ["pedestrian current"] + [f"pedestrian current −{age}" for age in range(1, 4)]
-        + ["static current"] + [f"static current −{age}" for age in range(1, 4)]
-        + [f"body-frame velocity × {arrow_seconds:g} s", "robot"]
-    )
-    shown = [label for label in legend_order if label in by_label]
-    axes.legend([by_label[label] for label in shown], shown, loc="upper right", fontsize=7, ncol=2)
+    compact = [(handle, label) for handle, label in zip(handles, labels)
+               if label == "robot" or label.startswith("body-frame velocity")]
+    axes.legend([handle for handle, _ in compact], [label for _, label in compact],
+                loc="upper left", fontsize=7)
     axes.grid(alpha=0.2)
     fig.tight_layout()
     filename = f"{sample.category}_{Path(sample.file_path).stem}_{sample.episode_name}_{sample.sample_index:06d}.png"

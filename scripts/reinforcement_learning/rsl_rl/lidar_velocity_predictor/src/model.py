@@ -9,8 +9,11 @@ from torch import nn
 class TemporalLidarVelocityCNN(nn.Module):
     """Map ``(distance, validity) x history x bins`` to body-XY bin velocity."""
 
-    def __init__(self) -> None:
+    def __init__(self, num_frames: int = 4) -> None:
         super().__init__()
+        if num_frames < 1:
+            raise ValueError("num_frames must be positive.")
+        self.num_frames = num_frames
         self.encoder = nn.Sequential(
             nn.Conv2d(2, 16, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2)),
             nn.ELU(),
@@ -23,7 +26,9 @@ class TemporalLidarVelocityCNN(nn.Module):
             nn.Conv2d(64, 64, kernel_size=(1, 3), stride=(1, 2), padding=(0, 1)),
             nn.ELU(),
         )
-        self.fusion = nn.Sequential(nn.Linear(512, 512), nn.ELU(), nn.Linear(512, 512), nn.ELU())
+        encoded_frames = (num_frames + 1) // 2
+        encoded_frames = (encoded_frames + 1) // 2
+        self.fusion = nn.Sequential(nn.Linear(64 * encoded_frames * 8, 512), nn.ELU(), nn.Linear(512, 512), nn.ELU())
         self.decoder = nn.Sequential(
             nn.ConvTranspose1d(64, 64, kernel_size=4, stride=2, padding=1),
             nn.ELU(),
@@ -45,10 +50,10 @@ class TemporalLidarVelocityCNN(nn.Module):
     def forward(self, lidar: torch.Tensor) -> torch.Tensor:
         # Keep validation TorchScript-compatible: tuple formatting of dynamic
         # shapes cannot be compiled by ``torch.jit.script``.
-        if lidar.dim() != 4 or lidar.size(1) != 2 or lidar.size(2) != 4 or lidar.size(3) != 128:
-            raise ValueError("Expected LiDAR input with shape (B, 2, 4, 128).")
+        if lidar.dim() != 4 or lidar.size(1) != 2 or lidar.size(2) != self.num_frames or lidar.size(3) != 128:
+            raise ValueError("Expected LiDAR input with shape (B, 2, num_frames, 128).")
         encoded = self.encoder(lidar)
-        if encoded.size(1) != 64 or encoded.size(2) != 1 or encoded.size(3) != 8:
+        if encoded.size(1) != 64 or encoded.size(3) != 8:
             raise RuntimeError("Unexpected encoder output shape.")
         latent = self.fusion(encoded.flatten(start_dim=1))
         decoded = self.decoder(latent.view(latent.size(0), 64, 8))

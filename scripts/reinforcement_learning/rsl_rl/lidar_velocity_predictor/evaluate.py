@@ -38,7 +38,7 @@ def _evaluate(model, dataset, device, batch_size):
                     total = totals.setdefault(group_name, {}).setdefault(key, [0.0, 0.0])
                     total[0] += value
                     total[1] += count
-    output = {"velocity_frame": "evaluation_yaw_xy", "contract": "temporal_lidar_v3"}
+    output = {"velocity_frame": "evaluation_yaw_xy"}
     for group_name, values in totals.items():
         raw = {key: value / count for key, (value, count) in values.items() if count}
         metrics = {}
@@ -64,20 +64,23 @@ def main():
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     device = torch.device(args.device)
-    model = TemporalLidarVelocityCNN().to(device)
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    if checkpoint.get("projection_contract") != "temporal_lidar_v3":
-        raise RuntimeError("Evaluation requires a schema-v3 predictor checkpoint.")
+    if checkpoint.get("projection_contract") not in ("temporal_lidar_v3", "temporal_lidar_v4"):
+        raise RuntimeError("Evaluation requires a supported evaluation-pose predictor checkpoint.")
+    num_frames = int(checkpoint.get("num_frames", 4))
+    model = TemporalLidarVelocityCNN(num_frames).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     output = {}
     for name in ("lidar_noisy", "lidar_clean"):
-        dataset = PointVelocityDataset(args.dataset_path, input_name=name)
+        dataset = PointVelocityDataset(args.dataset_path, input_name=name, num_frames=num_frames)
         split_file = Path(args.checkpoint).resolve().parent / "splits.json"
         if split_file.exists():
             test = Subset(dataset, json.loads(split_file.read_text(encoding="utf-8"))["test_indices"])
         else:
             _, _, test = dataset.split()
         result = _evaluate(model, test, device, args.batch_size)
+        result["contract"] = checkpoint["projection_contract"]
+        result["num_frames"] = num_frames
         output[name] = result
     print(json.dumps(output, indent=2))
 

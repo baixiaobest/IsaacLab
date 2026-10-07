@@ -77,7 +77,19 @@ def test_export_embeds_projection_contract(tmp_path) -> None:
     from train import _save_torchscript
 
     path = tmp_path / "predictor.pt"
-    _save_torchscript(TemporalLidarVelocityCNN(), path)
-    extra = {"projection_contract.txt": b""}
-    torch.jit.load(str(path), _extra_files=extra)
-    assert extra["projection_contract.txt"] == b"temporal_lidar_v3"
+    _save_torchscript(TemporalLidarVelocityCNN(8), path)
+    extra = {"projection_contract.txt": b"", "num_frames.txt": b""}
+    model = torch.jit.load(str(path), _extra_files=extra)
+    assert extra["projection_contract.txt"] == b"temporal_lidar_v4"
+    assert extra["num_frames.txt"] == b"8"
+    assert model(torch.zeros(1, 2, 8, 128)).shape == (1, 128, 2)
+
+
+def test_projection_accepts_eight_newest_first_frames() -> None:
+    hits = np.zeros((8, 1, 2), dtype=np.float64)
+    hits[:, 0, 0] = np.arange(1, 9)
+    states = np.full((8, 1), 2, dtype=np.uint8)
+    tensor, winner = project_history(hits, states, np.zeros(2), 0.0)
+    assert tensor.shape == (2, 8, 128)
+    np.testing.assert_allclose(tensor[0, :, 64], np.arange(1, 9) / 20)
+    assert winner[64] == 0

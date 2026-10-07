@@ -49,6 +49,7 @@ def parse_args() -> argparse.Namespace:
         help="Save and upload a retained epoch checkpoint every N epochs; set 0 to disable.",
     )
     parser.add_argument("--batch_size", type=int, default=4096)
+    parser.add_argument("--num_frames", type=int, default=None, help="Use the newest N frames; defaults to all frames in the dataset.")
     parser.add_argument("--learning_rate", type=float, default=3.0e-4)
     parser.add_argument("--weight_decay", type=float, default=1.0e-5)
     parser.add_argument(
@@ -109,7 +110,7 @@ def _save_torchscript(model: torch.nn.Module, output_path: Path) -> None:
     model.eval()
     torch.jit.save(
         torch.jit.script(model), str(output_path),
-        _extra_files={"projection_contract.txt": b"temporal_lidar_v3"},
+        _extra_files={"projection_contract.txt": b"temporal_lidar_v4", "num_frames.txt": str(model.num_frames).encode()},
     )
 
 
@@ -145,8 +146,10 @@ def _load_resume_checkpoint(
             f"{checkpoint_path} is not a LiDAR predictor training checkpoint. "
             "Expected a dictionary containing model_state_dict."
         )
-    if checkpoint.get("projection_contract") != "temporal_lidar_v3":
+    if checkpoint.get("projection_contract") not in ("temporal_lidar_v3", "temporal_lidar_v4"):
         raise RuntimeError(f"{checkpoint_path} predates the evaluation-pose projection contract; retrain from schema-v3 data.")
+    if int(checkpoint.get("num_frames", 4)) != model.num_frames:
+        raise RuntimeError(f"{checkpoint_path} uses {checkpoint.get('num_frames', 4)} frames, but training requested {model.num_frames}.")
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     if model_only:
         return 1, float("inf")
@@ -292,7 +295,8 @@ def main() -> None:
     output = Path(args.output_dir).expanduser().resolve() / args.run_name
     output.mkdir(parents=True, exist_ok=True)
     deployment_jit_path = Path(args.deployment_jit_path).expanduser().resolve()
-    dataset = PointVelocityDataset(args.dataset_path, input_name="lidar_noisy")
+    dataset = PointVelocityDataset(args.dataset_path, input_name="lidar_noisy", num_frames=args.num_frames)
+    args.num_frames = dataset.num_frames
     train, validation, test = dataset.split(args.seed)
     if len(validation) == 0 or len(test) == 0:
         raise RuntimeError("Dataset is too small for stratified validation/test splits.")
@@ -300,7 +304,7 @@ def main() -> None:
     train_loader = DataLoader(dataset, batch_sampler=DynamicAwareBatchSampler(train, args.batch_size, args.seed), num_workers=args.num_workers)
     validation_loader = DataLoader(validation, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     device = torch.device(args.device)
-    model = TemporalLidarVelocityCNN().to(device)
+    model = TemporalLidarVelocityCNN(args.num_frames).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_validation_loss = float("inf")
     start_epoch = 1
@@ -330,7 +334,8 @@ def main() -> None:
         periodic_checkpoint_dir.mkdir(exist_ok=True)
     metadata = {
         "args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test),
-        "target_velocity_frame": "evaluation_yaw_xy", "projection_contract": "temporal_lidar_v3",
+        "target_velocity_frame": "evaluation_yaw_xy", "projection_contract": "temporal_lidar_v4",
+        "num_frames": args.num_frames, "available_frames": dataset.available_frames,
         "deployment_jit_path": str(deployment_jit_path),
         "resume_checkpoint": str(resume_checkpoint_path) if resume_checkpoint_path is not None else None,
         "resume_model_only": args.resume_model_only,
@@ -347,7 +352,7 @@ def main() -> None:
                 "num_training_samples": len(train),
                 "num_validation_samples": len(validation),
                 "num_test_samples": len(test),
-                "input_shape": [2, 4, 128],
+                "input_shape": [2, args.num_frames, 128],
                 "target_shape": [128, 2],
                 "target_velocity_frame": "evaluation_yaw_xy",
             },
@@ -400,7 +405,8 @@ def main() -> None:
                 "metrics": metrics,
                 "best_validation_loss": best_validation_loss,
                 "model": "TemporalLidarVelocityCNN",
-                "projection_contract": "temporal_lidar_v3",
+                "projection_contract": "temporal_lidar_v4",
+                "num_frames": args.num_frames,
                 "args": vars(args),
             }
             torch.save(checkpoint, output / "last.pt")

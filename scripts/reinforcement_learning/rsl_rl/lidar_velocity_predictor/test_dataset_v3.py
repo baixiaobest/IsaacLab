@@ -9,9 +9,9 @@ import pytest
 from src.dataset import PointVelocityDataset, validate_collection_metadata
 
 
-def _write_episode(group, capture_index):
-    group.create_dataset("lidar_noisy", data=np.zeros((2, 2, 4, 128), dtype=np.float32))
-    group.create_dataset("lidar_clean", data=np.zeros((2, 2, 4, 128), dtype=np.float32))
+def _write_episode(group, capture_index, frames=4):
+    group.create_dataset("lidar_noisy", data=np.zeros((2, 2, frames, 128), dtype=np.float32))
+    group.create_dataset("lidar_clean", data=np.zeros((2, 2, frames, 128), dtype=np.float32))
     group.create_dataset("point_velocity_b", data=np.zeros((2, 128, 2), dtype=np.float32))
     for name in ("reflection_mask", "dynamic_mask"):
         group.create_dataset(name, data=np.zeros((2, 128), dtype=bool))
@@ -56,3 +56,22 @@ def test_rollout_rejects_different_yaw_drift_when_appending(tmp_path):
         validate_collection_metadata(metadata, {**metadata, "yaw_drift_std_rad_per_scan": np.deg2rad(0.5)}, path)
     with pytest.raises(RuntimeError, match="historical scan audit format"):
         validate_collection_metadata(metadata, {**metadata, "audit_history_format": 1}, path)
+    with pytest.raises(RuntimeError, match="frame count"):
+        validate_collection_metadata(metadata, {**metadata, "num_frames": 8}, path)
+
+
+def test_eight_frame_dataset_infers_or_selects_newest_frames(tmp_path):
+    path = tmp_path / "eight.hdf5"
+    with h5py.File(path, "w") as handle:
+        data = handle.create_group("data")
+        data.attrs["metadata"] = json.dumps({"schema_version": 3, "velocity_frame": "evaluation_yaw_xy", "num_frames": 8})
+        group = data.create_group("episode_0")
+        _write_episode(group, 1, frames=8)
+        group["lidar_noisy"][:, 0] = np.arange(8)[None, :, None]
+    full = PointVelocityDataset(str(path))
+    short = PointVelocityDataset(str(path), num_frames=4)
+    assert full[0]["lidar"].shape == (2, 8, 128)
+    assert short[0]["lidar"].shape == (2, 4, 128)
+    np.testing.assert_array_equal(short[0]["lidar"][0, :, 0], np.arange(4))
+    with pytest.raises(ValueError, match="available frames"):
+        PointVelocityDataset(str(path), num_frames=9)

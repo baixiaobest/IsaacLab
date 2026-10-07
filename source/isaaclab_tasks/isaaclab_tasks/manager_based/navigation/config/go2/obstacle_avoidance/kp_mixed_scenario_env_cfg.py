@@ -10,6 +10,7 @@ import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
 from .mixed_scenario_mixins import MixedTemporalLidarObstacleAvoidanceEnvCfg
 from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
+from .temporal_lidar_env_cfg import PredictorLidarObservationsCfg
 
 
 @configclass
@@ -125,6 +126,7 @@ class DynamicCbfKpActionsCfg(ActionsCfg):
             velocity_predictor_jit_path="logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_jit.pt",
             require_velocity_predictor=True,
             cbf_scan_source="policy",
+            predictor_observation_group="predictor",
             debug_vis=True,
         )
     )
@@ -137,3 +139,4 @@ class MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
     """PLAY task with body-frame JIT velocities rotated into the world-frame CBF."""
 
     actions: DynamicCbfKpActionsCfg = DynamicCbfKpActionsCfg()
+    observations: PredictorLidarObservationsCfg = PredictorLidarObservationsCfg()

@@ -1,4 +1,4 @@
-"""Version 3 temporal LiDAR projection contract for ROS and Isaac Lab parity.
+"""Temporal LiDAR projection contract for ROS and Isaac Lab parity.
 
 World XY endpoints and ray states are newest first. State 0 is unavailable,
 1 is a measured no-return direction, and 2 is a surface reflection.
@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import numpy as np
 
-CONTRACT_VERSION = "temporal_lidar_v3"
+CONTRACT_VERSION = "temporal_lidar_v4"
 WORLD_BINS = 256
 FOV_BINS = 128
-HISTORY = 4
 MAX_DISTANCE_M = 20.0
 
 
@@ -19,7 +18,7 @@ def project_history(
     hit_xy: np.ndarray, ray_state: np.ndarray, evaluation_xy: np.ndarray, evaluation_yaw: float,
     max_distance: float = MAX_DISTANCE_M,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return (2,4,128) distance/validity and newest reflection winner ray IDs.
+    """Return (2, history, 128) distance/validity and newest reflection winner ray IDs.
 
     Duplicate hits in a bin select the nearest range. Equal ranges select the
     lowest ray index. Unavailable bins have normalized distance 1, validity 0.
@@ -27,16 +26,17 @@ def project_history(
     hit_xy = np.asarray(hit_xy, dtype=np.float64)
     ray_state = np.asarray(ray_state, dtype=np.uint8)
     evaluation_xy = np.asarray(evaluation_xy, dtype=np.float64)
-    if hit_xy.ndim != 3 or hit_xy.shape[0] != HISTORY or hit_xy.shape[2] != 2:
-        raise ValueError("hit_xy must have shape (4, rays, 2).")
+    if hit_xy.ndim != 3 or hit_xy.shape[0] < 1 or hit_xy.shape[2] != 2:
+        raise ValueError("hit_xy must have shape (history, rays, 2) with positive history.")
     if ray_state.shape != hit_xy.shape[:2] or evaluation_xy.shape != (2,) or max_distance <= 0:
         raise ValueError("Invalid ray states, evaluation pose, or maximum range.")
     center = int((evaluation_yaw + np.pi) / (2 * np.pi) * WORLD_BINS) % WORLD_BINS
     arc = (center + np.arange(-FOV_BINS // 2, FOV_BINS // 2)) % WORLD_BINS
-    output = np.zeros((2, HISTORY, FOV_BINS), dtype=np.float32)
+    history = hit_xy.shape[0]
+    output = np.zeros((2, history, FOV_BINS), dtype=np.float32)
     output[0] = 1.0
     newest_winner = np.full(FOV_BINS, -1, dtype=np.int32)
-    for age in range(HISTORY):
+    for age in range(history):
         delta = hit_xy[age] - evaluation_xy
         distance = np.minimum(np.linalg.norm(delta, axis=-1), max_distance)
         angle = np.arctan2(delta[:, 1], delta[:, 0])

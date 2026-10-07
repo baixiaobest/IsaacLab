@@ -1001,6 +1001,18 @@ class LidarHistoryStore:
         self._projection_yaw = torch.zeros(num_envs, device=device)
         self._projection_step = -1
         self._projection_returns = None
+        self._projection_noise_step = -1
+        self._projection_position_noise = {}
+
+    def position_projection_noise(self, step: int, age: int, std: float, device: str) -> torch.Tensor:
+        """Share one projection-noise draw across readers of the same scan history."""
+        if self._projection_noise_step != step:
+            self._projection_noise_step = step
+            self._projection_position_noise.clear()
+        key = (age, std)
+        if key not in self._projection_position_noise:
+            self._projection_position_noise[key] = torch.randn(self.num_envs, 2, device=device) * std * math.sqrt(age)
+        return self._projection_position_noise[key]
 
     def ensure_updated(self, env: "ManagerBasedEnv", sensor: RayCaster):
         """Push the current RayCaster scan, unless this store was already touched this step."""
@@ -1139,6 +1151,8 @@ class LidarHistoryStore:
     def reset(self, env_ids: torch.Tensor | None = None):
         # A user-initiated reset can compute observations without advancing
         # common_step_counter.  Permit the owner to refresh its state in that case.
+        self._projection_noise_step = -1
+        self._projection_position_noise.clear()
         self._last_owner_step = -1
         if env_ids is None:
             self._hit_pos_buffer[:] = 0.0
@@ -1274,7 +1288,8 @@ class TemporalLidarScan(ManagerTermBase):
         self._horizon = horizon
         self._owns_history = owns_history
         self._store = _get_lidar_history_store(
-            env, sensor_cfg.name, num_envs, num_rays, horizon, max_distance, device, history_key
+            env, sensor_cfg.name, num_envs, num_rays, max(horizon, params.get("history_depth", horizon)),
+            max_distance, device, history_key
         )
         if owns_history:
             self._store.configure_yaw_drift(params.get("yaw_drift_std_rad_per_scan", 0.0))
@@ -1301,6 +1316,7 @@ class TemporalLidarScan(ManagerTermBase):
         history_key: str | None = None,
         history_num_rays: int | None = None,
         collector_name: str | None = None,
+        history_depth: int | None = None,
     ) -> torch.Tensor:
         """Compute the temporal lidar observation.
 
@@ -1388,7 +1404,7 @@ class TemporalLidarScan(ManagerTermBase):
 
             # Position noise on projection centre (simulate cumulative odometry error)
             if pos_noise_std > 0.0 and h > 0:
-                pos_noise = torch.randn(num_envs, 2, device=device) * pos_noise_std * _math.sqrt(h)
+                pos_noise = store.position_projection_noise(env.common_step_counter, h, pos_noise_std, device)
                 ref_xy = cur_xy + pos_noise
             else:
                 ref_xy = cur_xy

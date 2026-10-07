@@ -164,7 +164,8 @@ def main() -> None:
         "scan_period_s": env_cfg.held_scan_lidar.scan_period_s,
         "observation_step_s": env.unwrapped.step_dt,
         "schema_version": 3, "velocity_frame": "evaluation_yaw_xy", "seed": args_cli.seed,
-        "projection_contract": "temporal_lidar_v3", "sample_timing": "each_observation_step",
+        "projection_contract": "temporal_lidar_v4", "num_frames": 8,
+        "sample_timing": "each_observation_step",
         "audit_history_format": 1,
         "yaw_drift_std_rad_per_scan": env_cfg.observations.policy.obstacle_scan.params.get(
             "yaw_drift_std_rad_per_scan", 0.0
@@ -176,9 +177,11 @@ def main() -> None:
     observations = env.get_observations()
     try:
         while simulation_app.is_running() and completed < args_cli.max_episodes:
-            noisy = _slice_term(env.unwrapped, observations, "policy", "obstacle_scan")
-            clean = _slice_term(env.unwrapped, observations, "critic", "obstacle_scan")
-            labels = env.unwrapped.get_point_velocity_sample(noisy, clean)
+            noisy = _slice_term(env.unwrapped, observations, "predictor", "obstacle_scan")
+            clean = _slice_term(env.unwrapped, observations, "predictor_clean", "obstacle_scan")
+            policy_noisy = _slice_term(env.unwrapped, observations, "policy", "obstacle_scan")
+            critic_clean = _slice_term(env.unwrapped, observations, "critic", "obstacle_scan")
+            labels = env.unwrapped.get_point_velocity_sample(noisy, clean, policy_noisy, critic_clean)
             capture_index = labels["capture_index"]
             new_scan = capture_index != previous_capture
             for env_id in range(env.num_envs):

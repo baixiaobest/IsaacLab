@@ -122,7 +122,8 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
             )
 
     def get_point_velocity_sample(
-        self, lidar_noisy: torch.Tensor, lidar_clean: torch.Tensor
+        self, lidar_noisy: torch.Tensor, lidar_clean: torch.Tensor,
+        policy_lidar: torch.Tensor, critic_lidar: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Bind the saved observation and labels to one evaluation pose and capture."""
         collector = self._held_scan_lidar_collector
@@ -147,7 +148,12 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         reflection_mask = binned["reflection_mask"]
         # The critic has no lidar corruption. Its newest temporal slice must
         # agree with this binning before any label is written to disk.
-        clean = lidar_clean.reshape(self.num_envs, 2, 4, 128)
+        noisy = lidar_noisy.reshape(self.num_envs, 2, 8, 128).clone()
+        clean = lidar_clean.reshape(self.num_envs, 2, 8, 128).clone()
+        noisy[:, :, :4] = policy_lidar.reshape(self.num_envs, 2, 4, 128)
+        critic = critic_lidar.reshape(self.num_envs, 2, 4, 128)
+        if not torch.allclose(clean[:, :, :4], critic, atol=2.0e-5, rtol=0.0):
+            raise RuntimeError("Eight-frame clean predictor history disagrees with the four-frame critic history.")
         expected_distance = torch.where(
             reflection_mask, binned["range_m"].clamp(max=collector.max_distance),
             torch.full_like(binned["range_m"], collector.max_distance),
@@ -177,8 +183,8 @@ class FixedCoveragePedestrianCrowdNavigationEnv(PedestrianCrowdNavigationEnv):
         velocity_b = world_to_body_xy(velocity_w, binned["ego_yaw"])
         velocity_b = torch.where(dynamic_mask.unsqueeze(-1), velocity_b, torch.zeros_like(velocity_b))
         return {
-            "lidar_noisy": lidar_noisy,
-            "lidar_clean": lidar_clean,
+            "lidar_noisy": noisy,
+            "lidar_clean": clean,
             "point_velocity_b": velocity_b,
             "reflection_mask": reflection_mask,
             "dynamic_mask": dynamic_mask,

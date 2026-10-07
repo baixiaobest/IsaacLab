@@ -40,15 +40,21 @@ def validate_collection_metadata(existing: dict, requested: dict, path: Path) ->
         raise RuntimeError(f"{path} has a different LiDAR yaw drift setting. Use a new dataset name.")
     if existing.get("audit_history_format") != requested.get("audit_history_format"):
         raise RuntimeError(f"{path} has a different historical scan audit format. Use a new dataset name.")
+    if existing.get("num_frames", 4) != requested.get("num_frames", 4):
+        raise RuntimeError(f"{path} has a different LiDAR history frame count. Use a new dataset name.")
+    if existing.get("projection_contract", "temporal_lidar_v3") != requested.get("projection_contract", "temporal_lidar_v3"):
+        raise RuntimeError(f"{path} has a different LiDAR projection contract. Use a new dataset name.")
 
 
 class PointVelocityDataset(Dataset):
     """Lazy individual scan-event samples stored in point-velocity HDF5 episodes."""
 
-    def __init__(self, dataset_path: str, input_name: str = "lidar_noisy") -> None:
+    def __init__(self, dataset_path: str, input_name: str = "lidar_noisy", num_frames: int | None = None) -> None:
         if input_name not in {"lidar_noisy", "lidar_clean"}:
             raise ValueError("input_name must be lidar_noisy or lidar_clean.")
         self.input_name = input_name
+        self.available_frames: int | None = None
+        self.num_frames = num_frames
         self.entries: list[EpisodeEntry] = []
         self.offsets = [0]
         for file_path in _files(dataset_path):
@@ -73,6 +79,14 @@ class PointVelocityDataset(Dataset):
                     if not required.issubset(group.keys()):
                         raise RuntimeError(f"{file_path}:{episode_name} is missing a schema-v3 required dataset.")
                     length = int(group["lidar_noisy"].shape[0])
+                    available = int(metadata.get("num_frames", 4))
+                    if available < 1 or group["lidar_noisy"].shape[1:] not in ((2 * available * 128,), (2, available, 128)):
+                        raise RuntimeError(f"{file_path}:{episode_name} has inconsistent LiDAR frame metadata or shape.")
+                    if group["lidar_clean"].shape != group["lidar_noisy"].shape:
+                        raise RuntimeError(f"{file_path}:{episode_name} has mismatched clean and noisy LiDAR shapes.")
+                    if self.available_frames is not None and available != self.available_frames:
+                        raise RuntimeError("Dataset files contain mixed LiDAR history frame counts.")
+                    self.available_frames = available
                     dynamic_indices = tuple(np.flatnonzero(np.asarray(group["dynamic_mask"]).any(axis=1)).tolist())
                     attrs = group.attrs
                     stratum = (
@@ -85,29 +99,32 @@ class PointVelocityDataset(Dataset):
                     self.offsets.append(self.offsets[-1] + length)
         if not self.entries:
             raise RuntimeError("No valid point-velocity episodes were found.")
+        if self.num_frames is None:
+            self.num_frames = self.available_frames
+        if self.num_frames is None or self.num_frames < 1 or self.num_frames > self.available_frames:
+            raise ValueError(f"num_frames must be between 1 and the dataset's {self.available_frames} available frames.")
 
     def __len__(self) -> int:
         return self.offsets[-1]
 
-    @staticmethod
-    def _canonical_lidar(array: np.ndarray, source: str) -> np.ndarray:
+    def _canonical_lidar(self, array: np.ndarray, source: str) -> np.ndarray:
         """Return a temporal scan in the model's ``(C, H, bins)`` layout.
 
         Observation-manager terms are flattened when their group is
         concatenated, so rollout files made from ``obstacle_scan`` contain a
-        single 1024-element vector.  Keep the HDF5 schema tolerant of that
+        single flattened vector. Keep the HDF5 schema tolerant of that
         native observation representation while always presenting the CNN with
-        its explicit ``(2, 4, 128)`` layout.
+        its explicit ``(2, num_frames, 128)`` layout.
         """
         array = np.asarray(array, dtype=np.float32)
-        expected_shape = (2, 4, 128)
+        expected_shape = (2, self.available_frames, 128)
         if array.shape == expected_shape:
-            return array
+            return array[:, :self.num_frames]
         if array.size == int(np.prod(expected_shape)):
-            return array.reshape(expected_shape)
+            return array.reshape(expected_shape)[:, :self.num_frames]
         raise ValueError(
             f"{source} has LiDAR sample shape {array.shape}; expected {expected_shape} "
-            "or a flattened 1024-element temporal scan."
+            f"or a flattened {int(np.prod(expected_shape))}-element temporal scan."
         )
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:

@@ -213,6 +213,21 @@ def test_actor_and_critic_share_held_history_and_scan_age() -> None:
     assert critic.obstacle_scan.noise is None
 
 
+def test_predictor_tasks_keep_four_frame_policy_with_eight_frame_history() -> None:
+    baseline = MixedTemporalLidarKpObstacleAvoidanceEnvCfg_PLAY().observations
+    assert baseline.policy.obstacle_scan.params["horizon"] == 4
+    for cfg_type in (MixedTemporalLidarKpPointVelocityDataEnvCfg,
+                     MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY):
+        cfg = cfg_type()
+        observations = cfg.observations
+        assert observations.policy.obstacle_scan.params["horizon"] == 4
+        assert observations.critic.obstacle_scan.params["horizon"] == 4
+        assert observations.policy.scan_age.params["history_horizon"] == 8
+        assert observations.policy.obstacle_scan.params["history_depth"] == 8
+        assert observations.predictor.obstacle_scan.params["horizon"] == 8
+    assert MixedTemporalLidarKpPointVelocityDataEnvCfg().observations.predictor_clean.obstacle_scan.params["horizon"] == 8
+
+
 def test_capture_yaw_drift_is_stable_and_rotates_about_capture_origin(monkeypatch) -> None:
     increments = iter((0.0, 0.1, 0.2, 0.3))
     monkeypatch.setattr(torch, "randn", lambda *args, **kwargs: torch.tensor([next(increments)]))
@@ -344,6 +359,15 @@ def test_audit_projection_classes_follow_nearest_captured_mesh() -> None:
     assert reflected[0, 0, 77] and dynamic[0, 0, 77]
     assert torch.all(~reflected[:, 1:])
     assert ranges[0, 0, 64] == 2.0
+
+
+def test_projection_noise_is_shared_between_four_and_eight_frame_readers() -> None:
+    store = LidarHistoryStore(2, 1, 8, 20.0, "cpu")
+    first = store.position_projection_noise(11, 2, 0.1, "cpu")
+    assert first is store.position_projection_noise(11, 2, 0.1, "cpu")
+    assert store.position_projection_noise(11, 7, 0.1, "cpu").shape == (2, 2)
+    store.reset(torch.tensor([0]))
+    assert store._projection_position_noise == {}
 
 
 def _make_sparse_collector(num_envs: int = 4, curriculum: bool = False) -> HeldScanLidarCollector:

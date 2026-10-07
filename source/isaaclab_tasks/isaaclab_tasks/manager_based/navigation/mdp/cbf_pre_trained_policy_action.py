@@ -266,12 +266,21 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         if not path.is_file():
             raise FileNotFoundError(f"Dynamic CBF velocity predictor was not found: {path}")
         try:
-            extra_files = {"projection_contract.txt": b""}
+            extra_files = {"projection_contract.txt": b"", "num_frames.txt": b""}
             predictor = torch.jit.load(str(path), map_location=self.device, _extra_files=extra_files)
         except Exception as error:
             raise RuntimeError(f"Could not load dynamic CBF velocity predictor: {path}") from error
-        if extra_files["projection_contract.txt"] != b"temporal_lidar_v3":
-            raise RuntimeError("Velocity predictor lacks the temporal_lidar_v3 evaluation-pose contract.")
+        contract = extra_files["projection_contract.txt"]
+        if contract not in (b"temporal_lidar_v3", b"temporal_lidar_v4"):
+            raise RuntimeError("Velocity predictor lacks a supported evaluation-pose projection contract.")
+        if contract == b"temporal_lidar_v4" and not extra_files["num_frames.txt"]:
+            raise RuntimeError("Velocity predictor v4 is missing num_frames metadata.")
+        try:
+            self._predictor_num_frames = int(extra_files["num_frames.txt"] or b"4")
+        except ValueError as error:
+            raise RuntimeError("Velocity predictor has invalid num_frames metadata.") from error
+        if self._predictor_num_frames < 1:
+            raise RuntimeError("Velocity predictor frame count must be positive.")
         return predictor.to(self.device).eval()
 
     @property
@@ -555,7 +564,7 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             raise RuntimeError(
                 "Dynamic CBF LiDAR history capture index does not match the selected CBF scan."
             )
-        lidar = self._policy_lidar_tensor()
+        lidar = self._predictor_lidar_tensor(store)
         with torch.inference_mode():
             prediction = self._velocity_predictor(lidar)
         if not isinstance(prediction, torch.Tensor) or prediction.shape != (self.num_envs, 128, 2):
@@ -584,8 +593,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         store.ensure_collector_updated(self._env, collector, force=True)
         return store
 
-    def _policy_lidar_tensor(self) -> torch.Tensor:
-        """Read the exact noisy actor temporal-LiDAR observation term for the JIT."""
+    def _predictor_lidar_tensor(self, store) -> torch.Tensor:
+        """Use the actor's newest four frames and additional shared-history frames."""
         manager = self._env.observation_manager
         group = self.cfg.predictor_observation_group
         term = self.cfg.predictor_observation_term
@@ -598,12 +607,29 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         stop = start + int(np.prod(shapes[term_index]))
         observation = manager.compute_group(group)
         lidar = observation[:, start:stop]
-        if lidar.numel() != self.num_envs * 2 * 4 * 128:
+        if lidar.shape[1] % (2 * 128):
             raise RuntimeError(
-                f"Dynamic CBF expected a (2, 4, 128) actor LiDAR term, but '{group}/{term}' has shape "
+                f"Dynamic CBF expected a (2, H, 128) predictor LiDAR term, but '{group}/{term}' has shape "
                 f"{tuple(lidar.shape)}."
             )
-        return lidar.reshape(self.num_envs, 2, 4, 128).to(dtype=torch.float32)
+        available = lidar.shape[1] // (2 * 128)
+        if self._predictor_num_frames > available or self._predictor_num_frames > store.depth:
+            raise RuntimeError(
+                f"Dynamic CBF predictor requires {self._predictor_num_frames} frames, but the simulation has "
+                f"{min(available, store.depth)}."
+            )
+        lidar = lidar.reshape(self.num_envs, 2, available, 128)
+        if group != "policy":
+            actor_group = "policy"
+            actor_term = "obstacle_scan"
+            actor_index = manager.active_terms[actor_group].index(actor_term)
+            actor_shapes = manager.group_obs_term_dim[actor_group]
+            actor_start = sum(int(np.prod(shape)) for shape in actor_shapes[:actor_index])
+            actor_stop = actor_start + int(np.prod(actor_shapes[actor_index]))
+            actor = manager.compute_group(actor_group)[:, actor_start:actor_stop].reshape(self.num_envs, 2, 4, 128)
+            lidar = lidar.clone()
+            lidar[:, :, :min(4, self._predictor_num_frames)] = actor[:, :, :min(4, self._predictor_num_frames)]
+        return lidar[:, :, :self._predictor_num_frames].to(dtype=torch.float32)
 
     def _record_solver_stats(self, env_id: int, stats: _OsqpSolveStats) -> None:
         """Accumulate one host-side OSQP result without perturbing GPU timing."""

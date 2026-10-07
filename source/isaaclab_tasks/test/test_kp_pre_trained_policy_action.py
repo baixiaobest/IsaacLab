@@ -243,7 +243,7 @@ def test_dynamic_predictor_is_cached_per_held_scan() -> None:
         refresh_count[0] += 1
         return SimpleNamespace(capture_index=torch.tensor([4, 7]))
     term._refresh_predictor_lidar_history = refresh
-    term._policy_lidar_tensor = lambda: torch.zeros(2, 2, 4, 128)
+    term._predictor_lidar_tensor = lambda store: torch.zeros(2, 2, 4, 128)
     capture = {"capture_index": torch.tensor([4, 7])}
 
     first = term._predict_velocity_b(capture)
@@ -272,9 +272,33 @@ def test_dynamic_predictor_rejects_scan_history_mismatch() -> None:
         ))}
     ))
     term._refresh_predictor_lidar_history = lambda: SimpleNamespace(capture_index=torch.tensor([6]))
-    term._policy_lidar_tensor = lambda: pytest.fail("Predictor input must not be read after a mismatch")
+    term._predictor_lidar_tensor = lambda store: pytest.fail("Predictor input must not be read after a mismatch")
     with pytest.raises(RuntimeError, match="capture index does not match"):
         term._predict_velocity_b({"capture_index": torch.tensor([7])})
+
+
+def test_dynamic_predictor_selects_model_history_without_changing_actor() -> None:
+    term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
+    term.num_envs = 1
+    term._predictor_num_frames = 8
+    term.cfg = SimpleNamespace(predictor_observation_group="predictor", predictor_observation_term="obstacle_scan")
+    actor = torch.full((1, 2, 4, 128), 0.25)
+    predictor = torch.arange(8, dtype=torch.float32).view(1, 1, 8, 1).expand(1, 2, 8, 128).clone()
+    manager = SimpleNamespace(
+        active_terms={"policy": ["obstacle_scan"], "predictor": ["obstacle_scan"]},
+        group_obs_term_dim={"policy": [(1024,)], "predictor": [(2048,)]},
+        compute_group=lambda name: actor.flatten(1) if name == "policy" else predictor.flatten(1),
+    )
+    term._env = SimpleNamespace(observation_manager=manager)
+    selected = term._predictor_lidar_tensor(SimpleNamespace(depth=8))
+    assert selected.shape == (1, 2, 8, 128)
+    assert torch.equal(selected[:, :, :4], actor)
+    assert torch.equal(selected[:, :, 4:], predictor[:, :, 4:])
+    term._predictor_num_frames = 4
+    assert torch.equal(term._predictor_lidar_tensor(SimpleNamespace(depth=8)), actor)
+    term._predictor_num_frames = 9
+    with pytest.raises(RuntimeError, match="requires 9 frames"):
+        term._predictor_lidar_tensor(SimpleNamespace(depth=8))
 
 
 def test_cbf_zoh_mapping_rebases_on_measured_velocity() -> None:
