@@ -256,6 +256,26 @@ def evaluate(
     return metrics
 
 
+def dashboard_metrics(metrics: dict[str, float]) -> dict[str, float]:
+    """Keep the W&B dashboard focused on velocity quality and coverage endpoints."""
+    selected = {
+        name: metrics[name]
+        for name in (
+            "loss",
+            "dynamic_rmse",
+            "zero_dynamic_rmse",
+            "dynamic_within_2m_rmse",
+            "static_false_motion",
+        )
+        if name in metrics
+    }
+    for coverage in ("sparse", "dense"):
+        key = f"{coverage}_dynamic"
+        if key in metrics:
+            selected[f"{coverage}_dynamic_rmse"] = metrics[key] ** 0.5
+    return selected
+
+
 def main() -> None:
     args = parse_args()
     if args.checkpoint_save_interval < 0:
@@ -401,9 +421,7 @@ def main() -> None:
                         "epoch": epoch,
                         "train/loss": average_train_loss,
                         "train/learning_rate": optimizer.param_groups[0]["lr"],
-                        "validation/selection_loss": score,
-                        "validation/is_best": int(is_best),
-                        **{f"validation/{name}": value for name, value in metrics.items()},
+                        **{f"validation/{name}": value for name, value in dashboard_metrics(metrics).items()},
                     },
                     step=epoch,
                 )
@@ -412,8 +430,13 @@ def main() -> None:
             "validation": evaluate(model, validation_loader, device, args.static_loss_weight),
             "test": evaluate(model, DataLoader(test, batch_size=args.batch_size), device, args.static_loss_weight),
         }
+        (output / "final_metrics.json").write_text(json.dumps(final_metrics, indent=2), encoding="utf-8")
         if wandb_run is not None:
-            wandb_run.summary.update({f"final/{split}/{name}": value for split, values in final_metrics.items() for name, value in values.items()})
+            wandb_run.summary.update({
+                f"final/{split}/{name}": value
+                for split, values in final_metrics.items()
+                for name, value in dashboard_metrics(values).items()
+            })
         print(json.dumps(final_metrics, indent=2))
     finally:
         if wandb_run is not None:
