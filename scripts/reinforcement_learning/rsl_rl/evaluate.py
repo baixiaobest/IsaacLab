@@ -760,6 +760,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     raw_env._reset_idx = _tracked_reset_idx
 
+    @torch.inference_mode()
     def _reset_for_coverage_stage(target: float) -> None:
         """Discard in-flight episodes before changing the capture template."""
         nonlocal obs
