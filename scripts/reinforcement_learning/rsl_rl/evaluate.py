@@ -40,6 +40,7 @@ from evaluation import (  # isort: skip
     terminal_goal_region_collision_ids,
 )
 from evaluation_telemetry import ParquetTelemetryRecorder  # isort: skip
+from evaluation_coverage import COVERAGE_TARGETS, coverage_quotas, coverage_rows, subtract_counts  # isort: skip
 
 
 parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy on the fixed static-plus-dynamic benchmark.")
@@ -65,7 +66,8 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
-    "--episodes_per_profile", type=int, default=100, help="Completed episodes for every scenario/count cell."
+    "--episodes_per_profile", type=int, default=100,
+    help="Total completed episodes per scenario/count cell; sparse-LiDAR tasks split this quota across 40/60/80/100% coverage.",
 )
 parser.add_argument(
     "--output_dir",
@@ -141,6 +143,7 @@ import torch  # noqa: E402
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
+from isaaclab_tasks.manager_based.navigation.lidar_geometry import forward_lidar_reflection_bins  # noqa: E402
 from isaaclab.envs import (  # noqa: E402
     DirectMARLEnv,
     DirectMARLEnvCfg,
@@ -543,6 +546,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     else:
         configure_static_dynamic_evaluation(env_cfg)
 
+    lidar_cfg = getattr(env_cfg, "held_scan_lidar", None)
+    coverage_sweep = bool(lidar_cfg is not None and lidar_cfg.sparse_sampling_enabled)
+    if coverage_sweep:
+        # The benchmark controls episode coverage, regardless of the task's
+        # training-time density schedule or PLAY default.
+        lidar_cfg.density_curriculum_enabled = False
+        lidar_cfg.target_coverage = None
+        sweep_quotas = coverage_quotas(args_cli.episodes_per_profile, args_cli.seeds)
+
     checkpoint, log_dir = _resolve_checkpoint(agent_cfg)
     output_root = Path(args_cli.output_dir) if args_cli.output_dir else Path(log_dir) / "evaluations" / args_cli.benchmark_suite
     output_dir = _create_timestamped_run_dir(output_root)
@@ -599,6 +611,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # Each seed contributes an equal share of the per-profile episode budget; the last
     # seed absorbs the remainder (e.g. 100 episodes / 3 seeds -> 34, 33, 33).
     per_seed_quota = math.ceil(args_cli.episodes_per_profile / seed_count)
+    stage_counts: list[tuple[float, list[dict]]] = []
+    accepted_coverage: dict[float, dict[str, float]] = {
+        target: {"ray_sum": 0.0, "reflection_sum": 0.0, "episodes": 0.0} for target in COVERAGE_TARGETS
+    }
+    terminal_coverage: dict[int, tuple[float, float]] = {}
     progress_reporter = EvaluationProgressReporter(
         profile_count=len(profiles),
         episodes_per_profile=args_cli.episodes_per_profile,
@@ -680,6 +697,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     original_reset_idx = raw_env._reset_idx
 
     def _tracked_reset_idx(env_ids):
+        if coverage_sweep:
+            capture = raw_env._held_scan_lidar_collector.latest_policy_capture()
+            scan_state = capture["ray_state"]
+            reflected_bins = forward_lidar_reflection_bins(capture)["reflection_mask"]
+            for env_id in env_ids.detach().cpu().tolist():
+                state = scan_state[env_id]
+                terminal_coverage[int(env_id)] = (
+                    min(1.0, float((state > 0).sum().item()) / 128.0),
+                    float(reflected_bins[env_id].float().mean().item()),
+                )
         terminal_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
         velocity_accumulator.record_terminal(terminal_speed, env_ids)
         collision_ids = terminal_collision_ids(raw_env, env_ids, profiles, env_profile_indices)
@@ -733,6 +760,38 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     raw_env._reset_idx = _tracked_reset_idx
 
+    def _reset_for_coverage_stage(target: float) -> None:
+        """Discard in-flight episodes before changing the capture template."""
+        nonlocal obs
+        all_ids = torch.arange(args_cli.num_envs, device=raw_env.device)
+        lidar = raw_env._held_scan_lidar_collector
+        lidar.set_episode_coverage_targets(all_ids, torch.full((args_cli.num_envs,), target, device=raw_env.device))
+        if replay_recorder is not None:
+            replay_recorder.coverage_target = target
+            replay_recorder.reset(all_ids)
+        if telemetry_recorder is not None:
+            telemetry_recorder.coverage_target = target
+        if not structured_telemetry:
+            interaction_collector.finalize_terminal(all_ids)
+            interaction_collector.resolve_terminal(all_ids, set())
+            leader_outcome_collector.finalize_terminal(raw_env, all_ids)
+            leader_outcome_collector.resolve_terminal(all_ids, set())
+        velocity_accumulator.reset(all_ids)
+        goal_region_collision_ids.clear()
+        terminal_coverage.clear()
+        cbf_solver_terminal_metrics.clear()
+        # This is a controlled stage reset, not a completed benchmark episode.
+        raw_env._reset_idx = original_reset_idx
+        try:
+            obs, _ = env.reset()
+        finally:
+            raw_env._reset_idx = _tracked_reset_idx
+        reset_mask = torch.ones(args_cli.num_envs, dtype=torch.bool, device=raw_env.device)
+        if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
+            policy.reset(reset_mask)
+        else:
+            policy_nn.reset(reset_mask)
+
     print(
         f"[INFO] Evaluating {checkpoint} on {len(profiles)} static-plus-dynamic profiles "
         f"with {args_cli.episodes_per_profile} episodes each"
@@ -752,9 +811,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             f"(robot-agent distance < {args_cli.interesting_interaction_distance_m:.2f} m)."
         )
     try:
+        cumulative_limit = 0
         for seed_index, seed in enumerate(seeds):
             active_seed[0] = seed
-            if seed_index > 0:
+            if seed_index > 0 and not coverage_sweep:
                 # Re-seed all global RNGs so the next chunk draws a fresh episode
                 # sequence. Episodes already in flight finish under their original
                 # draws; each profile has at most one in-flight episode, which is
@@ -762,90 +822,105 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 # EpisodeMetricsCollector.per_seed_counts).
                 env.unwrapped.seed(seed)
                 print(f"[INFO] Advancing to seed {seed} (stage {seed_index + 1} of {seed_count}).")
-            collector.set_stage_limit(min(args_cli.episodes_per_profile, per_seed_quota * (seed_index + 1)))
-            progress_reporter.report(
-                collector.total_episodes,
-                seed=seed,
-                seed_index=seed_index + 1,
-                status="running",
-                force=True,
-            )
-            while simulation_app.is_running() and not collector.stage_complete:
-                step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
-                velocity_accumulator.record_step(step_speed)
-                leader_conditions = _leader_conditions_by_env(
-                    raw_env, profiles, env_profile_indices
+            targets = COVERAGE_TARGETS if coverage_sweep else (None,)
+            for coverage_index, target in enumerate(targets):
+                quota = sweep_quotas[seed_index][coverage_index] if coverage_sweep else min(
+                    per_seed_quota, args_cli.episodes_per_profile - cumulative_limit
                 )
-                with torch.inference_mode():
-                    actions = policy(obs)
-                    if replay_recorder is not None:
-                        submitted_actions = actions
-                        if env.clip_actions is not None:
-                            submitted_actions = torch.clamp(submitted_actions, -env.clip_actions, env.clip_actions)
-                        action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
-                        action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
-                        cbf_command = getattr(action_term, "cbf_filtered_velocity_command", None)
-                        replay_recorder.record_pre_step(
-                            raw_env, submitted_actions * action_scales, cbf_filtered_command=cbf_command
-                        )
-                    if not structured_telemetry:
-                        interaction_collector.record_pre_step(raw_env)
-                        leader_outcome_collector.record_pre_step(raw_env, leader_conditions)
-                    obs, rewards, dones, extras = env.step(actions)
-                    if replay_recorder is not None:
-                        replay_recorder.record_reward(rewards)
-                    _record_cbf_replay_state()
-                if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
-                    policy.reset(dones)
-                else:
-                    policy_nn.reset(dones)
-                # ``extras[\"log\"]`` is cleared to scalar zero on idle steps.  Use the RSL-RL
-                # done mask as the authoritative completion source; the log is used only for the
-                # terminal reasons of those confirmed environments.
-                completed_ids = torch.nonzero(dones, as_tuple=False).reshape(-1)
-                if telemetry_recorder is not None:
-                    telemetry_recorder.attach_terminal_rewards(rewards, completed_ids)
-                collector.consume(
-                    extras,
-                    velocity_accumulator.completed_means(completed_ids),
-                    completed_env_ids=completed_ids,
-                    goal_region_collision_env_ids=goal_region_collision_ids,
-                )
-                for env_id in collector.last_accepted_ids:
-                    metrics = cbf_solver_terminal_metrics.pop(env_id, None)
-                    if metrics is not None:
-                        cbf_solver_episode_metrics.append(metrics)
-                for env_id in completed_ids.detach().cpu().tolist():
-                    cbf_solver_terminal_metrics.pop(int(env_id), None)
-                for env_id in sorted(collector.last_accepted_ids):
-                    condition = leader_conditions.get(env_id)
-                    if condition is None:
-                        continue
-                    profile = profiles[env_profile_indices[env_id]]
-                    leader_records.append(
-                        {
-                            **condition,
-                            "seed": seed,
-                            "pedestrian_count": profile.pedestrian_count,
-                        }
-                    )
+                before_stage = collector.snapshot_counts() if coverage_sweep else None
+                cumulative_limit += quota
+                collector.set_stage_limit(cumulative_limit, record_seed_boundary=coverage_index == 0)
+                if quota and target is not None:
+                    raw_env.seed(seed)
+                    _reset_for_coverage_stage(target)
                 progress_reporter.report(
-                    collector.total_episodes,
-                    seed=seed,
-                    seed_index=seed_index + 1,
-                    status="running",
+                    collector.total_episodes, seed=seed, seed_index=seed_index + 1,
+                    status="running", force=True,
                 )
-                if structured_telemetry:
-                    telemetry_recorder.resolve_terminal(completed_ids, collector.last_accepted_ids)
-                else:
-                    interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
-                    leader_outcome_collector.resolve_terminal(
-                        completed_ids, collector.last_accepted_success_ids, seed=seed
+                while simulation_app.is_running() and not collector.stage_complete:
+                    step_speed = torch.linalg.vector_norm(raw_env.scene["robot"].data.root_lin_vel_w[:, :2], dim=1)
+                    velocity_accumulator.record_step(step_speed)
+                    leader_conditions = _leader_conditions_by_env(
+                        raw_env, profiles, env_profile_indices
                     )
-                if interaction_replay_recorder is not None:
-                    interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
-                velocity_accumulator.reset(completed_ids)
-                goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
+                    with torch.inference_mode():
+                        actions = policy(obs)
+                        if replay_recorder is not None:
+                            submitted_actions = actions
+                            if env.clip_actions is not None:
+                                submitted_actions = torch.clamp(submitted_actions, -env.clip_actions, env.clip_actions)
+                            action_term = raw_env.action_manager.get_term("pre_trained_policy_action")
+                            action_scales = torch.as_tensor(action_term.cfg.action_scales, device=submitted_actions.device)
+                            cbf_command = getattr(action_term, "cbf_filtered_velocity_command", None)
+                            replay_recorder.record_pre_step(
+                                raw_env, submitted_actions * action_scales, cbf_filtered_command=cbf_command
+                            )
+                        if not structured_telemetry:
+                            interaction_collector.record_pre_step(raw_env)
+                            leader_outcome_collector.record_pre_step(raw_env, leader_conditions)
+                        obs, rewards, dones, extras = env.step(actions)
+                        if replay_recorder is not None:
+                            replay_recorder.record_reward(rewards)
+                        _record_cbf_replay_state()
+                    if version.parse(INSTALLED_RSL_RL_VERSION) >= version.parse("4.0.0"):
+                        policy.reset(dones)
+                    else:
+                        policy_nn.reset(dones)
+                    # ``extras[\"log\"]`` is cleared to scalar zero on idle steps.  Use the RSL-RL
+                    # done mask as the authoritative completion source; the log is used only for the
+                    # terminal reasons of those confirmed environments.
+                    completed_ids = torch.nonzero(dones, as_tuple=False).reshape(-1)
+                    if telemetry_recorder is not None:
+                        telemetry_recorder.attach_terminal_rewards(rewards, completed_ids)
+                    collector.consume(
+                        extras,
+                        velocity_accumulator.completed_means(completed_ids),
+                        completed_env_ids=completed_ids,
+                        goal_region_collision_env_ids=goal_region_collision_ids,
+                    )
+                    for env_id in collector.last_accepted_ids:
+                        metrics = cbf_solver_terminal_metrics.pop(env_id, None)
+                        if metrics is not None:
+                            cbf_solver_episode_metrics.append(metrics)
+                        if target is not None and env_id in terminal_coverage:
+                            ray_fraction, reflection_fraction = terminal_coverage[env_id]
+                            accepted_coverage[target]["ray_sum"] += ray_fraction
+                            accepted_coverage[target]["reflection_sum"] += reflection_fraction
+                            accepted_coverage[target]["episodes"] += 1
+                    for env_id in completed_ids.detach().cpu().tolist():
+                        cbf_solver_terminal_metrics.pop(int(env_id), None)
+                        terminal_coverage.pop(int(env_id), None)
+                    for env_id in sorted(collector.last_accepted_ids):
+                        condition = leader_conditions.get(env_id)
+                        if condition is None:
+                            continue
+                        profile = profiles[env_profile_indices[env_id]]
+                        leader_records.append(
+                            {
+                                **condition,
+                                "seed": seed,
+                                "pedestrian_count": profile.pedestrian_count,
+                            }
+                        )
+                    progress_reporter.report(
+                        collector.total_episodes,
+                        seed=seed,
+                        seed_index=seed_index + 1,
+                        status="running",
+                    )
+                    if structured_telemetry:
+                        telemetry_recorder.resolve_terminal(completed_ids, collector.last_accepted_ids)
+                    else:
+                        interaction_collector.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+                        leader_outcome_collector.resolve_terminal(
+                            completed_ids, collector.last_accepted_success_ids, seed=seed
+                        )
+                    if interaction_replay_recorder is not None:
+                        interaction_replay_recorder.resolve_terminal(completed_ids, collector.last_accepted_success_ids)
+                    velocity_accumulator.reset(completed_ids)
+                    goal_region_collision_ids.difference_update(completed_ids.detach().cpu().tolist())
+                if target is not None:
+                    stage_counts.append((target, subtract_counts(collector.snapshot_counts(), before_stage)))
             print(f"[INFO] Seed {seed} stage complete: {collector.total_episodes} episodes accepted.")
             progress_reporter.report(
                 collector.total_episodes,
@@ -907,6 +982,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "run_id": output_dir.name,
             "output_root": str(output_root),
             "episodes_per_profile": args_cli.episodes_per_profile,
+            "coverage_sweep": {
+                "targets": list(COVERAGE_TARGETS),
+                "quota_by_seed": sweep_quotas,
+                "result_file": "coverage_sweep_results.json",
+                "cbf_scan_source": getattr(raw_env.action_manager.get_term("pre_trained_policy_action").cfg,
+                                           "cbf_scan_source", None),
+                "predictor_100_percent_outside_training_range": bool(getattr(
+                    raw_env.action_manager.get_term("pre_trained_policy_action").cfg,
+                    "velocity_predictor_jit_path", None,
+                )),
+            } if coverage_sweep else None,
             "success_cases_per_scenario": args_cli.success_cases_per_scenario,
             "interesting_interaction_distance_m": args_cli.interesting_interaction_distance_m,
             "interaction_events": {
@@ -1016,6 +1102,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             },
         },
     )
+    if coverage_sweep:
+        breakdown = coverage_rows(profiles, stage_counts)
+        breakdown["measured_coverage"] = [
+            {
+                "coverage_target": target,
+                "accepted_episodes": int(accepted_coverage[target]["episodes"]),
+                "mean_terminal_scan_ray_coverage": accepted_coverage[target]["ray_sum"] / max(accepted_coverage[target]["episodes"], 1),
+                "mean_terminal_scan_reflected_bin_coverage": accepted_coverage[target]["reflection_sum"] / max(accepted_coverage[target]["episodes"], 1),
+            }
+            for target in COVERAGE_TARGETS
+        ]
+        with (artifact_dir / "coverage_sweep_results.json").open("w", encoding="utf-8") as file:
+            json.dump(_json_safe(breakdown), file, indent=2, allow_nan=False)
     with (artifact_dir / "leader_conditions.json").open("w", encoding="utf-8") as file:
         json.dump(
             {

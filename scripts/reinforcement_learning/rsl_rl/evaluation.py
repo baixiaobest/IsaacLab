@@ -728,6 +728,7 @@ class CollisionReplayRecorder:
             "terrain_level": profile.terrain_level,
             "terrain_family": profile.terrain_family,
             "environment_id": env_id,
+            "coverage_target": getattr(self, "coverage_target", None),
             "outcome": outcome,
             "terminal_time_s": float(frames["time_s"][-1]),
             "collision_time_s": float(frames["time_s"][-1]) if outcome == "collision" else None,
@@ -2060,14 +2061,14 @@ class EpisodeMetricsCollector:
             for index in range(len(self.profiles))
         ]
 
-    def set_stage_limit(self, limit: int) -> None:
-        """Cap per-profile acceptance at ``limit`` for the current seed stage.
+    def set_stage_limit(self, limit: int, *, record_seed_boundary: bool = True) -> None:
+        """Cap per-profile acceptance at ``limit`` for the current evaluation stage.
 
-        Called at the start of every stage; the recorded boundary captures the
-        cumulative counts reached at the end of the previous stage (all-zero for
-        the first stage).  Consumed by :meth:`per_seed_counts`.
+        Record a boundary at each seed's first stage; coverage substages pass
+        ``record_seed_boundary=False`` so :meth:`per_seed_counts` remains correct.
         """
-        self._stage_boundaries.append(self.snapshot_counts())
+        if record_seed_boundary:
+            self._stage_boundaries.append(self.snapshot_counts())
         self._stage_limit = [min(int(limit), self.episodes_per_profile)] * len(self.profiles)
 
     def per_seed_counts(self, seeds: list[int]) -> list[list[dict[str, int | float]]]:

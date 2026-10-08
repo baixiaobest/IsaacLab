@@ -52,6 +52,7 @@ class _PendingEpisode:
     base_contact: bool
     goal_region_collision: bool
     frames: dict[str, np.ndarray]
+    coverage_target: float | None = None
 
 
 class TelemetryUploadClient:
@@ -223,6 +224,7 @@ class ParquetTelemetryRecorder:
                 episode_id=self._episode_ids[env_id],
                 episode_number=self._episode_numbers[env_id],
                 seed=seed,
+                coverage_target=getattr(self, "coverage_target", None),
                 profile=self.profiles[self.env_profile_indices[env_id]],
                 outcome=outcome,
                 success=env_id in success,
@@ -281,6 +283,7 @@ class ParquetTelemetryRecorder:
                 ("dataset_id", pa.string()), ("episode_id", pa.string()), ("episode_number", pa.int64()),
                 ("profile_episode_number", pa.int64()), ("environment_id", pa.int32()), ("scenario", pa.string()),
                 ("pedestrian_count", pa.int32()), ("seed", pa.int64()), ("outcome", pa.string()),
+                ("coverage_target", pa.float64()),
                 ("accepted_for_metrics", pa.bool_()), ("success", pa.bool_()), ("collision", pa.bool_()),
                 ("timeout", pa.bool_()), ("base_contact", pa.bool_()), ("goal_region_collision", pa.bool_()),
                 ("start_step", pa.int64()), ("end_step_exclusive", pa.int64()), ("step_dt_s", pa.float64()),
@@ -332,6 +335,7 @@ class ParquetTelemetryRecorder:
                 "episode_number": episode.episode_number, "profile_episode_number": None,
                 "environment_id": episode.environment_id, "scenario": episode.profile.scenario,
                 "pedestrian_count": episode.profile.pedestrian_count, "seed": episode.seed,
+                "coverage_target": episode.coverage_target,
                 "outcome": episode.outcome,
                 "accepted_for_metrics": bool(frames.pop("accepted_for_metrics")),
                 "success": episode.success, "collision": episode.collision, "timeout": episode.timeout,

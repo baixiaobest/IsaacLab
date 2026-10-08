@@ -758,6 +758,23 @@ def test_data_coverage_targets_preserve_sparse_template_and_phase() -> None:
     assert torch.all((collector.latest_policy_capture()["ray_state"] > 0).reshape(8, 128, 2).sum(dim=-1) <= 1)
 
 
+def test_evaluation_coverage_targets_are_fixed_per_episode_and_full_at_100_percent() -> None:
+    collector = _make_sparse_collector(4)
+    env_ids = torch.arange(4)
+    targets = torch.tensor([0.4, 0.6, 0.8, 1.0])
+    collector.set_episode_coverage_targets(env_ids, targets)
+    collector.reset(env_ids)
+    assert collector._sampling_pattern.sum(dim=1).tolist() == [
+        round(256 * float(target)) for target in targets
+    ]
+    pattern = collector._sampling_pattern.clone()
+    for _ in range(27):
+        collector.on_physics_step()
+    assert torch.equal(collector._sampling_pattern, pattern)
+    assert torch.equal(collector.latest_policy_capture()["ray_state"][3], collector.latest_capture()["ray_state"][3])
+    assert torch.all(collector.latest_policy_capture()["ray_state"][3] > 0)
+
+
 def test_density_curriculum_follows_iteration_boundaries() -> None:
     assert LIDAR_COVERAGE_STAGES == (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, None)
     assert LIDAR_DENSE_WARMUP_ITERATIONS == 500
