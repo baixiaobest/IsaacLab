@@ -632,6 +632,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     raw_env = env.unwrapped
     step_dt_s = env.unwrapped.step_dt
     episode_length_s = env.unwrapped.cfg.episode_length_s
+    coverage_action_metadata = {}
+    if coverage_sweep:
+        action_cfg = raw_env.action_manager.get_term("pre_trained_policy_action").cfg
+        coverage_action_metadata = {
+            "cbf_scan_source": getattr(action_cfg, "cbf_scan_source", None),
+            "predictor_100_percent_outside_training_range": bool(
+                getattr(action_cfg, "velocity_predictor_jit_path", None)
+            ),
+        }
     structured_telemetry = args_cli.telemetry_dir is not None
     interaction_collector = InteractionEventCollector(profiles, env_profile_indices, step_dt_s)
     leader_outcome_collector = LeaderOutcomeCollector(profiles, env_profile_indices, step_dt_s)
@@ -987,12 +996,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "targets": list(COVERAGE_TARGETS),
                 "quota_by_seed": sweep_quotas,
                 "result_file": "coverage_sweep_results.json",
-                "cbf_scan_source": getattr(raw_env.action_manager.get_term("pre_trained_policy_action").cfg,
-                                           "cbf_scan_source", None),
-                "predictor_100_percent_outside_training_range": bool(getattr(
-                    raw_env.action_manager.get_term("pre_trained_policy_action").cfg,
-                    "velocity_predictor_jit_path", None,
-                )),
+                **coverage_action_metadata,
             } if coverage_sweep else None,
             "success_cases_per_scenario": args_cli.success_cases_per_scenario,
             "interesting_interaction_distance_m": args_cli.interesting_interaction_distance_m,
