@@ -47,6 +47,50 @@ evaluation_telemetry = importlib.util.module_from_spec(TELEMETRY_SPEC)
 sys.modules[TELEMETRY_SPEC.name] = evaluation_telemetry
 TELEMETRY_SPEC.loader.exec_module(evaluation_telemetry)
 
+COVERAGE_PATH = Path(__file__).with_name("evaluation_coverage.py")
+COVERAGE_SPEC = importlib.util.spec_from_file_location("rsl_rl_evaluation_coverage", COVERAGE_PATH)
+assert COVERAGE_SPEC and COVERAGE_SPEC.loader
+evaluation_coverage = importlib.util.module_from_spec(COVERAGE_SPEC)
+COVERAGE_SPEC.loader.exec_module(evaluation_coverage)
+
+
+def test_sparse_coverage_quota_preserves_total_and_balances_bands():
+    quotas = evaluation_coverage.coverage_quotas(101, 3)
+    assert sum(map(sum, quotas)) == 101
+    band_totals = [sum(row[band] for row in quotas) for band in range(4)]
+    assert band_totals == [26, 25, 25, 25]
+    assert evaluation_coverage.coverage_quotas(4, 1) == [[1, 1, 1, 1]]
+    with pytest.raises(ValueError, match="at least four"):
+        evaluation_coverage.coverage_quotas(3, 1)
+
+
+def test_coverage_snapshot_deltas_sum_to_pooled_counts():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    before = [{"episodes": 1, "successes": 1, "collisions": 0,
+               "goal_region_collisions": 0, "timeouts": 0, "base_contacts": 0,
+               "velocity_sum": 0.5, "velocity_values": [0.5]}]
+    after = [{"episodes": 3, "successes": 2, "collisions": 1,
+              "goal_region_collisions": 0, "timeouts": 0, "base_contacts": 0,
+              "velocity_sum": 1.5, "velocity_values": [0.5, 0.4, 0.6]}]
+    first = evaluation_coverage.subtract_counts(before, [{**before[0], "episodes": 0, "successes": 0,
+                                                            "velocity_sum": 0.0, "velocity_values": []}])
+    second = evaluation_coverage.subtract_counts(after, before)
+    rows = evaluation_coverage.coverage_rows(profiles, [(0.4, first), (0.6, second)])
+    assert [row["episodes"] for row in rows["per_profile"]] == [1, 2]
+    assert sum(row["successes"] for row in rows["per_profile"]) == after[0]["successes"]
+    assert sum(row["collisions"] for row in rows["per_scenario"]) == after[0]["collisions"]
+
+
+def test_coverage_substages_do_not_create_extra_seed_boundaries():
+    profiles = [evaluation.BenchmarkProfile("crossing", 2)]
+    collector = evaluation.EpisodeMetricsCollector(profiles, [0], 8)
+    collector.set_stage_limit(2)
+    collector.set_stage_limit(4, record_seed_boundary=False)
+    collector.set_stage_limit(6)
+    collector.set_stage_limit(8, record_seed_boundary=False)
+    assert len(collector._stage_boundaries) == 2
+    assert collector._stage_limit == [8]
+
 TORCH_AVAILABLE = torch is not None and hasattr(torch, "zeros")
 
 
