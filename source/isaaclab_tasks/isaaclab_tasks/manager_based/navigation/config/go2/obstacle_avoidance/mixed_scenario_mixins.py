@@ -402,11 +402,12 @@ class MixedTemporalLidarObstacleAvoidanceEnvCfg(MixedObstacleAvoidanceEnvCfg):
     curriculum: MixedTemporalLidarCurriculumCfg = MixedTemporalLidarCurriculumCfg()
     held_scan_lidar_enabled: bool = True
     held_scan_lidar: HeldScanLidarCfg = HeldScanLidarCfg(
-        sparse_sampling_enabled=True, density_curriculum_enabled=True, target_coverage=1.0
+        sparse_sampling_enabled=False, density_curriculum_enabled=False, target_coverage=1.0
     )
 
     def __post_init__(self):
         super().__post_init__()
+        self.curriculum.lidar_density = None
         self.scene.obstacle_scanner.update_period = 0.0
         self.scene.obstacle_scanner.pattern_cfg.horizontal_res = LIDAR_FOV_DEG / (NUM_LIDAR_RAYS - 1)
         self.scene.obstacle_scanner.debug_vis = False
