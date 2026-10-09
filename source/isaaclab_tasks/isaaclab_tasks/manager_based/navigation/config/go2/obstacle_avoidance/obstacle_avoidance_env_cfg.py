@@ -284,10 +284,10 @@ class RewardsCfg:
 
     backward_movement_penalty = RewTerm(
         func=nav_mdp.velocity_heading_error_outside_goal_abs,
-        weight=-0.3,
+        weight=-0.2,
         params={
             "velocity_threshold": 0.1,
-            "heading_deadband": 0.13,  # 7.5 degrees
+            "heading_deadband": 0.26,  # 15 degrees
             "command_name": "pose_2d_command",
             "goal_range": 1.0,
         }
