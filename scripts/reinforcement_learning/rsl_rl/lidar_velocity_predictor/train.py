@@ -278,6 +278,9 @@ def dashboard_metrics(metrics: dict[str, float]) -> dict[str, float]:
         name: metrics[name]
         for name in (
             "loss",
+            "static_loss",
+            "static_rmse",
+            "static_mae",
             "dynamic_rmse",
             "zero_dynamic_rmse",
             "dynamic_within_2m_rmse",
