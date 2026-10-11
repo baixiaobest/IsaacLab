@@ -123,7 +123,7 @@ class DynamicCbfKpActionsCfg(ActionsCfg):
             tracking_tau_s=0.30,
             slack_penalty=1000.0,
             max_lidar_points=64,
-            velocity_predictor_jit_path="logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_8_frames_jit.pt",
+            velocity_predictor_jit_path="logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_4_frames_jit.pt",
             require_velocity_predictor=True,
             cbf_scan_source="policy",
             predictor_observation_group="predictor",
