@@ -269,6 +269,8 @@ def evaluate(
         if f"{name}_abs" in metrics:
             # L1 was accumulated over x/y, report per-component MAE.
             metrics[f"{name}_mae"] = metrics[f"{name}_abs"] / 2.0
+    if "zero_dynamic" in metrics:
+        metrics["zero_dynamic_rmse"] = metrics["zero_dynamic"] ** 0.5
     return metrics
 
 
