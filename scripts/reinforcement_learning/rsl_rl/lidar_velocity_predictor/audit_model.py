@@ -26,7 +26,9 @@ def load_model(path: Path, device: torch.device):
             raise ValueError(f"{path} is not a predictor checkpoint or TorchScript model.")
         contract = checkpoint.get("projection_contract")
         frames = int(checkpoint.get("num_frames", 4))
-        model = TemporalLidarVelocityCNN(frames).to(device)
+        model = TemporalLidarVelocityCNN(
+            frames, bool(checkpoint.get("aux_classifier", False)), float(checkpoint.get("dynamic_threshold") or 0.3)
+        ).to(device)
         model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     else:
         contract = extras["projection_contract.txt"].decode()

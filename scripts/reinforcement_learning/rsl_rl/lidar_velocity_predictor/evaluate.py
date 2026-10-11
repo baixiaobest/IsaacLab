@@ -68,8 +68,10 @@ def main():
     if checkpoint.get("projection_contract") not in ("temporal_lidar_v3", "temporal_lidar_v4"):
         raise RuntimeError("Evaluation requires a supported evaluation-pose predictor checkpoint.")
     num_frames = int(checkpoint.get("num_frames", 4))
-    model = TemporalLidarVelocityCNN(num_frames).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model = TemporalLidarVelocityCNN(
+        num_frames, bool(checkpoint.get("aux_classifier", False)), float(checkpoint.get("dynamic_threshold") or 0.3)
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     output = {}
     for name in ("lidar_noisy", "lidar_clean"):
         dataset = PointVelocityDataset(args.dataset_path, input_name=name, num_frames=num_frames)

@@ -81,6 +81,17 @@ TorchScript exports embed the contract version; the Isaac Lab dynamic CBF reject
 Training reports each epoch to Weights & Biases by default under the `lidar velocity predictor`
 project. Authenticate once with `wandb login`, choose another project with `--wandb_project`, or
 train without remote logging via `--logger none`.
+Pass `--aux_classifier` to train the same velocity predictor with a per-return
+dynamic/static head. The default remains the velocity-only model. The auxiliary
+head uses class-balanced binary cross entropy on reflected returns; its loss is
+added to the existing velocity regression with `--classification_loss_weight`
+(default `0.25`). The exported velocity is zero where the classifier's dynamic
+probability is below `--dynamic_threshold` (default `0.3`). Static returns stay
+in the obstacle scan. W&B adds only classifier BCE, dynamic recall, and static
+false-positive rate; velocity metrics describe the gated output.
+For example, add `--aux_classifier` to the training command above; optional
+`--dynamic_threshold 0.3` and `--classification_loss_weight 0.25` expose the
+defaults for tuning.
 `last.pt` is uploaded each epoch; retained checkpoints under `checkpoints/epoch_*.pt` are saved
 and uploaded every 10 epochs by default (configure with `--checkpoint_save_interval`).
 Whenever validation produces a new best checkpoint, both `best.pt` and its TorchScript export
@@ -98,3 +109,6 @@ example continues an epoch-20 run through epoch 50:
 
 Use `--resume_model_only` with `--resume_checkpoint` to initialize from a previous model while
 resetting AdamW and the epoch schedule. Resume from `last.pt` or `best.pt`, not `best_jit.pt`.
+This also permits initializing an auxiliary run from a velocity-only checkpoint;
+the new classifier head starts from fresh weights. A full optimizer resume requires
+the checkpoint and requested model variants to match.

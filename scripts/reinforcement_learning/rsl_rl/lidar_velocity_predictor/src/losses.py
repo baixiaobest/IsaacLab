@@ -12,6 +12,35 @@ def distance_weight(range_m: torch.Tensor) -> torch.Tensor:
     return torch.where(range_m <= 5.0, torch.ones_like(range_m), far)
 
 
+def class_balanced_classifier_bce_totals(
+    logits: torch.Tensor, reflection_mask: torch.Tensor, dynamic_mask: torch.Tensor
+) -> dict[str, torch.Tensor]:
+    """Unnormalized BCE terms for valid static and dynamic returns."""
+    point_loss = F.binary_cross_entropy_with_logits(logits, dynamic_mask.to(logits.dtype), reduction="none")
+    static = reflection_mask & ~dynamic_mask
+    dynamic = reflection_mask & dynamic_mask
+    return {
+        "static_numerator": point_loss[static].sum(),
+        "static_count": static.sum(),
+        "dynamic_numerator": point_loss[dynamic].sum(),
+        "dynamic_count": dynamic.sum(),
+    }
+
+
+def class_balanced_classifier_bce(
+    logits: torch.Tensor, reflection_mask: torch.Tensor, dynamic_mask: torch.Tensor
+) -> torch.Tensor:
+    """Average the present classes equally, even when dynamic bins are rare."""
+    totals = class_balanced_classifier_bce_totals(logits, reflection_mask, dynamic_mask)
+    static_count = totals["static_count"]
+    dynamic_count = totals["dynamic_count"]
+    active = (static_count > 0).to(logits.dtype) + (dynamic_count > 0).to(logits.dtype)
+    return (
+        totals["static_numerator"] / static_count.clamp_min(1)
+        + totals["dynamic_numerator"] / dynamic_count.clamp_min(1)
+    ) / active.clamp_min(1)
+
+
 def masked_class_balanced_huber(
     prediction: torch.Tensor,
     target: torch.Tensor,

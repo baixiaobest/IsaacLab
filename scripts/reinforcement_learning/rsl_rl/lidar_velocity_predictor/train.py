@@ -17,7 +17,13 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 from src.dataset import DynamicAwareBatchSampler, PointVelocityDataset, save_split_metadata
-from src.losses import masked_class_balanced_huber, masked_class_balanced_huber_totals, masked_metrics
+from src.losses import (
+    class_balanced_classifier_bce,
+    class_balanced_classifier_bce_totals,
+    masked_class_balanced_huber,
+    masked_class_balanced_huber_totals,
+    masked_metrics,
+)
 from src.model import TemporalLidarVelocityCNN
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -49,6 +55,9 @@ def parse_args() -> argparse.Namespace:
         help="Save and upload a retained epoch checkpoint every N epochs; set 0 to disable.",
     )
     parser.add_argument("--batch_size", type=int, default=4096)
+    parser.add_argument("--aux_classifier", action="store_true", help="Add a per-return dynamic/static classifier head.")
+    parser.add_argument("--dynamic_threshold", type=float, default=0.3, help="Aux classifier probability cutoff for deployed velocity.")
+    parser.add_argument("--classification_loss_weight", type=float, default=0.25)
     parser.add_argument("--num_frames", type=int, default=None, help="Use the newest N frames; defaults to all frames in the dataset.")
     parser.add_argument("--learning_rate", type=float, default=3.0e-4)
     parser.add_argument("--weight_decay", type=float, default=1.0e-5)
@@ -110,6 +119,9 @@ def _save_torchscript(model: torch.nn.Module, output_path: Path,
     """Export the current model with its deployment input/output signature."""
     model.eval()
     extra_files = {"projection_contract.txt": b"temporal_lidar_v4", "num_frames.txt": str(model.num_frames).encode()}
+    extra_files["aux_classifier.txt"] = str(int(model.aux_classifier)).encode()
+    if model.aux_classifier:
+        extra_files["dynamic_threshold.txt"] = str(model.dynamic_threshold).encode()
     if noise_contract is not None and noise_contract[0] is not None:
         extra_files["range_noise_m.txt"] = str(noise_contract[0]).encode()
         extra_files["range_noise_applies_to.txt"] = str(noise_contract[1]).encode()
@@ -157,13 +169,23 @@ def _load_resume_checkpoint(
         raise RuntimeError(f"{checkpoint_path} predates the evaluation-pose projection contract; retrain from schema-v3 data.")
     if int(checkpoint.get("num_frames", 4)) != model.num_frames:
         raise RuntimeError(f"{checkpoint_path} uses {checkpoint.get('num_frames', 4)} frames, but training requested {model.num_frames}.")
+    checkpoint_aux = bool(checkpoint.get("aux_classifier", False))
+    if checkpoint_aux != model.aux_classifier and not (model_only and model.aux_classifier and not checkpoint_aux):
+        raise RuntimeError("Checkpoint and requested model variants differ. Only --resume_model_only from velocity-only to aux is supported.")
+    if checkpoint_aux and not model_only and float(checkpoint.get("dynamic_threshold", 0.3)) != model.dynamic_threshold:
+        raise RuntimeError("Full resume requires the checkpoint's dynamic threshold; use --resume_model_only to change it.")
     checkpoint_noise = (checkpoint.get("range_noise_m"), checkpoint.get("range_noise_applies_to"))
     if not model_only and checkpoint_noise != expected_noise_contract:
         raise RuntimeError(
             "Checkpoint and dataset have different LiDAR range-noise settings. "
             "Use --resume_model_only to intentionally fine-tune across noise distributions."
         )
-    model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    if model.aux_classifier and not checkpoint_aux:
+        missing, unexpected = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        if set(missing) != {"classifier_head.weight", "classifier_head.bias"} or unexpected:
+            raise RuntimeError(f"Unexpected legacy checkpoint weights: missing={missing}, unexpected={unexpected}.")
+    else:
+        model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     if model_only:
         return 1, float("inf")
     if not isinstance(checkpoint.get("optimizer_state_dict"), dict):
@@ -205,10 +227,13 @@ def _resume_best_checkpoint_path(checkpoint_path: Path) -> Path | None:
 
 
 def evaluate(
-    model: torch.nn.Module, loader: DataLoader, device: torch.device, static_loss_weight: float = 0.5
+    model: TemporalLidarVelocityCNN, loader: DataLoader, device: torch.device,
+    static_loss_weight: float = 0.5, classification_loss_weight: float = 0.25,
 ) -> dict[str, float]:
     totals: dict[str, list[float]] = {}
     loss_totals = {"static_numerator": 0.0, "static_weight": 0.0, "dynamic_numerator": 0.0, "dynamic_weight": 0.0}
+    classifier_totals = {"static_numerator": 0.0, "static_count": 0.0, "dynamic_numerator": 0.0, "dynamic_count": 0.0}
+    true_positive = false_positive = 0
     model.eval()
     with torch.inference_mode():
         for batch in loader:
@@ -217,9 +242,18 @@ def evaluate(
             reflection = batch["reflection_mask"].to(device)
             dynamic = batch["dynamic_mask"].to(device)
             ranges = batch["range_m"].to(device)
-            prediction = model(lidar)
+            if model.aux_classifier:
+                raw_velocity, logits = model.predict_components(lidar)
+                moving = torch.sigmoid(logits) >= model.dynamic_threshold
+                prediction = torch.where(moving.unsqueeze(-1), raw_velocity, torch.zeros_like(raw_velocity))
+                for key, value in class_balanced_classifier_bce_totals(logits, reflection, dynamic).items():
+                    classifier_totals[key] += float(value.item())
+                true_positive += int((moving & dynamic & reflection).sum().item())
+                false_positive += int((moving & ~dynamic & reflection).sum().item())
+            else:
+                raw_velocity = prediction = model(lidar)
             for key, value in masked_class_balanced_huber_totals(
-                prediction, target, reflection, dynamic, ranges
+                raw_velocity, target, reflection, dynamic, ranges
             ).items():
                 loss_totals[key] += float(value.item())
             for key, (value, count) in masked_metrics(prediction, target, reflection, dynamic, ranges).items():
@@ -256,6 +290,17 @@ def evaluate(
             sum(class_weights[name] * metrics[f"{name}_loss"] for name in ("static", "dynamic") if f"{name}_loss" in metrics)
             / max(active_weight, 1.0e-12)
         )
+    if model.aux_classifier:
+        classifier_losses = [
+            classifier_totals[f"{name}_numerator"] / classifier_totals[f"{name}_count"]
+            for name in ("static", "dynamic") if classifier_totals[f"{name}_count"] > 0
+        ]
+        metrics["classifier_bce"] = sum(classifier_losses) / len(classifier_losses) if classifier_losses else 0.0
+        metrics["loss"] = metrics.get("loss", 0.0) + classification_loss_weight * metrics["classifier_bce"]
+        dynamic_count = classifier_totals["dynamic_count"]
+        static_count = classifier_totals["static_count"]
+        metrics["dynamic_recall"] = true_positive / dynamic_count if dynamic_count else 0.0
+        metrics["static_false_positive_rate"] = false_positive / static_count if static_count else 0.0
     for key, (value, count) in totals.items():
         if count:
             metrics[key] = value / count
@@ -287,6 +332,9 @@ def dashboard_metrics(metrics: dict[str, float]) -> dict[str, float]:
             "zero_dynamic_rmse",
             "dynamic_within_2m_rmse",
             "static_false_motion",
+            "classifier_bce",
+            "dynamic_recall",
+            "static_false_positive_rate",
         )
         if name in metrics
     }
@@ -303,6 +351,10 @@ def main() -> None:
         raise ValueError("--checkpoint_save_interval must be greater than or equal to zero.")
     if not 0.0 <= args.static_loss_weight <= 1.0:
         raise ValueError("--static_loss_weight must be in [0, 1].")
+    if not 0.0 < args.dynamic_threshold < 1.0:
+        raise ValueError("--dynamic_threshold must be between zero and one.")
+    if args.classification_loss_weight < 0.0:
+        raise ValueError("--classification_loss_weight must be nonnegative.")
     if args.resume_model_only and args.resume_checkpoint is None:
         raise ValueError("--resume_model_only requires --resume_checkpoint.")
     if args.run_name is None:
@@ -334,7 +386,7 @@ def main() -> None:
                 raise
             torch.backends.cudnn.enabled = False
             print("cuDNN could not initialize; using PyTorch CUDA convolutions instead.", flush=True)
-    model = TemporalLidarVelocityCNN(args.num_frames).to(device)
+    model = TemporalLidarVelocityCNN(args.num_frames, args.aux_classifier, args.dynamic_threshold).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_validation_loss = float("inf")
     start_epoch = 1
@@ -367,6 +419,7 @@ def main() -> None:
         "args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test),
         "target_velocity_frame": "evaluation_yaw_xy", "projection_contract": "temporal_lidar_v4",
         "num_frames": args.num_frames, "available_frames": dataset.available_frames,
+        "aux_classifier": args.aux_classifier, "dynamic_threshold": args.dynamic_threshold if args.aux_classifier else None,
         "range_noise_m": dataset.noise_contract[0] if dataset.noise_contract else None,
         "range_noise_applies_to": dataset.noise_contract[1] if dataset.noise_contract else None,
         "deployment_jit_path": str(deployment_jit_path),
@@ -417,16 +470,23 @@ def main() -> None:
                 reflection = batch["reflection_mask"].to(device)
                 dynamic = batch["dynamic_mask"].to(device)
                 ranges = batch["range_m"].to(device)
-                loss, _ = masked_class_balanced_huber(
-                    model(lidar), target, reflection, dynamic, ranges, static_loss_weight=args.static_loss_weight
+                if model.aux_classifier:
+                    raw_velocity, logits = model.predict_components(lidar)
+                else:
+                    raw_velocity = model(lidar)
+                velocity_loss, _ = masked_class_balanced_huber(
+                    raw_velocity, target, reflection, dynamic, ranges, static_loss_weight=args.static_loss_weight
                 )
+                loss = velocity_loss
+                if model.aux_classifier:
+                    loss = loss + args.classification_loss_weight * class_balanced_classifier_bce(logits, reflection, dynamic)
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 train_loss += float(loss.item())
             average_train_loss = train_loss / max(len(train_loader), 1)
-            metrics = evaluate(model, validation_loader, device, args.static_loss_weight)
+            metrics = evaluate(model, validation_loader, device, args.static_loss_weight, args.classification_loss_weight)
             score = metrics.get("loss", float("inf"))
             is_best = score < best_validation_loss and bool(metrics["coverage_endpoints_pass"])
             if is_best:
@@ -440,6 +500,8 @@ def main() -> None:
                 "model": "TemporalLidarVelocityCNN",
                 "projection_contract": "temporal_lidar_v4",
                 "num_frames": args.num_frames,
+                "aux_classifier": args.aux_classifier,
+                "dynamic_threshold": args.dynamic_threshold if args.aux_classifier else None,
                 "range_noise_m": dataset.noise_contract[0] if dataset.noise_contract else None,
                 "range_noise_applies_to": dataset.noise_contract[1] if dataset.noise_contract else None,
                 "args": vars(args),
@@ -468,8 +530,8 @@ def main() -> None:
                 )
             print(f"[Epoch {epoch:03d}] train_loss={average_train_loss:.6f} validation_loss={score:.6f}")
         final_metrics = {
-            "validation": evaluate(model, validation_loader, device, args.static_loss_weight),
-            "test": evaluate(model, DataLoader(test, batch_size=args.batch_size), device, args.static_loss_weight),
+            "validation": evaluate(model, validation_loader, device, args.static_loss_weight, args.classification_loss_weight),
+            "test": evaluate(model, DataLoader(test, batch_size=args.batch_size), device, args.static_loss_weight, args.classification_loss_weight),
         }
         (output / "final_metrics.json").write_text(json.dumps(final_metrics, indent=2), encoding="utf-8")
         if wandb_run is not None:
