@@ -85,6 +85,20 @@ def _bin_positions(range_m: np.ndarray) -> np.ndarray:
     return np.column_stack((range_m * np.cos(angle), range_m * np.sin(angle)))
 
 
+def _frame_colors(frame_count: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return compact static and pedestrian age ramps for scan plots."""
+    if frame_count == 4:
+        return (("#303030", "#686868", "#a6a6a6", "#e3e3e3"),
+                ("#d7191c", "#f46d43", "#fdae61", "#ffe34d"))
+    from matplotlib.colors import to_hex, to_rgb
+
+    def ramp(start, end):
+        first, last = np.asarray(to_rgb(start)), np.asarray(to_rgb(end))
+        return tuple(to_hex(first + (last - first) * age / max(frame_count - 1, 1)) for age in range(frame_count))
+
+    return ramp("#303030", "#e3e3e3"), ramp("#d7191c", "#ffe34d")
+
+
 def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arrow_seconds: float) -> dict:
     """Render projected predictor frames in evaluation-yaw coordinates."""
     try:
@@ -109,18 +123,7 @@ def _plot_scan_sample(output: Path, sample: ScanSample, max_range_m: float, arro
     static = valid & ~dynamic
     moving = valid & dynamic
     frame_count = ranges.shape[0]
-    if frame_count == 4:
-        static_colors = ("#303030", "#686868", "#a6a6a6", "#e3e3e3")
-        dynamic_colors = ("#d7191c", "#f46d43", "#fdae61", "#ffe34d")
-    else:
-        from matplotlib.colors import to_hex, to_rgb
-
-        def ramp(start, end):
-            first, last = np.asarray(to_rgb(start)), np.asarray(to_rgb(end))
-            return tuple(to_hex(first + (last - first) * age / max(frame_count - 1, 1)) for age in range(frame_count))
-
-        static_colors = ramp("#303030", "#e3e3e3")
-        dynamic_colors = ramp("#d7191c", "#ffe34d")
+    static_colors, dynamic_colors = _frame_colors(frame_count)
     fig, axes = plt.subplots(figsize=(7, 7))
     # Draw oldest first so newer returns remain visible where scans overlap.
     for age in reversed(range(frame_count)):

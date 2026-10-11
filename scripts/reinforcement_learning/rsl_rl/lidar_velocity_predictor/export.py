@@ -27,9 +27,13 @@ def main() -> None:
     scripted = torch.jit.script(model)
     output = Path(args.output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    torch.jit.save(scripted, str(output), _extra_files={
+    extra_files = {
         "projection_contract.txt": contract.encode(), "num_frames.txt": str(num_frames).encode(),
-    })
+    }
+    if checkpoint.get("range_noise_m") is not None:
+        extra_files["range_noise_m.txt"] = str(checkpoint["range_noise_m"]).encode()
+        extra_files["range_noise_applies_to.txt"] = str(checkpoint["range_noise_applies_to"]).encode()
+    torch.jit.save(scripted, str(output), _extra_files=extra_files)
     print(f"[INFO] Saved body-frame TorchScript predictor to {output}; input=(B,2,{num_frames},128), output=(B,128,2)")
 
 

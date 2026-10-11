@@ -38,6 +38,10 @@ def validate_collection_metadata(existing: dict, requested: dict, path: Path) ->
         )
     if existing.get("yaw_drift_std_rad_per_scan", 0.0) != requested.get("yaw_drift_std_rad_per_scan", 0.0):
         raise RuntimeError(f"{path} has a different LiDAR yaw drift setting. Use a new dataset name.")
+    if (existing.get("range_noise_m"), existing.get("range_noise_applies_to")) != (
+        requested.get("range_noise_m"), requested.get("range_noise_applies_to")
+    ):
+        raise RuntimeError(f"{path} has a different LiDAR range-noise setting. Use a new dataset name.")
     if existing.get("audit_history_format") != requested.get("audit_history_format"):
         raise RuntimeError(f"{path} has a different historical scan audit format. Use a new dataset name.")
     if existing.get("num_frames", 4) != requested.get("num_frames", 4):
@@ -54,6 +58,7 @@ class PointVelocityDataset(Dataset):
             raise ValueError("input_name must be lidar_noisy or lidar_clean.")
         self.input_name = input_name
         self.available_frames: int | None = None
+        self.noise_contract: tuple[float | None, str | None] | None = None
         self.num_frames = num_frames
         self.entries: list[EpisodeEntry] = []
         self.offsets = [0]
@@ -71,6 +76,10 @@ class PointVelocityDataset(Dataset):
                         f"{file_path} is not an evaluation-pose schema-v3 LiDAR velocity dataset. "
                         "Regenerate data before training this predictor."
                     )
+                noise_contract = (metadata.get("range_noise_m"), metadata.get("range_noise_applies_to"))
+                if self.noise_contract is not None and noise_contract != self.noise_contract:
+                    raise RuntimeError("Dataset files mix different LiDAR range-noise settings.")
+                self.noise_contract = noise_contract
                 for episode_name in sorted(data.keys()):
                     group = data[episode_name]
                     required = {"lidar_noisy", "lidar_clean", "point_velocity_b", "reflection_mask", "dynamic_mask", "range_m",

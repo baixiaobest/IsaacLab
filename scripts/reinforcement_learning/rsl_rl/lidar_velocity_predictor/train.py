@@ -105,20 +105,26 @@ def _upload_file_to_wandb(wandb_run: Any, file_path: Path, base_path: Path) -> N
         wandb_run.save(str(file_path), base_path=str(base_path), policy="now")
 
 
-def _save_torchscript(model: torch.nn.Module, output_path: Path) -> None:
+def _save_torchscript(model: torch.nn.Module, output_path: Path,
+                      noise_contract: tuple[float | None, str | None] | None = None) -> None:
     """Export the current model with its deployment input/output signature."""
     model.eval()
+    extra_files = {"projection_contract.txt": b"temporal_lidar_v4", "num_frames.txt": str(model.num_frames).encode()}
+    if noise_contract is not None and noise_contract[0] is not None:
+        extra_files["range_noise_m.txt"] = str(noise_contract[0]).encode()
+        extra_files["range_noise_applies_to.txt"] = str(noise_contract[1]).encode()
     torch.jit.save(
         torch.jit.script(model), str(output_path),
-        _extra_files={"projection_contract.txt": b"temporal_lidar_v4", "num_frames.txt": str(model.num_frames).encode()},
+        _extra_files=extra_files,
     )
 
 
-def _publish_deployment_torchscript(model: torch.nn.Module, output_path: Path) -> None:
+def _publish_deployment_torchscript(model: torch.nn.Module, output_path: Path,
+                                    noise_contract: tuple[float | None, str | None] | None = None) -> None:
     """Atomically replace the fixed CBF deployment JIT artifact."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_name(f".{output_path.name}.tmp")
-    _save_torchscript(model, temporary)
+    _save_torchscript(model, temporary, noise_contract)
     os.replace(temporary, output_path)
 
 
@@ -130,6 +136,7 @@ def _load_resume_checkpoint(
     model_only: bool,
     learning_rate: float,
     weight_decay: float,
+    expected_noise_contract: tuple[float | None, str | None],
 ) -> tuple[int, float]:
     """Restore a trainable checkpoint and return the next epoch and best loss."""
     if not checkpoint_path.is_file():
@@ -150,6 +157,12 @@ def _load_resume_checkpoint(
         raise RuntimeError(f"{checkpoint_path} predates the evaluation-pose projection contract; retrain from schema-v3 data.")
     if int(checkpoint.get("num_frames", 4)) != model.num_frames:
         raise RuntimeError(f"{checkpoint_path} uses {checkpoint.get('num_frames', 4)} frames, but training requested {model.num_frames}.")
+    checkpoint_noise = (checkpoint.get("range_noise_m"), checkpoint.get("range_noise_applies_to"))
+    if not model_only and checkpoint_noise != expected_noise_contract:
+        raise RuntimeError(
+            "Checkpoint and dataset have different LiDAR range-noise settings. "
+            "Use --resume_model_only to intentionally fine-tune across noise distributions."
+        )
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     if model_only:
         return 1, float("inf")
@@ -320,6 +333,7 @@ def main() -> None:
             args.resume_model_only,
             args.learning_rate,
             args.weight_decay,
+            dataset.noise_contract or (None, None),
         )
         resume_best_checkpoint_path = _resume_best_checkpoint_path(resume_checkpoint_path)
         mode = "model weights only" if args.resume_model_only else "model and AdamW state"
@@ -336,6 +350,8 @@ def main() -> None:
         "args": vars(args), "num_samples": len(dataset), "train": len(train), "validation": len(validation), "test": len(test),
         "target_velocity_frame": "evaluation_yaw_xy", "projection_contract": "temporal_lidar_v4",
         "num_frames": args.num_frames, "available_frames": dataset.available_frames,
+        "range_noise_m": dataset.noise_contract[0] if dataset.noise_contract else None,
+        "range_noise_applies_to": dataset.noise_contract[1] if dataset.noise_contract else None,
         "deployment_jit_path": str(deployment_jit_path),
         "resume_checkpoint": str(resume_checkpoint_path) if resume_checkpoint_path is not None else None,
         "resume_model_only": args.resume_model_only,
@@ -407,6 +423,8 @@ def main() -> None:
                 "model": "TemporalLidarVelocityCNN",
                 "projection_contract": "temporal_lidar_v4",
                 "num_frames": args.num_frames,
+                "range_noise_m": dataset.noise_contract[0] if dataset.noise_contract else None,
+                "range_noise_applies_to": dataset.noise_contract[1] if dataset.noise_contract else None,
                 "args": vars(args),
             }
             torch.save(checkpoint, output / "last.pt")
@@ -418,8 +436,8 @@ def main() -> None:
             if is_best:
                 torch.save(checkpoint, output / "best.pt")
                 _upload_file_to_wandb(wandb_run, output / "best.pt", output)
-                _save_torchscript(model, output / "best_jit.pt")
-                _publish_deployment_torchscript(model, deployment_jit_path)
+                _save_torchscript(model, output / "best_jit.pt", dataset.noise_contract)
+                _publish_deployment_torchscript(model, deployment_jit_path, dataset.noise_contract)
                 _upload_file_to_wandb(wandb_run, output / "best_jit.pt", output)
             if wandb_run is not None:
                 wandb_run.log(

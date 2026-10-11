@@ -77,11 +77,14 @@ def test_export_embeds_projection_contract(tmp_path) -> None:
     from train import _save_torchscript
 
     path = tmp_path / "predictor.pt"
-    _save_torchscript(TemporalLidarVelocityCNN(8), path)
-    extra = {"projection_contract.txt": b"", "num_frames.txt": b""}
+    _save_torchscript(TemporalLidarVelocityCNN(8), path, (0.05, "reflected_distance_only"))
+    extra = {"projection_contract.txt": b"", "num_frames.txt": b"",
+             "range_noise_m.txt": b"", "range_noise_applies_to.txt": b""}
     model = torch.jit.load(str(path), _extra_files=extra)
     assert extra["projection_contract.txt"] == b"temporal_lidar_v4"
     assert extra["num_frames.txt"] == b"8"
+    assert extra["range_noise_m.txt"] == b"0.05"
+    assert extra["range_noise_applies_to.txt"] == b"reflected_distance_only"
     assert model(torch.zeros(1, 2, 8, 128)).shape == (1, 128, 2)
 
 

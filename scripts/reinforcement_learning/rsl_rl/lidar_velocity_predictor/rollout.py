@@ -170,6 +170,8 @@ def main() -> None:
         "yaw_drift_std_rad_per_scan": env_cfg.observations.policy.obstacle_scan.params.get(
             "yaw_drift_std_rad_per_scan", 0.0
         ),
+        "range_noise_m": env_cfg.observations.predictor.obstacle_scan.noise.max_noise_m,
+        "range_noise_applies_to": "reflected_distance_only",
     })
     buffers = [EpisodeBuffer() for _ in range(env.num_envs)]
     previous_capture = torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long)

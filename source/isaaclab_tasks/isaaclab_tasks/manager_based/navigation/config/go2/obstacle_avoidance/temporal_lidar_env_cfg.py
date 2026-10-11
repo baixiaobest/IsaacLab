@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import math
 
+import torch
+
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise, NoiseCfg
 
 from .obstacle_avoidance_env_cfg import (
     LIDAR_FOV_DEG,
@@ -35,8 +37,9 @@ PREDICTOR_LIDAR_HORIZON = 8
 TEMPORAL_LIDAR_NUM_BINS = 256    # B – total 360° world-aligned bins
 TEMPORAL_LIDAR_FOV_DEG = 180.0   # arc returned to the policy
 TEMPORAL_LIDAR_RAYS = NUM_LIDAR_RAYS
-TEMPORAL_LIDAR_POS_NOISE_STD = 0.1  # Matches the 640034b actor projection noise.
+TEMPORAL_LIDAR_POS_NOISE_STD = 0.05  # Matches the 640034b actor projection noise.
 TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN = math.radians(0.5)
+TEMPORAL_LIDAR_RANGE_NOISE_M = 0.05
 TEMPORAL_LIDAR_INCLUDE_VALIDITY = True  # emit the per-bin validity channel alongside distance
 TEMPORAL_LIDAR_HISTORY_KEY = "held_full_scan"
 TEMPORAL_LIDAR_COLLECTOR_NAME = "_held_scan_lidar_collector"
@@ -53,6 +56,31 @@ TEMPORAL_LIDAR_OBS_SIZE = TEMPORAL_LIDAR_CHANNELS * TEMPORAL_LIDAR_HORIZON * TEM
 
 # Prediction target is a single distance-only frame (1 channel × fov_bins).
 TEMPORAL_LIDAR_PRED_TARGET_SIZE = TEMPORAL_LIDAR_FOV_BINS
+
+
+def temporal_lidar_range_noise(data: torch.Tensor, cfg: "TemporalLidarRangeNoiseCfg") -> torch.Tensor:
+    """Perturb measured ranges by metres while preserving no-return and validity values."""
+    if data.ndim != 2 or data.shape[1] % 2 != 0:
+        raise ValueError("Temporal LiDAR range noise expects flattened distance and validity channels.")
+    if cfg.max_noise_m < 0.0 or cfg.max_distance_m <= 0.0:
+        raise ValueError("Temporal LiDAR range noise needs nonnegative noise and positive maximum distance.")
+    half = data.shape[1] // 2
+    ranges = data[:, :half]
+    reflected = (data[:, half:] > 0.5) & (ranges >= 0.0) & (ranges < 1.0)
+    amplitude = cfg.max_noise_m / cfg.max_distance_m
+    perturbed = (ranges + (2.0 * torch.rand_like(ranges) - 1.0) * amplitude).clamp(0.0, 1.0)
+    output = data.clone()
+    output[:, :half] = torch.where(reflected, perturbed, ranges)
+    return output
+
+
+@configclass
+class TemporalLidarRangeNoiseCfg(NoiseCfg):
+    """Uniform per-reflection range noise specified in physical metres."""
+
+    func = temporal_lidar_range_noise
+    max_noise_m: float = TEMPORAL_LIDAR_RANGE_NOISE_M
+    max_distance_m: float = LIDAR_MAX_DISTANCE
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +144,7 @@ class TemporalLidarObservationsCfg(ObservationsCfg):
                 # this stays idempotent and keeps the lidar tensor last.
                 "owns_history": True,
             },
-            # Match the baseline actor lidar corruption exactly.  This includes
-            # the validity channel, as it did in 640034b.
-            noise=Unoise(n_min=-0.05, n_max=0.05),
+            noise=TemporalLidarRangeNoiseCfg(),
         )
 
         def __post_init__(self):
@@ -243,7 +269,7 @@ class PredictorLidarObservationsCfg(TemporalLidarObservationsCfg):
                 "history_key": TEMPORAL_LIDAR_HISTORY_KEY,
                 "history_num_rays": TEMPORAL_LIDAR_RAYS,
             },
-            noise=Unoise(n_min=-0.05, n_max=0.05),
+            noise=TemporalLidarRangeNoiseCfg(),
         )
 
         def __post_init__(self):

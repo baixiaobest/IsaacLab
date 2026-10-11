@@ -5,8 +5,10 @@ import json
 import h5py
 import numpy as np
 import pytest
+import torch
 
 from src.dataset import PointVelocityDataset, validate_collection_metadata
+from src.model import TemporalLidarVelocityCNN
 
 
 def _write_episode(group, capture_index, frames=4):
@@ -58,6 +60,9 @@ def test_rollout_rejects_different_yaw_drift_when_appending(tmp_path):
         validate_collection_metadata(metadata, {**metadata, "audit_history_format": 1}, path)
     with pytest.raises(RuntimeError, match="frame count"):
         validate_collection_metadata(metadata, {**metadata, "num_frames": 8}, path)
+    with pytest.raises(RuntimeError, match="range-noise"):
+        validate_collection_metadata(metadata, {**metadata, "range_noise_m": 0.05,
+                                                "range_noise_applies_to": "reflected_distance_only"}, path)
 
 
 def test_eight_frame_dataset_infers_or_selects_newest_frames(tmp_path):
@@ -75,3 +80,19 @@ def test_eight_frame_dataset_infers_or_selects_newest_frames(tmp_path):
     np.testing.assert_array_equal(short[0]["lidar"][0, :, 0], np.arange(4))
     with pytest.raises(ValueError, match="available frames"):
         PointVelocityDataset(str(path), num_frames=9)
+
+
+def test_full_resume_rejects_old_noise_checkpoint_but_model_only_allows_finetuning(tmp_path):
+    from train import _load_resume_checkpoint
+
+    model = TemporalLidarVelocityCNN(4)
+    path = tmp_path / "old.pt"
+    torch.save({"model_state_dict": model.state_dict(), "projection_contract": "temporal_lidar_v4",
+                "num_frames": 4}, path)
+    # Both paths return before touching the optimizer, so a sentinel avoids
+    # requiring optional torch optimizer dependencies in this isolated test.
+    args = (path, model, object(), torch.device("cpu"))
+    noise_contract = (0.05, "reflected_distance_only")
+    with pytest.raises(RuntimeError, match="different LiDAR range-noise"):
+        _load_resume_checkpoint(*args, False, 3e-4, 1e-5, noise_contract)
+    assert _load_resume_checkpoint(*args, True, 3e-4, 1e-5, noise_contract)[0] == 1

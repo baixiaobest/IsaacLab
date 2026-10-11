@@ -42,10 +42,12 @@ from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.tempo
     TEMPORAL_LIDAR_COLLECTOR_NAME,
     TEMPORAL_LIDAR_HISTORY_KEY,
     TEMPORAL_LIDAR_POS_NOISE_STD,
-    TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN,
+    TEMPORAL_LIDAR_RANGE_NOISE_M,
     TEMPORAL_LIDAR_RAYS,
+    TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN,
     TemporalLidarObservationsCfg,
     TemporalLidarObstacleAvoidanceEnvCfg,
+    temporal_lidar_range_noise,
 )
 from isaaclab_tasks.manager_based.navigation.mdp.cbf_pre_trained_policy_action import (
     DynamicObstacleCbfPreTrainedPolicyAction,
@@ -208,9 +210,25 @@ def test_actor_and_critic_share_held_history_and_scan_age() -> None:
     assert TemporalLidarObstacleAvoidanceEnvCfg().observations.policy.obstacle_scan.params[
         "yaw_drift_std_rad_per_scan"
     ] == TEMPORAL_LIDAR_YAW_DRIFT_STD_RAD_PER_SCAN
-    assert policy.obstacle_scan.noise.n_min == -0.05
-    assert policy.obstacle_scan.noise.n_max == 0.05
+    assert policy.obstacle_scan.noise.max_noise_m == TEMPORAL_LIDAR_RANGE_NOISE_M
+    assert policy.obstacle_scan.noise.max_distance_m == 20.0
     assert critic.obstacle_scan.noise is None
+
+
+def test_temporal_lidar_range_noise_preserves_validity_and_free_space() -> None:
+    cfg = MixedTemporalLidarKpPointVelocityDataEnvCfg().observations
+    policy_noise = cfg.policy.obstacle_scan.noise
+    predictor_noise = cfg.predictor.obstacle_scan.noise
+    assert predictor_noise.max_noise_m == policy_noise.max_noise_m == 0.05
+    assert predictor_noise.func is temporal_lidar_range_noise
+    # Two frames, two bins per channel: reflection, no return, unavailable, reflection.
+    scan = torch.tensor([[0.25, 1.0, 1.0, 0.75, 1.0, 1.0, 0.0, 1.0]])
+    torch.manual_seed(7)
+    noisy = policy_noise.func(scan, policy_noise)
+    assert noisy.shape == scan.shape
+    assert torch.equal(noisy[:, 4:], scan[:, 4:])
+    assert torch.equal(noisy[:, [1, 2]], scan[:, [1, 2]])
+    assert torch.all((noisy[:, [0, 3]] - scan[:, [0, 3]]).abs() <= 0.05 / 20.0)
 
 
 def test_predictor_tasks_keep_four_frame_policy_with_eight_frame_history() -> None:

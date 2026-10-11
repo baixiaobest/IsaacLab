@@ -24,6 +24,31 @@ and must be recollected for these plots. Adjust the
 number, range, or arrow scale with `--num_scan_samples`, `--scan_plot_range_m`, and
 `--velocity_arrow_seconds`.
 
+Compare a trained checkpoint or exported TorchScript model with rollout labels:
+
+```bash
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/audit_model.py \
+  --dataset_path datasets/lidar_point_velocity \
+  --model logs/lidar_velocity_predictor/first_run/best.pt \
+  --output_dir datasets/lidar_point_velocity/model_audit
+```
+
+`audit_model.py` samples up to four examples in each of four groups: static or
+pedestrian, first capture or held scan. Each sample gets paired `lidar_noisy`
+and `lidar_clean` inference plots under `samples/`, using its respective saved
+scan tensor and the same velocity labels. The manifest reports both sets of
+plotted-bin errors. This comparison changes all simulated input corruptions
+together and does not isolate any one noise source. The tool uses the held-out test episodes from
+the model's sibling `splits.json` when present, otherwise the dataset's seeded
+episode split. Pass `--splits_path` to select a specific split file. Plots use
+each saved input, overlay solid blue ground-truth and dashed orange
+predicted arrows, and mark static bins with black rings and pedestrian bins with
+red rings. Both arrows use the same `--velocity_arrow_seconds` scale, defaulting
+to 1 m per 1 m/s. Only reflected newest-frame bins receive arrows. The
+`manifest.json` records source samples and plotted-bin errors. Use
+`--input_name lidar_noisy` or `--input_name lidar_clean` to render only one input, or adjust sampling with
+`--num_samples_per_group`, `--seed`, and `--scan_plot_range_m`.
+
 Train, evaluate, and export:
 
 ```bash
@@ -39,6 +64,14 @@ The navigation policy retains its four-frame scan. The velocity rollout saves ei
 `logs/lidar_velocity_predictor/best_jit.pt` for the dynamic CBF PLAY task.
 
 Temporal-LiDAR policy scans include capture-stable yaw drift in both mixed and non-mixed tasks: each new scan adds an independent Gaussian increment with 0.5° standard deviation, and older world-point scans rotate around their capture position by their accumulated error relative to the newest scan. The newest policy scan and clean critic scan remain aligned with the velocity labels. Existing XY projection noise remains enabled. The rollout records the yaw drift rate in file metadata and refuses to append to files collected with another rate. Collect a new dataset and retrain before using a predictor with this observation distribution.
+
+The policy and predictor add at most 5 cm of uniform noise to each reflected
+range after normalizing by the 20 m limit (normalized amplitude 0.0025).
+Unavailable and no-return distances, and the binary validity channel, remain
+unchanged. Older rollouts used uniform amplitude 0.05 on both normalized
+channels, equivalent to up to 1 m of range noise. New rollouts record the
+range-noise setting and cannot append to those older files. Recollect data and
+retrain before treating an existing predictor as validated with this input.
 
 `src/projection.py` defines the portable `temporal_lidar_v4` projection contract. A variable number of newest-first sparse world-point scans are projected around one evaluation-time position and yaw into 256 world angular bins, then the yaw-centred 128-bin forward arc is returned. Distance is divided by 20 m; validity is 1 for a sampled hit or no-return ray and 0 for an unavailable direction. A no-return ray contributes 20 m, never a close obstacle. `fixtures/projection_fixture_v3.json` remains the four-frame parity fixture. ROS should rebuild the tensor at its snapshot pose and rotate each valid output with that same yaw. The current ROS CBF does not yet run this predictor.
 
