@@ -317,6 +317,18 @@ def main() -> None:
     train_loader = DataLoader(dataset, batch_sampler=DynamicAwareBatchSampler(train, args.batch_size, args.seed), num_workers=args.num_workers)
     validation_loader = DataLoader(validation, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     device = torch.device(args.device)
+    if device.type == "cuda" and torch.backends.cudnn.enabled:
+        # Some Isaac Sim Python environments expose cuDNN but cannot initialize
+        # it. Check before the first training batch and use PyTorch's CUDA
+        # convolution implementation when that backend is unavailable.
+        try:
+            probe = torch.zeros((1, 2, args.num_frames, 128), device=device)
+            torch.nn.functional.conv2d(probe, torch.zeros((16, 2, 1, 5), device=device), padding=(0, 2))
+        except RuntimeError as error:
+            if "CUDNN_STATUS_NOT_INITIALIZED" not in str(error):
+                raise
+            torch.backends.cudnn.enabled = False
+            print("cuDNN could not initialize; using PyTorch CUDA convolutions instead.", flush=True)
     model = TemporalLidarVelocityCNN(args.num_frames).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_validation_loss = float("inf")
