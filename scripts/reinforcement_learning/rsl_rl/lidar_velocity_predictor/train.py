@@ -34,13 +34,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset_path", required=True)
     parser.add_argument("--output_dir", default="logs/lidar_velocity_predictor")
     parser.add_argument("--run_name", default=None, help="Optional run name; defaults to a timestamp.")
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=50,
+                        help="Number of epochs to train in this invocation, including after a resume.")
     parser.add_argument(
         "--resume_checkpoint",
         default=None,
         help=(
             "Path to a training .pt checkpoint (for example last.pt). Restores model and AdamW state and "
-            "continues at the following epoch. --epochs is the total target epoch count."
+            "continues at the following epoch. --epochs is the number of additional epochs to run."
         ),
     )
     parser.add_argument(
@@ -343,6 +344,8 @@ def dashboard_metrics(metrics: dict[str, float]) -> dict[str, float]:
 
 def main() -> None:
     args = parse_args()
+    if args.epochs < 1:
+        raise ValueError("--epochs must be positive.")
     if args.checkpoint_save_interval < 0:
         raise ValueError("--checkpoint_save_interval must be greater than or equal to zero.")
     if args.static_loss_weight < 0.0 or args.dynamic_loss_weight < 0.0:
@@ -405,11 +408,7 @@ def main() -> None:
         resume_best_checkpoint_path = _resume_best_checkpoint_path(resume_checkpoint_path)
         mode = "model weights only" if args.resume_model_only else "model and AdamW state"
         print(f"Resumed {mode} from {resume_checkpoint_path}; starting epoch {start_epoch}.")
-    if start_epoch > args.epochs:
-        raise ValueError(
-            f"The resume checkpoint completed epoch {start_epoch - 1}, but --epochs is {args.epochs}. "
-            "Set --epochs higher than the checkpoint epoch to continue training."
-        )
+    end_epoch = start_epoch + args.epochs - 1
     periodic_checkpoint_dir = output / "checkpoints"
     if args.checkpoint_save_interval > 0:
         periodic_checkpoint_dir.mkdir(exist_ok=True)
@@ -424,6 +423,7 @@ def main() -> None:
         "resume_checkpoint": str(resume_checkpoint_path) if resume_checkpoint_path is not None else None,
         "resume_model_only": args.resume_model_only,
         "start_epoch": start_epoch,
+        "end_epoch": end_epoch,
     }
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     wandb_run = _init_wandb(args, output)
@@ -459,7 +459,7 @@ def main() -> None:
             _upload_file_to_wandb(wandb_run, output_best_jit, output)
 
     try:
-        for epoch in range(start_epoch, args.epochs + 1):
+        for epoch in range(start_epoch, end_epoch + 1):
             model.train()
             train_loss = 0.0
             for batch in train_loader:

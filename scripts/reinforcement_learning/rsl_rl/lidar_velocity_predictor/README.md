@@ -106,12 +106,12 @@ Whenever validation produces a new best checkpoint, both `best.pt` and its Torch
 `best_jit.pt` are saved and uploaded.
 
 To continue a stopped run, provide its trainable checkpoint. This restores the model, AdamW
-moments, and the previous best validation score; `--epochs` is the total target epoch, so this
-example continues an epoch-20 run through epoch 50:
+moments, and the previous best validation score; `--epochs` is the number of epochs to run now, so this
+example runs 30 more epochs after epoch 20 and finishes at epoch 50:
 
 ```bash
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/train.py \
-  --dataset_path datasets/lidar_point_velocity --epochs 50 \
+  --dataset_path datasets/lidar_point_velocity --epochs 30 \
   --resume_checkpoint logs/lidar_velocity_predictor/first_run/last.pt
 ```
 
