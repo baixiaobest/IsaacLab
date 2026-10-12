@@ -23,6 +23,8 @@ Velocity arrows show newest-frame pedestrian labels. Older dataset files lack pe
 and must be recollected for these plots. Adjust the
 number, range, or arrow scale with `--num_scan_samples`, `--scan_plot_range_m`, and
 `--velocity_arrow_seconds`.
+The audit also writes `audit/dynamic_velocity_distribution.png`, a histogram of
+ground-truth speed magnitudes for valid dynamic returns (one count per reflected bin).
 
 Compare a trained checkpoint or exported TorchScript model with rollout labels:
 
@@ -59,6 +61,12 @@ Train, evaluate, and export:
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/export.py \
   --checkpoint logs/lidar_velocity_predictor/first_run/best.pt --output logs/lidar_velocity_predictor/first_run/model.pt
 ```
+
+The training objective uses independent `--static_loss_weight` (default `0.5`)
+and `--dynamic_loss_weight` (default `0.5`) multipliers for the two separately
+averaged velocity losses. Auxiliary runs also use `--classification_loss_weight`
+(default `0.25`) for the class-balanced classifier loss. W&B reports each loss
+before its multiplier and reports their weighted sum as `validation/loss`.
 
 The navigation policy retains its four-frame scan. The velocity rollout saves eight frames, and training defaults to all available frames; pass `--num_frames 4` to train on the newest four instead. The exported model takes `(batch, 2, num_frames, 128)` and returns `(batch, 128, 2)` absolute obstacle velocities in the yaw-aligned frame of the **evaluation pose**. Only reflected bins have supervised outputs; ignore predictions in other bins. The rollout writes schema-v3 labels and evaluation-pose, capture-time, and measured-coverage metadata. Use a new dataset name for eight-frame collection. Each newly selected best model is also atomically published to
 `logs/lidar_velocity_predictor/best_jit.pt` for the dynamic CBF PLAY task.

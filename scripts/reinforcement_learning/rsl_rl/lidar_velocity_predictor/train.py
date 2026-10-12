@@ -65,8 +65,10 @@ def parse_args() -> argparse.Namespace:
         "--static_loss_weight",
         type=float,
         default=0.5,
-        help="Static term weight in masked class-balanced Smooth-L1; dynamic weight is 1 - this value.",
+        help="Multiplier for the mean static velocity loss (default: 0.5).",
     )
+    parser.add_argument("--dynamic_loss_weight", type=float, default=0.5,
+                        help="Multiplier for the mean dynamic velocity loss (default: 0.5).")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
@@ -228,7 +230,8 @@ def _resume_best_checkpoint_path(checkpoint_path: Path) -> Path | None:
 
 def evaluate(
     model: TemporalLidarVelocityCNN, loader: DataLoader, device: torch.device,
-    static_loss_weight: float = 0.5, classification_loss_weight: float = 0.25,
+    static_loss_weight: float = 0.5, dynamic_loss_weight: float = 0.5,
+    classification_loss_weight: float = 0.25,
 ) -> dict[str, float]:
     totals: dict[str, list[float]] = {}
     loss_totals = {"static_numerator": 0.0, "static_weight": 0.0, "dynamic_numerator": 0.0, "dynamic_weight": 0.0}
@@ -274,22 +277,14 @@ def evaluate(
                     total[0] += value
                     total[1] += count
     metrics: dict[str, float] = {}
-    class_losses = []
     for class_name in ("static", "dynamic"):
         weight = loss_totals[f"{class_name}_weight"]
         if weight > 0.0:
             class_loss = loss_totals[f"{class_name}_numerator"] / weight
             metrics[f"{class_name}_loss"] = class_loss
-            class_losses.append(class_loss)
-    if class_losses:
-        # Same static/dynamic weighting as the training objective, aggregated
-        # over all validation samples rather than per batch.
-        class_weights = {"static": static_loss_weight, "dynamic": 1.0 - static_loss_weight}
-        active_weight = sum(class_weights[name] for name in ("static", "dynamic") if f"{name}_loss" in metrics)
-        metrics["loss"] = (
-            sum(class_weights[name] * metrics[f"{name}_loss"] for name in ("static", "dynamic") if f"{name}_loss" in metrics)
-            / max(active_weight, 1.0e-12)
-        )
+    # Match the unnormalized weighted training objective, aggregated over validation samples.
+    metrics["loss"] = (static_loss_weight * metrics.get("static_loss", 0.0)
+                       + dynamic_loss_weight * metrics.get("dynamic_loss", 0.0))
     if model.aux_classifier:
         classifier_losses = [
             classifier_totals[f"{name}_numerator"] / classifier_totals[f"{name}_count"]
@@ -326,6 +321,7 @@ def dashboard_metrics(metrics: dict[str, float]) -> dict[str, float]:
         for name in (
             "loss",
             "static_loss",
+            "dynamic_loss",
             "static_rmse",
             "static_mae",
             "dynamic_rmse",
@@ -349,12 +345,14 @@ def main() -> None:
     args = parse_args()
     if args.checkpoint_save_interval < 0:
         raise ValueError("--checkpoint_save_interval must be greater than or equal to zero.")
-    if not 0.0 <= args.static_loss_weight <= 1.0:
-        raise ValueError("--static_loss_weight must be in [0, 1].")
+    if args.static_loss_weight < 0.0 or args.dynamic_loss_weight < 0.0:
+        raise ValueError("--static_loss_weight and --dynamic_loss_weight must be nonnegative.")
     if not 0.0 < args.dynamic_threshold < 1.0:
         raise ValueError("--dynamic_threshold must be between zero and one.")
     if args.classification_loss_weight < 0.0:
         raise ValueError("--classification_loss_weight must be nonnegative.")
+    if args.static_loss_weight + args.dynamic_loss_weight + (args.classification_loss_weight if args.aux_classifier else 0.0) == 0.0:
+        raise ValueError("At least one active loss weight must be positive.")
     if args.resume_model_only and args.resume_checkpoint is None:
         raise ValueError("--resume_model_only requires --resume_checkpoint.")
     if args.run_name is None:
@@ -475,7 +473,8 @@ def main() -> None:
                 else:
                     raw_velocity = model(lidar)
                 velocity_loss, _ = masked_class_balanced_huber(
-                    raw_velocity, target, reflection, dynamic, ranges, static_loss_weight=args.static_loss_weight
+                    raw_velocity, target, reflection, dynamic, ranges,
+                    static_loss_weight=args.static_loss_weight, dynamic_loss_weight=args.dynamic_loss_weight,
                 )
                 loss = velocity_loss
                 if model.aux_classifier:
@@ -486,7 +485,8 @@ def main() -> None:
                 optimizer.step()
                 train_loss += float(loss.item())
             average_train_loss = train_loss / max(len(train_loader), 1)
-            metrics = evaluate(model, validation_loader, device, args.static_loss_weight, args.classification_loss_weight)
+            metrics = evaluate(model, validation_loader, device, args.static_loss_weight,
+                               args.dynamic_loss_weight, args.classification_loss_weight)
             score = metrics.get("loss", float("inf"))
             is_best = score < best_validation_loss and bool(metrics["coverage_endpoints_pass"])
             if is_best:
@@ -530,8 +530,10 @@ def main() -> None:
                 )
             print(f"[Epoch {epoch:03d}] train_loss={average_train_loss:.6f} validation_loss={score:.6f}")
         final_metrics = {
-            "validation": evaluate(model, validation_loader, device, args.static_loss_weight, args.classification_loss_weight),
-            "test": evaluate(model, DataLoader(test, batch_size=args.batch_size), device, args.static_loss_weight, args.classification_loss_weight),
+            "validation": evaluate(model, validation_loader, device, args.static_loss_weight,
+                                   args.dynamic_loss_weight, args.classification_loss_weight),
+            "test": evaluate(model, DataLoader(test, batch_size=args.batch_size), device, args.static_loss_weight,
+                             args.dynamic_loss_weight, args.classification_loss_weight),
         }
         (output / "final_metrics.json").write_text(json.dumps(final_metrics, indent=2), encoding="utf-8")
         if wandb_run is not None:

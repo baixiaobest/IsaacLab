@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
-from src.losses import class_balanced_classifier_bce
+from src.losses import class_balanced_classifier_bce, masked_class_balanced_huber
 from src.model import TemporalLidarVelocityCNN
 from train import _load_resume_checkpoint, _save_torchscript, dashboard_metrics, evaluate
 
@@ -50,6 +50,21 @@ def test_classifier_loss_balances_classes_and_ignores_missing_returns():
     loss.backward()
     assert logits.grad[0, 3] == 0
     assert torch.isfinite(class_balanced_classifier_bce(logits, reflection & ~dynamic, dynamic))
+
+
+def test_velocity_loss_weights_are_independent():
+    prediction = torch.tensor([[[1.0, 0.0], [2.0, 0.0]]])
+    target = torch.zeros_like(prediction)
+    reflection = torch.ones((1, 2), dtype=torch.bool)
+    dynamic = torch.tensor([[False, True]])
+    ranges = torch.ones((1, 2))
+    loss, parts = masked_class_balanced_huber(
+        prediction, target, reflection, dynamic, ranges,
+        static_loss_weight=0.25, dynamic_loss_weight=2.0,
+    )
+    torch.testing.assert_close(loss, 0.25 * parts["static_loss"] + 2.0 * parts["dynamic_loss"])
+    assert parts["static_loss"] == pytest.approx(0.25)
+    assert parts["dynamic_loss"] == pytest.approx(0.75)
 
 
 def test_evaluate_logs_only_essential_classifier_metrics():

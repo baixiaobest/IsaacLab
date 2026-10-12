@@ -74,6 +74,22 @@ def _histogram(path: Path, static_distance: np.ndarray, dynamic_distance: np.nda
     plt.close()
 
 
+def _dynamic_speed_histogram(path: Path, speed: np.ndarray) -> None:
+    """Plot ground-truth speed for each valid dynamic reflection."""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("[WARN] matplotlib is unavailable; skipping dynamic speed plot.")
+        return
+    plt.figure(figsize=(8, 4))
+    plt.hist(speed, bins=50, color="tab:orange", edgecolor="white", linewidth=0.3)
+    plt.xlabel("Dynamic return speed (m/s)")
+    plt.ylabel("Number of reflected bins")
+    plt.tight_layout()
+    plt.savefig(path / "dynamic_velocity_distribution.png", dpi=160)
+    plt.close()
+
+
 def _bin_positions(range_m: np.ndarray) -> np.ndarray:
     """Map the heading-centred 128 forward bins to robot-body XY positions."""
     if range_m.shape != (128,):
@@ -341,6 +357,7 @@ def main() -> None:
         writer.writerow(["terrain_level_scenario", "valid_reflections"])
         writer.writerows(sorted(strata.items()))
     _histogram(output, static_distance, dynamic_distance)
+    _dynamic_speed_histogram(output, speed)
     visualizations = _render_scan_samples(
         output,
         static_scan_samples.samples + dynamic_scan_samples.samples,
