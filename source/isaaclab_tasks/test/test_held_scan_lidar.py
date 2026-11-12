@@ -528,7 +528,7 @@ def test_sparse_policy_has_max_range_invalids_while_cbf_keeps_full_geometry() ->
 def test_dynamic_cbf_bins_follow_sparse_policy_capture_across_phase_shift() -> None:
     collector = _make_sparse_collector(1)
     term = object.__new__(DynamicObstacleCbfPreTrainedPolicyAction)
-    term.cfg = SimpleNamespace(cbf_scan_source="policy", lidar_collector_name="_held_scan_lidar_collector")
+    term.cfg = SimpleNamespace(scan_type="policy", lidar_collector_name="_held_scan_lidar_collector")
     term._env = SimpleNamespace(
         _held_scan_lidar_collector=collector,
         scene=collector.env.scene,

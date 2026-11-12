@@ -4,12 +4,15 @@ The non-prediction mixed static/pedestrian temporal-LiDAR baseline is inherited
 unchanged.  This module replaces only its high-level action term.
 """
 
+from copy import deepcopy
+
+from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg, patterns
 from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.navigation.mdp as nav_mdp
 
-from .mixed_scenario_mixins import MixedTemporalLidarObstacleAvoidanceEnvCfg
-from .obstacle_avoidance_env_cfg import ActionsCfg, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
+from .mixed_scenario_mixins import MixedSceneCfg, MixedTemporalLidarObstacleAvoidanceEnvCfg
+from .obstacle_avoidance_env_cfg import ActionsCfg, LIDAR_MAX_DISTANCE, LOW_LEVEL_ENV_CFG, LOW_LEVEL_POLICY_PATH
 from .temporal_lidar_env_cfg import PredictorLidarObservationsCfg
 
 
@@ -102,6 +105,43 @@ class MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY(
 
 
 @configclass
+class Cbf360SceneCfg(MixedSceneCfg):
+    """Mixed scene with an additional current-time, all-around CBF scanner."""
+
+    cbf_scanner: MultiMeshRayCasterCfg = deepcopy(MixedSceneCfg(num_envs=16, env_spacing=2.5).obstacle_scanner)
+
+    def __post_init__(self):
+        self.cbf_scanner.pattern_cfg = patterns.LidarPatternCfg(
+            channels=1,
+            vertical_fov_range=(0.0, 0.0),
+            horizontal_fov_range=(-180.0, 180.0),
+            horizontal_res=360.0 / 256.0,
+        )
+        self.cbf_scanner.max_distance = LIDAR_MAX_DISTANCE
+        self.cbf_scanner.update_period = 0.0
+        self.cbf_scanner.debug_vis = False
+
+
+@configclass
+class Cbf360KpActionsCfg(CbfKpActionsCfg):
+    """Static CBF using only the dedicated 360-degree sensor for obstacles."""
+
+    def __post_init__(self):
+        self.pre_trained_policy_action.scan_source = "sensor"
+        self.pre_trained_policy_action.cbf_sensor_name = "cbf_scanner"
+
+
+@configclass
+class MixedTemporalLidarKpStaticObstacleCbf360LidarObstacleAvoidanceEnvCfg_PLAY(
+    MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY
+):
+    """Static CBF Play variant with a dedicated 256-ray, 360-degree scanner."""
+
+    scene: Cbf360SceneCfg = Cbf360SceneCfg(num_envs=16, env_spacing=2.5)
+    actions: Cbf360KpActionsCfg = Cbf360KpActionsCfg()
+
+
+@configclass
 class DynamicCbfKpActionsCfg(ActionsCfg):
     """PLAY-only Kp action container with learned body-frame point velocities."""
 
@@ -125,7 +165,7 @@ class DynamicCbfKpActionsCfg(ActionsCfg):
             max_lidar_points=64,
             velocity_predictor_jit_path="logs/rsl_rl/ObstacleAvoidance/Navigation/CBF/lidar_velocity_predictor_4_frames_jit.pt",
             require_velocity_predictor=True,
-            cbf_scan_source="policy",
+            scan_type="policy",
             predictor_observation_group="predictor",
             debug_vis=True,
         )

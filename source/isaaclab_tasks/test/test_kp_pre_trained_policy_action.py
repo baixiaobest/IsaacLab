@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.kp_mixed_scenario_env_cfg import (
+    MixedTemporalLidarKpStaticObstacleCbf360LidarObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY,
     MixedTemporalLidarKpObstacleAvoidanceEnvCfg,
@@ -43,6 +44,41 @@ CBF_PLAY_TASK_ID = (
 DYNAMIC_CBF_PLAY_TASK_ID = (
     "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Dynamic-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0"
 )
+CBF_360_PLAY_TASK_ID = (
+    "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-360-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0"
+)
+
+
+def test_cbf_360_uses_dedicated_sensor_without_changing_existing_sources() -> None:
+    cfg = MixedTemporalLidarKpStaticObstacleCbf360LidarObstacleAvoidanceEnvCfg_PLAY()
+    action = cfg.actions.pre_trained_policy_action
+    assert action.scan_source == "sensor"
+    assert action.cbf_sensor_name == "cbf_scanner"
+    assert cfg.held_scan_lidar.sensor_name == "obstacle_scanner"
+    assert cfg.scene.cbf_scanner.pattern_cfg.horizontal_fov_range == (-180.0, 180.0)
+    assert cfg.scene.cbf_scanner.pattern_cfg.horizontal_res == 360.0 / 256.0
+    assert cfg.scene.cbf_scanner.update_period == 0.0
+    assert cfg.scene.cbf_scanner.mesh_prim_paths == cfg.scene.obstacle_scanner.mesh_prim_paths
+    assert MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY().actions.pre_trained_policy_action.scan_source == "held_scan"
+    assert MixedTemporalLidarKpDynamicObstacleCbfObstacleAvoidanceEnvCfg_PLAY().actions.pre_trained_policy_action.scan_source == "held_scan"
+    assert load_cfg_from_registry(CBF_360_PLAY_TASK_ID, "env_cfg_entry_point").actions.pre_trained_policy_action.scan_source == "sensor"
+
+
+def test_dedicated_cbf_sensor_preserves_rear_hits_and_rejects_no_returns() -> None:
+    sensor = SimpleNamespace(
+        cfg=SimpleNamespace(max_distance=20.0),
+        data=SimpleNamespace(
+            pos_w=torch.zeros(1, 3),
+            ray_hits_w=torch.tensor([[[2.0, 0.0, 0.0], [-2.0, 0.0, 0.0], [float("inf"), 0.0, 0.0]]]),
+        ),
+    )
+    action = SimpleNamespace(
+        cfg=SimpleNamespace(cbf_sensor_name="cbf_scanner"),
+        _env=SimpleNamespace(scene=SimpleNamespace(sensors={"cbf_scanner": sensor})),
+    )
+    hits = DynamicObstacleCbfPreTrainedPolicyAction._current_sensor_hits(action)
+    assert hits["reflection_mask"].tolist() == [[True, True, False]]
+    assert (torch.zeros(2) - hits["hit_xy"][0, 1]).tolist() == [2.0, 0.0]
 
 
 def _limits(kp_value: float = 5.0):
@@ -195,13 +231,13 @@ def test_dynamic_cbf_play_task_requires_the_fixed_body_frame_jit() -> None:
     assert isinstance(cfg.actions.pre_trained_policy_action, DynamicObstacleCbfPreTrainedPolicyActionCfg)
     assert cfg.actions.pre_trained_policy_action.velocity_predictor_jit_path == "logs/lidar_velocity_predictor/best_jit.pt"
     assert cfg.actions.pre_trained_policy_action.require_velocity_predictor
-    assert cfg.actions.pre_trained_policy_action.cbf_scan_source == "policy"
+    assert cfg.actions.pre_trained_policy_action.scan_type == "policy"
     assert cfg.actions.pre_trained_policy_action.action_scales == (1.0, 1.0, 1.0)
 
 
 def test_static_cbf_uses_full_capture() -> None:
     cfg = load_cfg_from_registry(CBF_PLAY_TASK_ID, "env_cfg_entry_point")
-    assert cfg.actions.pre_trained_policy_action.cbf_scan_source == "full"
+    assert cfg.actions.pre_trained_policy_action.scan_type == "full"
 
 
 def test_dynamic_barrier_offset_uses_relative_point_velocity() -> None:

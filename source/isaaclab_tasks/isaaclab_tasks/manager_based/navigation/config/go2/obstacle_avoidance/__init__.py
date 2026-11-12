@@ -38,6 +38,7 @@ RESEARCH_AGENT_NAVIGATION_TASKS = frozenset(
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-v0",
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-Play-v0",
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+        "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-360-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Dynamic-Obstacle-Cbf-Obstacle-Avoidance-Unitree-Go2-Play-v0",
         "Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-v0",
         "Isaac-Mixed-Static-Pedestrian-Occupancy-Obstacle-Avoidance-Unitree-Go2-Play-v0",
@@ -321,6 +322,19 @@ gym.register(
         "env_cfg_entry_point": (
             f"{__name__}.kp_mixed_scenario_env_cfg:"
             "MixedTemporalLidarKpStaticObstacleCbfObstacleAvoidanceEnvCfg_PLAY"
+        ),
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
+    },
+)
+
+gym.register(
+    id="Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Static-Obstacle-Cbf-360-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
+    entry_point=_PED_CROWD_ENTRY_POINT,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.kp_mixed_scenario_env_cfg:"
+            "MixedTemporalLidarKpStaticObstacleCbf360LidarObstacleAvoidanceEnvCfg_PLAY"
         ),
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2TemporalLidarPPORunnerCfg_v0",
     },

@@ -218,8 +218,15 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             raise ValueError("CBF gains, slack_penalty, and tracking_tau_s must be positive.")
         if cfg.max_lidar_points < 1:
             raise ValueError("max_lidar_points must be at least one.")
-        if cfg.cbf_scan_source not in ("full", "policy"):
-            raise ValueError("cbf_scan_source must be 'full' or 'policy'.")
+        if cfg.scan_source not in ("held_scan", "sensor"):
+            raise ValueError("scan_source must be 'held_scan' or 'sensor'.")
+        if cfg.scan_type not in ("full", "policy"):
+            raise ValueError("scan_type must be 'full' or 'policy'.")
+        if cfg.scan_source == "sensor":
+            if not cfg.cbf_sensor_name or cfg.cbf_sensor_name not in env.scene.sensors:
+                raise ValueError(f"CBF sensor '{cfg.cbf_sensor_name}' is missing from the scene.")
+            if cfg.velocity_predictor_jit_path or cfg.require_velocity_predictor:
+                raise ValueError("The CBF velocity predictor requires the held 128-bin scan.")
 
         self._control_dt = cfg.low_level_decimation * env.physics_dt
         self._zoh_gain_s = zoh_average_acceleration_gain(self._control_dt, cfg.tracking_tau_s)
@@ -426,10 +433,14 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
             root_quat_w, torch.cat((nominal_acceleration_b, torch.zeros_like(nominal_acceleration_b[:, :1])), dim=1)
         )[:, :2]
 
-        capture = self._latest_lidar_capture()
-        binned = self._bin_cbf_capture(capture)
-        predicted_velocity_b = self._predict_velocity_b(capture)
-        predicted_velocity_w = body_to_world_xy(predicted_velocity_b, binned["ego_yaw"])
+        if self.cfg.scan_source == "sensor":
+            binned = self._current_sensor_hits()
+            predicted_velocity_w = torch.zeros_like(binned["hit_xy"])
+        else:
+            capture = self._latest_lidar_capture()
+            binned = self._bin_cbf_capture(capture)
+            predicted_velocity_b = self._predict_velocity_b(capture)
+            predicted_velocity_w = body_to_world_xy(predicted_velocity_b, binned["ego_yaw"])
         safe_acceleration_w = torch.empty_like(nominal_acceleration_w)
         slack = torch.zeros_like(self._slack)
         mean_slack = torch.zeros_like(self._mean_slack)
@@ -653,12 +664,21 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
                 f"CBF PLAY requires the held LiDAR collector '{self.cfg.lidar_collector_name}'. "
                 "Use the temporal-LiDAR PLAY environment entry point."
             )
-        if self.cfg.cbf_scan_source == "policy":
+        if self.cfg.scan_type == "policy":
             return collector.latest_policy_capture()
         return collector.latest_capture()
 
+    def _current_sensor_hits(self) -> dict[str, torch.Tensor]:
+        """Read current world-frame hits from the dedicated CBF ray caster."""
+        sensor = self._env.scene.sensors[self.cfg.cbf_sensor_name]
+        hits_w = sensor.data.ray_hits_w
+        range_m = torch.linalg.vector_norm(hits_w - sensor.data.pos_w.unsqueeze(1), dim=-1)
+        valid = torch.isfinite(range_m) & (range_m < sensor.cfg.max_distance * 0.99)
+        valid &= torch.isfinite(hits_w[..., :2]).all(dim=-1)
+        return {"hit_xy": hits_w[..., :2], "reflection_mask": valid}
+
     def _bin_cbf_capture(self, capture: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        if self.cfg.cbf_scan_source == "full":
+        if self.cfg.scan_type == "full":
             return forward_lidar_reflection_bins(capture)
         # TemporalLidarScan projects the held history about the sensor's current
         # pose, so the predictor output bins must use that same projection.
@@ -689,8 +709,12 @@ class DynamicObstacleCbfPreTrainedPolicyActionCfg(KpPreTrainedPolicyActionCfg):
     """Maximum nearest valid active-range reflections retained per QP."""
     lidar_collector_name: str = "_held_scan_lidar_collector"
     """Name of the held-scan collector supplied by the temporal-LiDAR environment."""
-    cbf_scan_source: str = "full"
-    """Use the ideal full scan or the sparse policy scan for CBF obstacles."""
+    scan_source: str = "held_scan"
+    """CBF obstacle source: existing held scan or a dedicated scene ray caster."""
+    cbf_sensor_name: str = "cbf_scanner"
+    """Scene sensor to read when scan_source is 'sensor'."""
+    scan_type: str = "full"
+    """Use the full or sparse policy capture when scan_source is 'held_scan'."""
     velocity_predictor_jit_path: str | None = None
     """Optional body-frame LiDAR velocity TorchScript path; ``None`` is static zero-velocity mode."""
     require_velocity_predictor: bool = False

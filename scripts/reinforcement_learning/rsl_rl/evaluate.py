@@ -636,7 +636,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if coverage_sweep:
         action_cfg = raw_env.action_manager.get_term("pre_trained_policy_action").cfg
         coverage_action_metadata = {
-            "cbf_scan_source": getattr(action_cfg, "cbf_scan_source", None),
+            "scan_source": getattr(action_cfg, "scan_source", None),
+            "scan_type": getattr(action_cfg, "scan_type", None),
             "predictor_100_percent_outside_training_range": bool(
                 getattr(action_cfg, "velocity_predictor_jit_path", None)
             ),
