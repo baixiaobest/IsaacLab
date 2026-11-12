@@ -20,6 +20,7 @@ class EpisodeEntry:
     length: int
     stratum: tuple[str, int, int, int]
     dynamic_indices: tuple[int, ...]
+    lidar_field: str
 
 
 def _files(dataset_path: str) -> list[Path]:
@@ -54,8 +55,8 @@ class PointVelocityDataset(Dataset):
     """Lazy individual scan-event samples stored in point-velocity HDF5 episodes."""
 
     def __init__(self, dataset_path: str, input_name: str = "lidar_noisy", num_frames: int | None = None) -> None:
-        if input_name not in {"lidar_noisy", "lidar_clean"}:
-            raise ValueError("input_name must be lidar_noisy or lidar_clean.")
+        if input_name not in {"lidar_noisy", "lidar_clean", "lidar_measured"}:
+            raise ValueError("input_name must be lidar_noisy, lidar_clean, or lidar_measured.")
         self.input_name = input_name
         self.available_frames: int | None = None
         self.noise_contract: tuple[float | None, str | None] | None = None
@@ -80,18 +81,28 @@ class PointVelocityDataset(Dataset):
                 if self.noise_contract is not None and noise_contract != self.noise_contract:
                     raise RuntimeError("Dataset files mix different LiDAR range-noise settings.")
                 self.noise_contract = noise_contract
+                is_real = metadata.get("source") == "real_static_rosbag"
+                if is_real:
+                    if input_name == "lidar_clean":
+                        raise ValueError(f"{file_path} has measured LiDAR only; no clean reference exists.")
+                    lidar_field = "lidar_measured"
+                else:
+                    if input_name == "lidar_measured":
+                        raise ValueError(f"{file_path} has synthetic noisy/clean inputs, not measured LiDAR.")
+                    lidar_field = input_name
                 for episode_name in sorted(data.keys()):
                     group = data[episode_name]
-                    required = {"lidar_noisy", "lidar_clean", "point_velocity_b", "reflection_mask", "dynamic_mask", "range_m",
+                    required = {"point_velocity_b", "reflection_mask", "dynamic_mask", "range_m",
                                 "capture_index", "capture_time_s", "evaluation_time_s", "evaluation_xy", "evaluation_yaw",
                                 "ray_coverage", "reflection_coverage", "first_after_capture"}
+                    required.update({"lidar_measured"} if is_real else {"lidar_noisy", "lidar_clean"})
                     if not required.issubset(group.keys()):
                         raise RuntimeError(f"{file_path}:{episode_name} is missing a schema-v3 required dataset.")
-                    length = int(group["lidar_noisy"].shape[0])
+                    length = int(group[lidar_field].shape[0])
                     available = int(metadata.get("num_frames", 4))
-                    if available < 1 or group["lidar_noisy"].shape[1:] not in ((2 * available * 128,), (2, available, 128)):
+                    if available < 1 or group[lidar_field].shape[1:] not in ((2 * available * 128,), (2, available, 128)):
                         raise RuntimeError(f"{file_path}:{episode_name} has inconsistent LiDAR frame metadata or shape.")
-                    if group["lidar_clean"].shape != group["lidar_noisy"].shape:
+                    if not is_real and group["lidar_clean"].shape != group["lidar_noisy"].shape:
                         raise RuntimeError(f"{file_path}:{episode_name} has mismatched clean and noisy LiDAR shapes.")
                     if self.available_frames is not None and available != self.available_frames:
                         raise RuntimeError("Dataset files contain mixed LiDAR history frame counts.")
@@ -104,7 +115,7 @@ class PointVelocityDataset(Dataset):
                         int(attrs.get("replica_index", -1)),
                         int(attrs.get("scenario_mode", -1)),
                     )
-                    self.entries.append(EpisodeEntry(str(file_path), episode_name, length, stratum, dynamic_indices))
+                    self.entries.append(EpisodeEntry(str(file_path), episode_name, length, stratum, dynamic_indices, lidar_field))
                     self.offsets.append(self.offsets[-1] + length)
         if not self.entries:
             raise RuntimeError("No valid point-velocity episodes were found.")
@@ -147,8 +158,8 @@ class PointVelocityDataset(Dataset):
             return {
                 "lidar": torch.from_numpy(
                     self._canonical_lidar(
-                        group[self.input_name][sample_index],
-                        f"{entry.file_path}:{entry.episode_name}/{self.input_name}",
+                        group[entry.lidar_field][sample_index],
+                        f"{entry.file_path}:{entry.episode_name}/{entry.lidar_field}",
                     )
                 ),
                 "target": torch.from_numpy(np.asarray(group["point_velocity_b"][sample_index], dtype=np.float32)),

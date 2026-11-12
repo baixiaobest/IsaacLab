@@ -64,11 +64,14 @@ def _histogram(path: Path, static_distance: np.ndarray, dynamic_distance: np.nda
         return
     bins = np.linspace(0.0, 20.0, 81)
     plt.figure(figsize=(8, 4))
-    plt.hist(static_distance, bins=bins, density=True, alpha=0.65, label="static")
-    plt.hist(dynamic_distance, bins=bins, density=True, alpha=0.65, label="pedestrian")
+    if static_distance.size:
+        plt.hist(static_distance, bins=bins, density=True, alpha=0.65, label="static")
+    if dynamic_distance.size:
+        plt.hist(dynamic_distance, bins=bins, density=True, alpha=0.65, label="pedestrian")
     plt.xlabel("Reflection distance (m)")
     plt.ylabel("Density")
-    plt.legend()
+    if static_distance.size or dynamic_distance.size:
+        plt.legend()
     plt.tight_layout()
     plt.savefig(path / "distance_distribution.png", dpi=160)
     plt.close()
@@ -76,6 +79,9 @@ def _histogram(path: Path, static_distance: np.ndarray, dynamic_distance: np.nda
 
 def _dynamic_speed_histogram(path: Path, speed: np.ndarray) -> None:
     """Plot ground-truth speed for each valid dynamic reflection."""
+    if not speed.size:
+        (path / "dynamic_velocity_distribution.png").unlink(missing_ok=True)
+        return
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -333,18 +339,16 @@ def main() -> None:
     dynamic_distance = np.concatenate(dynamic_ranges) if dynamic_ranges else np.empty(0)
     speed = np.concatenate(dynamic_speeds) if dynamic_speeds else np.empty(0)
     heading = np.concatenate(dynamic_heading) if dynamic_heading else np.empty(0)
-    if counts["dynamic"] == 0:
-        raise RuntimeError("Dataset contains no pedestrian reflection labels.")
     weight_static = float(distance_weight(torch.from_numpy(static_distance)).sum().item()) if static_distance.size else 0.0
     weight_dynamic = float(distance_weight(torch.from_numpy(dynamic_distance)).sum().item()) if dynamic_distance.size else 0.0
     summary = {
         "schema_version": 3,
         "velocity_frame": "evaluation_yaw_xy",
         "counts": dict(counts),
-        "fractions": {name: counts[name] / counts["total_cells"] for name in ("no_return", "static", "dynamic")},
+        "fractions": {name: counts[name] / max(counts["total_cells"], 1) for name in ("no_return", "static", "dynamic")},
         "close_dynamic": dict(close),
         "static_distance_quantiles_m": np.quantile(static_distance, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if static_distance.size else [],
-        "dynamic_distance_quantiles_m": np.quantile(dynamic_distance, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist(),
+        "dynamic_distance_quantiles_m": np.quantile(dynamic_distance, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if dynamic_distance.size else [],
         "dynamic_speed_quantiles_mps": np.quantile(speed, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if speed.size else [],
         "dynamic_heading_quantiles_rad": np.quantile(heading, [0.0, 0.1, 0.5, 0.9, 1.0]).tolist() if heading.size else [],
         "effective_distance_weight": {"static": weight_static, "dynamic": weight_dynamic},

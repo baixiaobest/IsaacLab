@@ -23,8 +23,9 @@ Velocity arrows show newest-frame pedestrian labels. Older dataset files lack pe
 and must be recollected for these plots. Adjust the
 number, range, or arrow scale with `--num_scan_samples`, `--scan_plot_range_m`, and
 `--velocity_arrow_seconds`.
-The audit also writes `audit/dynamic_velocity_distribution.png`, a histogram of
-ground-truth speed magnitudes for valid dynamic returns (one count per reflected bin).
+When dynamic returns exist, the audit also writes
+`audit/dynamic_velocity_distribution.png`, a histogram of ground-truth speed
+magnitudes (one count per reflected bin).
 
 Compare a trained checkpoint or exported TorchScript model with rollout labels:
 
@@ -50,6 +51,60 @@ to 1 m per 1 m/s. Only reflected newest-frame bins receive arrows. The
 `manifest.json` records source samples and plotted-bin errors. Use
 `--input_name lidar_noisy` or `--input_name lidar_clean` to render only one input, or adjust sampling with
 `--num_samples_per_group`, `--seed`, and `--scan_plot_range_m`.
+
+Convert static ROS bags:
+
+For a genuinely static real scene, record both CBF topics and convert the bag
+to a separate schema-v3 HDF5 collection:
+
+```bash
+ros2 bag record -o static_lidar_run /cbf/world_scan /cbf/snapshot
+source /opt/ros/humble/setup.bash
+source source/unitree_mujoco/ros2_ws/install/setup.bash
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/convert_static_rosbag.py \
+  --bag datasets/lidar_point_velocity/real_lidar \
+  --output datasets/lidar_point_velocity/real_lidar_hdf5 \
+  --num_frames 8 --skip_existing
+```
+
+`--bag` also accepts one bag directory; in that case `--output` may be a single
+`.hdf5` path. For a folder of runs, the converter writes one HDF5 file per
+bag, using the bag directory's name. `--skip_existing`
+keeps completed conversions and processes newly recorded runs.
+
+The converter selects eight consecutive captures per valid CBF snapshot, using
+the snapshot's embedded scan as frame zero, and projects all captures into its
+evaluation pose with the training `temporal_lidar_v4` projection. It skips
+incomplete histories. All reflected bins get zero velocity and static labels;
+no-return and unavailable bins are not treated as static reflections. The
+converter writes only `lidar_measured`; it creates no clean or noisy variant
+and adds no synthetic range noise. HDF5 metadata identifies these files with
+`data_source: real_sensor` and records the all-static label assumption. The
+training dataset reader maps this
+measured input to the model input. Record only scenes
+known to contain no moving objects, and keep real static episodes separate
+from synthetic dynamic episodes for training and split evaluation.
+
+`audit_model.py` can inspect this static-only collection with
+`--input_name lidar_measured`. It selects all real static samples and reports
+that selection in its manifest:
+
+```bash
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/audit_model.py \
+  --dataset_path datasets/lidar_point_velocity/real_lidar_hdf5/static_lidar_run.hdf5 \
+  --model logs/lidar_velocity_predictor/best_jit.pt \
+  --input_name lidar_measured --output_dir datasets/lidar_point_velocity/real_lidar_hdf5/model_audit
+```
+
+The distribution-only `audit.py` accepts static-only real collections. It
+reports zero dynamic returns, leaves dynamic quantiles empty, and omits the
+dynamic-speed histogram:
+
+```bash
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/lidar_velocity_predictor/audit.py \
+  --dataset_path datasets/lidar_point_velocity/real_lidar_hdf5 \
+  --output_dir datasets/lidar_point_velocity/real_lidar_hdf5/audit
+```
 
 Train, evaluate, and export:
 

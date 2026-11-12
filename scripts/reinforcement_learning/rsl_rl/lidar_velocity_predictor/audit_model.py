@@ -43,6 +43,8 @@ def load_model(path: Path, device: torch.device):
 
 
 def split_indices(dataset: PointVelocityDataset, model_path: Path, splits_path: Path | None) -> tuple[list[int], str]:
+    if splits_path is None and all(entry.lidar_field == "lidar_measured" for entry in dataset.entries):
+        return list(range(len(dataset))), "all_real_static_samples"
     path = splits_path if splits_path is not None else model_path.parent / "splits.json"
     if path.is_file():
         indices = json.loads(path.read_text(encoding="utf-8"))["test_indices"]
@@ -196,8 +198,8 @@ def main() -> None:
     parser.add_argument("--model", required=True, help="Training checkpoint or exported TorchScript .pt file.")
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--splits_path", default=None, help="Optional splits.json; otherwise use model sibling or episode split seed 42.")
-    parser.add_argument("--input_name", choices=("both", "lidar_noisy", "lidar_clean"), default="both",
-                        help="Render both saved inputs for each sample by default.")
+    parser.add_argument("--input_name", choices=("both", "lidar_noisy", "lidar_clean", "lidar_measured"), default="both",
+                        help="Render available inputs for each sample by default.")
     parser.add_argument("--num_samples_per_group", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--scan_plot_range_m", type=float, default=10.0)
@@ -231,13 +233,17 @@ def main() -> None:
                 evaluation_time = float(group["evaluation_time_s"][local])
                 history_dynamic = (np.asarray(group["history_dynamic_mask"][local], dtype=bool)[:frames]
                                    if "history_dynamic_mask" in group else None)
-                inputs = {"lidar_noisy": sample["lidar"].numpy()}
-                if args.input_name in ("both", "lidar_clean"):
+                inputs = {entry.lidar_field: sample["lidar"].numpy()}
+                if args.input_name in ("both", "lidar_clean") and "lidar_clean" in group:
                     inputs["lidar_clean"] = dataset._canonical_lidar(
                         group["lidar_clean"][local], f"{entry.file_path}:{entry.episode_name}/lidar_clean"
                     )
             name = f"{category}_{Path(entry.file_path).stem}_{entry.episode_name}_{local:06d}.png"
-            selected_inputs = ("lidar_noisy", "lidar_clean") if args.input_name == "both" else (args.input_name,)
+            if args.input_name in ("lidar_clean", "lidar_measured") and args.input_name not in inputs:
+                raise ValueError(f"{entry.file_path}:{entry.episode_name} has no {args.input_name} input.")
+            selected_inputs = tuple(inputs) if args.input_name == "both" else (
+                entry.lidar_field if args.input_name == "lidar_noisy" else args.input_name,
+            )
             plots = {}
             metrics = {}
             for input_name in selected_inputs:
@@ -262,17 +268,18 @@ def main() -> None:
                              "plots": plots, "metrics_by_input": metrics})
     output.mkdir(parents=True, exist_ok=True)
     def aggregate(input_name: str, metric: str, count: str) -> float | None:
-        values = [item["metrics_by_input"][input_name] for item in manifest]
+        values = [item["metrics_by_input"][input_name] for item in manifest if input_name in item["metrics_by_input"]]
         total = sum(item[count] for item in values if item[metric] is not None)
         return (sum(item[metric] * item[count] for item in values if item[metric] is not None) / total
                 if total else None)
 
+    available_inputs = sorted({input_name for item in manifest for input_name in item["metrics_by_input"]})
     aggregate_metrics = {
         input_name: {
             "plotted_static_false_motion_mean_mps": aggregate(input_name, "static_false_motion_mean_mps", "static_bins"),
             "plotted_dynamic_velocity_error_mean_mps": aggregate(input_name, "dynamic_velocity_error_mean_mps", "dynamic_bins"),
         }
-        for input_name in (("lidar_noisy", "lidar_clean") if args.input_name == "both" else (args.input_name,))
+        for input_name in available_inputs
     }
 
     report = {"model": str(model_path), "projection_contract": contract, "num_frames": frames,

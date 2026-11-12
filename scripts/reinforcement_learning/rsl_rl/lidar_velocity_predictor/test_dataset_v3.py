@@ -82,6 +82,28 @@ def test_eight_frame_dataset_infers_or_selects_newest_frames(tmp_path):
         PointVelocityDataset(str(path), num_frames=9)
 
 
+def test_real_static_episode_uses_measured_input_without_clean_variant(tmp_path):
+    path = tmp_path / "real.hdf5"
+    with h5py.File(path, "w") as handle:
+        data = handle.create_group("data")
+        data.attrs["metadata"] = json.dumps({
+            "schema_version": 3, "velocity_frame": "evaluation_yaw_xy",
+            "projection_contract": "temporal_lidar_v4", "num_frames": 8,
+            "source": "real_static_rosbag",
+        })
+        group = data.create_group("episode_0")
+        _write_episode(group, 1, frames=8)
+        measured = np.asarray(group["lidar_noisy"])
+        del group["lidar_noisy"]
+        del group["lidar_clean"]
+        group.create_dataset("lidar_measured", data=measured)
+    dataset = PointVelocityDataset(str(path))
+    assert dataset.entries[0].lidar_field == "lidar_measured"
+    assert dataset[0]["lidar"].shape == (2, 8, 128)
+    with pytest.raises(ValueError, match="no clean reference"):
+        PointVelocityDataset(str(path), input_name="lidar_clean")
+
+
 def test_full_resume_rejects_old_noise_checkpoint_but_model_only_allows_finetuning(tmp_path):
     from train import _load_resume_checkpoint
 
