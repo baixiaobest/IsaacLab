@@ -19,7 +19,7 @@ from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle
 
-from plot_crossing_success_000034 import (
+from plot_replay_common import (
     CBF_VECTOR_COLOR,
     EVALUATION_MEAN_PEDESTRIAN_RADIUS_M,
     GOAL_COLOR,
