@@ -85,6 +85,26 @@ def test_ignoring_pedestrian_receives_no_robot_repulsion():
     assert torch.allclose(ignoring.vel, no_robot.vel)
 
 
+def test_robot_goal_repulsion_stops_at_configured_radius():
+    manager = SocialForceCrowdManager(
+        SocialForceCrowdCfg(
+            max_pedestrians=3, a_ped=0.0, a_robot=0.0, a_wall=0.0,
+            a_robot_goal=2.5, robot_goal_radius=1.0,
+        ),
+        num_envs=1,
+        device="cpu",
+    )
+    _reset(manager, num_active=3)
+    manager.pos[:] = torch.tensor([[[0.5, 0.0], [1.0, 0.0], [1.1, 0.0]]])
+    manager.goal[:] = manager.pos
+    manager.vel.zero_()
+
+    manager.step(dt=0.1, robot_goal_pos=torch.zeros(1, 2))
+
+    assert manager.vel[0, 0, 0] > 0.0
+    assert torch.allclose(manager.vel[0, 1:], torch.zeros(2, 2))
+
+
 def test_reset_redraws_assignments_and_recycle_preserves_them(monkeypatch):
     manager = _manager(0.5, max_pedestrians=2)
     samples = iter(
