@@ -9,8 +9,8 @@ static "discrete_obstacles"/"concentric_maze" column (no pedestrians). The per-e
 pose, pedestrian-crowd curriculum/reset), so a single policy co-trains on both terrain families
 at once.
 
-The default 50/50 static/pedestrian split (1 "discrete_obstacles" col + 1 "concentric_maze" col +
-2 "ped_corridor" cols) comes from
+The 50/50 static/pedestrian split (three static columns, one open pedestrian
+column, and two indoor pedestrian columns) comes from
 :func:`pedestrian_terrains.build_mixed_static_pedestrian_corridor`'s defaults; pass different
 proportions/``num_cols`` to that function for other splits.
 """
@@ -109,8 +109,9 @@ class _MixedSceneCfg:
             discrete_obstacles_proportion=1.0,
             concentric_maze_proportion=1.0,
             ped_corridor_proportion=1.0,
-            indoor_ped_corridor_proportion=1.0,
-            num_cols=4,
+            indoor_ped_corridor_proportion=2.0,
+            room_corridor_proportion=1.0,
+            num_cols=6,
         )
     )
     pedestrians: RigidObjectCollectionCfg = PedestrianCollectionCfg()
@@ -685,7 +686,7 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
 
 
 def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
-    """Overlay the 7-column static-plus-dynamic benchmark without changing PLAY tasks."""
+    """Overlay the 8-column static-plus-dynamic benchmark without changing PLAY tasks."""
     configure_dynamic_crowd_evaluation(env_cfg)
     env_cfg.scene.terrain.class_type = FixedCoverageEvaluationTerrainImporter
     env_cfg.scene.terrain.terrain_generator = build_static_dynamic_evaluation_terrain()

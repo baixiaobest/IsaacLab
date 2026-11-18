@@ -56,6 +56,7 @@ class MixedTemporalLidarKpPointVelocityDataEnvCfg(MixedTemporalLidarKpObstacleAv
             concentric_maze_proportion=1.0,
             ped_corridor_proportion=1.0,
             indoor_ped_corridor_proportion=1.0,
+            room_corridor_proportion=0.0,
             num_cols=4,
         )
         # The shared terrain defaults begin the discrete-obstacle curriculum

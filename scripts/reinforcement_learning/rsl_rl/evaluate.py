@@ -30,6 +30,7 @@ from evaluation import (  # isort: skip
     _json_safe,
     dynamic_crowd_profiles,
     indoor_dynamic_profiles,
+    room_corridor_profiles,
     fixed_grid_profile_indices,
     print_leader_outcomes,
     print_results,
@@ -47,7 +48,7 @@ parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy on the f
 parser.add_argument("--task", type=str, required=True, help="Existing mixed obstacle-avoidance task ID.")
 parser.add_argument(
     "--benchmark_suite", choices=("static_dynamic", "indoor_dynamic"), default="static_dynamic",
-    help="Benchmark terrain/profile suite; static_dynamic preserves the legacy 56-cell evaluation.",
+    help="Benchmark terrain/profile suite; static_dynamic includes 56 legacy cells and 8 room/corridor cells.",
 )
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
 parser.add_argument(
@@ -233,7 +234,7 @@ SLOW_CROWD_AVAILABLE = (
     and EVALUATION_CROWD_SLOW_SPEED_RANGE is not None
 )
 
-STATIC_DYNAMIC_GRID_CELLS = 56
+STATIC_DYNAMIC_GRID_CELLS = 64
 INDOOR_DYNAMIC_GRID_CELLS = 12
 
 
@@ -244,7 +245,7 @@ def _fixed_grid_profile_indices(env, profiles) -> list[int]:
     columns = terrain.terrain_types.detach().cpu().tolist()
     if args_cli.benchmark_suite == "indoor_dynamic":
         return fixed_grid_profile_indices(profiles, levels, columns, num_rows=4, num_cols=3)
-    return fixed_grid_profile_indices(profiles, levels, columns)
+    return fixed_grid_profile_indices(profiles, levels, columns, num_rows=8, num_cols=8)
 
 
 INSTALLED_RSL_RL_VERSION = metadata.version("rsl-rl-lib")
@@ -519,6 +520,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             include_slow_leader=LEADER_OUTCOMES_AVAILABLE,
             include_slow_crowd=SLOW_CROWD_AVAILABLE,
         )
+        if not RVO2_CROWD_EVAL:
+            profiles.extend(room_corridor_profiles())
     required_cells = INDOOR_DYNAMIC_GRID_CELLS if args_cli.benchmark_suite == "indoor_dynamic" else STATIC_DYNAMIC_GRID_CELLS
     if args_cli.num_envs is None:
         args_cli.num_envs = required_cells
@@ -1020,9 +1023,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     "replicas": args_cli.num_envs // INDOOR_DYNAMIC_GRID_CELLS,
                     "terrain_family": "indoor", "count_levels": [2, 4, 6, 8],
                 } if args_cli.benchmark_suite == "indoor_dynamic" else {
-                    "columns": 7, "rows": 8, "cells": STATIC_DYNAMIC_GRID_CELLS,
+                    "columns": 8, "rows": 8, "cells": STATIC_DYNAMIC_GRID_CELLS,
                     "replicas": args_cli.num_envs // STATIC_DYNAMIC_GRID_CELLS,
-                    "static_column": 0, "dynamic_columns": 6,
+                    "static_columns": [0, 7], "dynamic_columns": 6,
                     "count_levels": [2, 4, 6, 8, 10, 12, 14, 16],
                 }
             ),

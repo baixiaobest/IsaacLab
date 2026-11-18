@@ -263,7 +263,7 @@ def test_dynamic_profiles_cover_all_scenarios_and_counts():
     assert len(profiles) == 56
     assert [profile.obstacle_count for profile in profiles[:8]] == list(range(2, 17, 2))
     assert [profile.pedestrian_count for profile in profiles[8:16]] == list(range(2, 17, 2))
-    assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER)
+    assert {profile.scenario for profile in profiles} == set(evaluation.SCENARIO_ORDER) - evaluation.ROOM_CORRIDOR_SCENARIOS
     assert [profile.scenario for profile in profiles[32:40]] == ["with_flow_slow_leader"] * 8
     assert [profile.scenario for profile in profiles[40:48]] == ["crossing_slow"] * 8
     assert [profile.scenario for profile in profiles[48:56]] == ["against_flow_slow"] * 8
@@ -282,14 +282,16 @@ def test_dynamic_profiles_can_skip_slow_leader_for_pinned_task_compatibility():
 
 
 def test_fixed_grid_profile_assignment_is_row_column_deterministic():
-    profiles = evaluation.dynamic_crowd_profiles()
-    levels = [row for row in range(8) for _ in range(7)]
-    columns = [column for _ in range(8) for column in range(7)]
+    profiles = evaluation.dynamic_crowd_profiles() + evaluation.room_corridor_profiles()
+    levels = [row for row in range(8) for _ in range(8)]
+    columns = [column for _ in range(8) for column in range(8)]
     assigned = evaluation.fixed_grid_profile_indices(profiles, levels, columns)
 
-    assert assigned == [column * 8 + row for row in range(8) for column in range(7)]
+    assert assigned == [column * 8 + row for row in range(8) for column in range(8)]
     assert profiles[assigned[0]].scenario == "static_obstacles"
     assert profiles[assigned[1]].scenario == "crossing"
+    assert profiles[assigned[7]].scenario == "room_to_corridor"
+    assert {p.nominal_corridor_width_m for p in profiles[56:]} == {1.2, 1.8}
     with pytest.raises(ValueError, match="coordinates"):
         evaluation.fixed_grid_profile_indices(profiles, [8], [0])
 

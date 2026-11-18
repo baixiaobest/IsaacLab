@@ -294,8 +294,13 @@ def reset_evaluation_robot_mixed(
 
     pedestrian_ids = env_ids[env.is_pedestrian_env[env_ids]]
     static_ids = env_ids[~env.is_pedestrian_env[env_ids]]
+    names = env.scene.terrain.get_env_terrain_names()
+    room_ids = torch.as_tensor([int(i) for i in static_ids.tolist() if names[int(i)] == "room_corridor"], device=env.device, dtype=torch.long)
+    static_ids = torch.as_tensor([int(i) for i in static_ids.tolist() if names[int(i)] != "room_corridor"], device=env.device, dtype=torch.long)
     if len(static_ids):
         reset_root_state_uniform(env, static_ids, static_pose_range, static_velocity_range, asset_cfg)
+    if len(room_ids):
+        reset_room_corridor_robot(env, room_ids, static_velocity_range, asset_cfg)
     if len(pedestrian_ids):
         reset_evaluation_pedestrian_scenario_robot(
             env,
@@ -365,9 +370,14 @@ def reset_robot_mixed(
     is_ped = env.is_pedestrian_env[env_ids]
     ped_env_ids = env_ids[is_ped]
     static_env_ids = env_ids[~is_ped]
+    names = env.scene.terrain.get_env_terrain_names()
+    room_ids = torch.as_tensor([int(i) for i in static_env_ids.tolist() if names[int(i)] == "room_corridor"], device=env.device, dtype=torch.long)
+    static_env_ids = torch.as_tensor([int(i) for i in static_env_ids.tolist() if names[int(i)] != "room_corridor"], device=env.device, dtype=torch.long)
 
     if len(static_env_ids) > 0:
         reset_root_state_uniform(env, static_env_ids, static_pose_range, static_velocity_range, asset_cfg)
+    if len(room_ids) > 0:
+        reset_room_corridor_robot(env, room_ids, static_velocity_range, asset_cfg)
 
     if len(ped_env_ids) > 0:
         reset_pedestrian_scenario_robot(
@@ -380,6 +390,92 @@ def reset_robot_mixed(
             crossing_prob,
             asset_cfg,
         )
+
+
+def reset_room_corridor_robot(env, env_ids, velocity_range, asset_cfg=SceneEntityCfg("robot")):
+    """Pair a safe start and goal for each room/corridor episode."""
+    from isaaclab.terrains import room_corridor_layout
+    terrain = env.scene.terrain
+    room_cfg = terrain.cfg.terrain_generator.sub_terrains["room_corridor"]
+    evaluation = room_cfg.evaluation_layout
+    if not hasattr(env, "room_corridor_goals"):
+        env.room_corridor_goals = torch.zeros(env.num_envs, 2, device=env.device)
+        env.room_corridor_routes = torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long)
+    n = len(env_ids)
+    start_list = []
+    goal_list = []
+    route_list = []
+    levels = terrain.terrain_levels[env_ids].tolist()
+    sampled_routes = torch.randint(4, (n,), device=env.device).tolist()
+    route_draws = torch.rand(n, device=env.device).tolist()
+    sampled_directions = torch.randint(2, (n,), device=env.device).tolist()
+    for index, (level, random_route, random_direction, route_draw) in enumerate(
+        zip(levels, sampled_routes, sampled_directions, route_draws)
+    ):
+        level = int(level)
+        layout = room_corridor_layout(level, room_cfg)
+        if evaluation:
+            route = level % 4
+        elif level < room_cfg.early_route_levels:
+            cumulative = 0.0
+            route = 3
+            for candidate, probability in enumerate(room_cfg.early_route_probabilities):
+                cumulative += probability
+                if route_draw < cumulative:
+                    route = candidate
+                    break
+        else:
+            route = random_route
+        direction = 1 if random_direction else -1
+        if evaluation:
+            direction = 1 if level % 2 == 0 else -1
+        door = layout["doors"][0] if direction > 0 else layout["doors"][1]
+        room_y = direction * (layout["width"] / 2 + layout["wall"] + 1.7)
+        progress = min(max(level, 0), room_cfg.num_layout_levels - 1) / (room_cfg.num_layout_levels - 1)
+        route_distance = 7.0 if evaluation else room_cfg.route_distance_range[0] + (
+            room_cfg.route_distance_range[1] - room_cfg.route_distance_range[0]
+        ) * progress
+        corridor_x = -route_distance if direction > 0 else route_distance
+        room_start = (door, room_y)
+        corridor_start = (corridor_x, 0.0)
+        if route == 0:
+            start, goal = room_start, (-corridor_x, 0.0)
+        elif route == 1:
+            start, goal = corridor_start, room_start
+        elif route == 2:
+            start, goal = corridor_start, (-corridor_x, 0.0)
+        else:
+            start, goal = room_start, (layout["doors"][1] if direction > 0 else layout["doors"][0], -room_y)
+        start_list.append(start)
+        goal_list.append(goal)
+        route_list.append(route)
+    starts = torch.tensor(start_list, device=env.device, dtype=torch.float32)
+    goals = torch.tensor(goal_list, device=env.device, dtype=torch.float32)
+    routes = torch.tensor(route_list, device=env.device, dtype=torch.long)
+    starts += torch.empty_like(starts).uniform_(-0.2, 0.2)
+    goals += torch.empty_like(goals).uniform_(-0.2, 0.2)
+    asset = env.scene[asset_cfg.name]
+    root = asset.data.default_root_state[env_ids].clone()
+    positions = root[:, :3] + env.scene.env_origins[env_ids]
+    positions[:, :2] += starts
+    yaw = torch.atan2(goals[:, 1] - starts[:, 1], goals[:, 0] - starts[:, 0])
+    progress = torch.as_tensor(levels, device=env.device, dtype=yaw.dtype) / (room_cfg.num_layout_levels - 1)
+    spread = torch.full_like(yaw, 0.35) if evaluation else (
+        room_cfg.heading_spread_range[0] +
+        (room_cfg.heading_spread_range[1] - room_cfg.heading_spread_range[0]) * progress
+    )
+    yaw += (2 * torch.rand_like(yaw) - 1) * spread
+    zero = torch.zeros_like(yaw)
+    orientation = math_utils.quat_mul(root[:, 3:7], math_utils.quat_from_euler_xyz(zero, zero, yaw))
+    velocity_ranges = torch.tensor([velocity_range.get(key, (0.0, 0.0)) for key in
+                                    ("x", "y", "z", "roll", "pitch", "yaw")], device=env.device)
+    velocities = root[:, 7:13] + math_utils.sample_uniform(
+        velocity_ranges[:, 0], velocity_ranges[:, 1], (n, 6), device=env.device
+    )
+    asset.write_root_pose_to_sim(torch.cat((positions, orientation), dim=-1), env_ids=env_ids)
+    asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
+    env.room_corridor_goals[env_ids] = goals
+    env.room_corridor_routes[env_ids] = routes
 
 
 def reset_pedestrian_crowd(env: ManagerBasedEnv, env_ids: torch.Tensor, flow_dir: float = 1.0):

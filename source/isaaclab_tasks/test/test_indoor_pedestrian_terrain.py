@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from isaaclab.terrains import RoomCorridorTerrainCfg, room_corridor_layout
 
 from isaaclab_tasks.manager_based.navigation.config.go2.obstacle_avoidance.pedestrian_terrains import (
     INDOOR_MAX_OBSTACLES,
@@ -49,10 +50,22 @@ def test_indoor_clearance_rejects_blocks_and_walls():
     assert not indoor_position_is_clear(0, np.array([0.0, INDOOR_WALL_INNER_Y_M]), 0.9, 0.6)
 
 
-def test_mixed_builder_allocates_four_equal_terrain_families():
-    cfg = build_mixed_static_pedestrian_corridor()
-    assert cfg.num_cols == 4
+def test_mixed_builder_allocates_six_columns():
+    cfg = build_mixed_static_pedestrian_corridor(indoor_ped_corridor_proportion=2.0)
+    assert cfg.num_cols == 6
     assert tuple(cfg.sub_terrains) == (
-        "discrete_obstacles", "concentric_maze", "ped_corridor", "indoor_ped_corridor"
+        "discrete_obstacles", "concentric_maze", "room_corridor", "ped_corridor", "indoor_ped_corridor"
     )
+
+
+def test_room_corridor_curriculum_starts_with_touching_openings():
+    cfg = RoomCorridorTerrainCfg()
+    easy = room_corridor_layout(0, cfg)
+    hard = room_corridor_layout(9, cfg)
+    assert easy["door_width"] == 2.5
+    assert np.isclose(easy["doors"][1] - easy["doors"][0] - easy["door_width"], 0.0)
+    assert 2.96 <= easy["width"] <= 3.04
+    assert np.isclose(hard["door_width"], 0.9)
+    assert 1.16 <= hard["width"] <= 1.24
+    assert 6.6 <= hard["doors"][1] - hard["doors"][0] - hard["door_width"] <= 7.4
 

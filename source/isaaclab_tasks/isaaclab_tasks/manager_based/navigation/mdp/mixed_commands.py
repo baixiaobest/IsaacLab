@@ -55,6 +55,9 @@ class MixedTerrainPose2dCommand(_CorridorPose2dCommandBase):
             dtype=torch.bool,
             device=self.device,
         )
+        self._is_room_corridor_env = torch.tensor(
+            [name == "room_corridor" for name in env_terrain_names], dtype=torch.bool, device=self.device
+        )
 
         # Selects the per-env goal-marker prototype in _debug_vis_callback (prototype i is
         # colored to match env i's pedestrians, see _set_debug_vis_impl).
@@ -64,12 +67,20 @@ class MixedTerrainPose2dCommand(_CorridorPose2dCommandBase):
         env_ids_t = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         ped_mask = self._is_pedestrian_env[env_ids_t]
         ped_env_ids = env_ids_t[ped_mask]
-        static_env_ids = env_ids_t[~ped_mask]
+        room_env_ids = env_ids_t[self._is_room_corridor_env[env_ids_t]]
+        static_env_ids = env_ids_t[~ped_mask & ~self._is_room_corridor_env[env_ids_t]]
 
         if len(ped_env_ids) > 0:
             self._resample_corridor_pose(ped_env_ids)
         if len(static_env_ids) > 0:
             self._resample_terrain_pose(static_env_ids)
+        if len(room_env_ids) > 0:
+            goals = self._env.room_corridor_goals[room_env_ids]
+            self.pos_command_w[room_env_ids, :2] = goals + self.terrain.env_origins[room_env_ids, :2]
+            self.pos_command_w[room_env_ids, 2] = 0.0
+            self._set_pos_z(room_env_ids)
+            delta = self.pos_command_w[room_env_ids, :2] - self.robot.data.root_pos_w[room_env_ids, :2]
+            self.heading_command_w[room_env_ids] = torch.atan2(delta[:, 1], delta[:, 0])
 
     def _resample_terrain_pose(self, env_ids: torch.Tensor):
         """Flat-patch terrain goal sampling, replicating

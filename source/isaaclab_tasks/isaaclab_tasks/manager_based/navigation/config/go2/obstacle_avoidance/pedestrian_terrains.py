@@ -24,6 +24,7 @@ from isaaclab.terrains import (
     FlatPatchSamplingCfg,
     HfConcentricMazeTerrainCfg,
     HfDiscretePositiveObstaclesTerrainCfg,
+    RoomCorridorTerrainCfg,
     TerrainGeneratorCfg,
 )
 from isaaclab.terrains.config.rough import FLAT_PATCH_HEIGHT_LIMITTED_CFG
@@ -41,6 +42,8 @@ PEDESTRIAN_CURRICULUM_MAX_LEVEL = PEDESTRIAN_CURRICULUM_NUM_LEVELS - 1
 EVALUATION_LEVEL_COUNTS = (2, 4, 6, 8, 10, 12, 14, 16)
 EVALUATION_NUM_LEVELS = len(EVALUATION_LEVEL_COUNTS)
 
+ROOM_CORRIDOR_TRAIN_SEED = 20261118
+ROOM_CORRIDOR_EVAL_SEED = 20271118
 # Sparse static obstacles shared by both corridor terrains (lidar remains meaningfully
 # exercised alongside the dynamic pedestrians).
 _SPARSE_OBSTACLE_KWARGS = dict(
@@ -344,14 +347,13 @@ def build_mixed_static_pedestrian_corridor(
     concentric_maze_proportion: float = 1.0,
     ped_corridor_proportion: float = 1.0,
     indoor_ped_corridor_proportion: float = 1.0,
-    num_cols: int = 4,
+    room_corridor_proportion: float = 1.0,
+    num_cols: int = 6,
 ) -> TerrainGeneratorCfg:
-    """Build a terrain generator that splits columns between static obstacle/maze terrain
-    (no pedestrians) and the pedestrian corridor (social-force crowd).
+    """Build the mixed static/pedestrian generator with configurable column weights.
 
-    Defaults assign one column to each family: discrete static obstacles, static maze,
-    open pedestrian corridor, and indoor pedestrian corridor.  This gives 50% static,
-    25% open dynamic, and 25% indoor dynamic rollouts.
+    The mixed scene assigns weights 1:1:1:1:2 to discrete obstacles, maze,
+    connected rooms, open pedestrian corridor, and indoor pedestrian corridor.
     """
     return TerrainGeneratorCfg(
         size=(20.0, 14.0),
@@ -374,6 +376,11 @@ def build_mixed_static_pedestrian_corridor(
                 **_CONCENTRIC_MAZE_KWARGS,
                 flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG},
             ),
+            "room_corridor": RoomCorridorTerrainCfg(
+                proportion=room_corridor_proportion,
+                layout_seed=ROOM_CORRIDOR_TRAIN_SEED,
+                flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG},
+            ),
             "ped_corridor": HfDiscretePositiveObstaclesTerrainCfg(
                 proportion=ped_corridor_proportion,
                 **_SPARSE_OBSTACLE_KWARGS,
@@ -388,17 +395,17 @@ def build_mixed_static_pedestrian_corridor(
 
 
 def build_static_dynamic_evaluation_terrain() -> TerrainGeneratorCfg:
-    """Return the fixed 8-row x 7-column static-plus-dynamic evaluation terrain.
+    """Return the fixed 8-row x 8-column static-plus-dynamic evaluation terrain.
 
-    The first column is the training-compatible discrete-obstacle family. The remaining six
-    columns are identical pedestrian corridors, one assigned to each benchmark scenario by the
-    evaluator. Deliberately omit the maze family from this benchmark.
+    The first column is the training-compatible discrete-obstacle family. The next six
+    columns are pedestrian corridors, one per benchmark scenario, followed by the
+    fixed connected-room column. The maze family is omitted.
     """
     return TerrainGeneratorCfg(
         size=(20.0, 14.0),
         border_width=10.0,
         num_rows=EVALUATION_NUM_LEVELS,
-        num_cols=7,
+        num_cols=8,
         horizontal_scale=0.1,
         vertical_scale=0.005,
         slope_threshold=0.75,
@@ -415,6 +422,13 @@ def build_static_dynamic_evaluation_terrain() -> TerrainGeneratorCfg:
                 proportion=6.0,
                 **_SPARSE_OBSTACLE_KWARGS,
                 flat_patch_sampling=_PED_CORRIDOR_FLAT_PATCH_SAMPLING,
+            ),
+            "room_corridor": RoomCorridorTerrainCfg(
+                proportion=1.0,
+                layout_seed=ROOM_CORRIDOR_EVAL_SEED,
+                num_layout_levels=EVALUATION_NUM_LEVELS,
+                evaluation_layout=True,
+                flat_patch_sampling={"target": FLAT_PATCH_HEIGHT_LIMITTED_CFG},
             ),
         },
     )

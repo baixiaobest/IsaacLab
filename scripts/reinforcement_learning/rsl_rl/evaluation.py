@@ -22,6 +22,7 @@ import numpy as np
 
 SCENARIO_ORDER = (
     "static_obstacles",
+    "room_to_corridor", "corridor_to_room", "corridor_to_corridor", "room_to_room",
     "crossing",
     "with_flow",
     "against_flow",
@@ -31,6 +32,10 @@ SCENARIO_ORDER = (
 )
 SCENARIO_LABELS = {
     "static_obstacles": "Static obstacles",
+    "room_to_corridor": "Room to corridor",
+    "corridor_to_room": "Corridor to room",
+    "corridor_to_corridor": "Along corridor",
+    "room_to_room": "Room to room",
     "crossing": "Crossing",
     "with_flow": "With flow",
     "against_flow": "Against flow",
@@ -40,6 +45,7 @@ SCENARIO_LABELS = {
 }
 
 STATIC_OBSTACLE_SCENARIO = "static_obstacles"
+ROOM_CORRIDOR_SCENARIOS = frozenset(("room_to_corridor", "corridor_to_room", "corridor_to_corridor", "room_to_room"))
 EVALUATION_LEVEL_COUNTS = (2, 4, 6, 8, 10, 12, 14, 16)
 
 GOAL_REGION_COLLISION_RADIUS_M = 0.75
@@ -107,6 +113,7 @@ class BenchmarkProfile:
     terrain_column: int | None = None
     terrain_level: int | None = None
     terrain_family: str = "open"
+    nominal_corridor_width_m: float | None = None
 
 
 def _json_safe(value: Any) -> Any:
@@ -198,7 +205,7 @@ def terminal_collision_ids(
     result = set()
     for env_id in env_ids.detach().cpu().tolist():
         profile = profiles[indices[env_id]]
-        is_static = profile.scenario == STATIC_OBSTACLE_SCENARIO
+        is_static = profile.scenario == STATIC_OBSTACLE_SCENARIO or profile.scenario in ROOM_CORRIDOR_SCENARIOS
         if (is_static and bool(static_contact_mask[env_id])) or (
             not is_static and bool(pedestrian_mask[env_id])
         ):
@@ -700,7 +707,7 @@ class CollisionReplayRecorder:
         frames = {name: np.concatenate([values, terminal_frame[name]], axis=0) for name, values in frames.items()}
         profile = self.profiles[self.env_profile_indices[env_id]]
         collision_source = (
-            "static_obstacle_contact" if profile.scenario == STATIC_OBSTACLE_SCENARIO else "pedestrian_capsule"
+            "static_obstacle_contact" if profile.scenario == STATIC_OBSTACLE_SCENARIO or profile.scenario in ROOM_CORRIDOR_SCENARIOS else "pedestrian_capsule"
         )
         colliding_agent_ids = (
             self._collision_indices(env, env_id)
@@ -727,6 +734,7 @@ class CollisionReplayRecorder:
             "terrain_column": profile.terrain_column,
             "terrain_level": profile.terrain_level,
             "terrain_family": profile.terrain_family,
+            "nominal_corridor_width_m": profile.nominal_corridor_width_m,
             "environment_id": env_id,
             "coverage_target": getattr(self, "coverage_target", None),
             "outcome": outcome,
@@ -943,6 +951,14 @@ def dynamic_crowd_profiles(
     return profiles
 
 
+def room_corridor_profiles() -> list[BenchmarkProfile]:
+    """Eight fixed room-route profiles, two widths for each route."""
+    routes = ("room_to_corridor", "corridor_to_room", "corridor_to_corridor", "room_to_room")
+    return [BenchmarkProfile(routes[row % 4], 0, terrain_column=7, terrain_level=row,
+                             terrain_family="room_corridor", nominal_corridor_width_m=1.8 if row < 4 else 1.2)
+            for row in range(8)]
+
+
 def indoor_dynamic_profiles() -> list[BenchmarkProfile]:
     """Return the 3 core indoor scenarios x 4 lower-density benchmark cells."""
     counts = (2, 4, 6, 8)
@@ -956,9 +972,9 @@ def indoor_dynamic_profiles() -> list[BenchmarkProfile]:
 
 def fixed_grid_profile_indices(
     profiles: list[BenchmarkProfile], terrain_levels: Iterable[int], terrain_columns: Iterable[int],
-    *, num_rows: int = 8, num_cols: int = 7,
+    *, num_rows: int = 8, num_cols: int = 8,
 ) -> list[int]:
-    """Return the column-major profile index for each row-major 7x8 terrain cell."""
+    """Return the column-major profile index for each row-major terrain cell."""
     levels = [int(value) for value in terrain_levels]
     columns = [int(value) for value in terrain_columns]
     if len(levels) != len(columns) or len(profiles) != num_rows * num_cols:
@@ -2014,7 +2030,8 @@ class EpisodeMetricsCollector:
             self._velocity_sums[profile_index] += metric_by_env[env_id]
             # Collision takes precedence when both terms trigger on the same final step.
             is_static_collision = (
-                self.profiles[profile_index].scenario == STATIC_OBSTACLE_SCENARIO
+                (self.profiles[profile_index].scenario == STATIC_OBSTACLE_SCENARIO
+                 or self.profiles[profile_index].scenario in ROOM_CORRIDOR_SCENARIOS)
                 and env_id in static_collision_ids
             )
             if env_id in collision_ids or is_static_collision:
@@ -2233,7 +2250,7 @@ def save_artifacts(
     output_path.mkdir(parents=True, exist_ok=True)
     all_rows = [*rows, *aggregate_rows]
     fieldnames = [
-        "scenario", "terrain_family", "pedestrian_count", "obstacle_count", "terrain_column", "terrain_level", "terrain_replicas",
+        "scenario", "terrain_family", "nominal_corridor_width_m", "pedestrian_count", "obstacle_count", "terrain_column", "terrain_level", "terrain_replicas",
         "episodes", "successes", "collisions", "goal_region_collisions",
         "all_collisions", "timeouts", "base_contacts", "success_rate", "navigation_success_rate", "collision_rate",
         "goal_region_collision_rate", "all_collision_rate", "timeout_rate", "base_contact_rate",
@@ -2476,10 +2493,12 @@ def _save_summary_plot(path: Path, rows: list[dict[str, Any]]) -> None:
         len(metric_specs), len(SCENARIO_ORDER), figsize=(4.5 * len(SCENARIO_ORDER), 13), sharex="col"
     )
     for col, scenario in enumerate(SCENARIO_ORDER):
+        is_room = scenario in ROOM_CORRIDOR_SCENARIOS
         scenario_rows = sorted(
-            (row for row in rows if row["scenario"] == scenario), key=lambda row: row["pedestrian_count"]
+            (row for row in rows if row["scenario"] == scenario),
+            key=lambda row: row["nominal_corridor_width_m"] if is_room else row["pedestrian_count"],
         )
-        crowd_counts = [row["pedestrian_count"] for row in scenario_rows]
+        crowd_counts = [row["nominal_corridor_width_m"] if is_room else row["pedestrian_count"] for row in scenario_rows]
         for row_index, (metric, std_metric, ylabel, scale, ylim) in enumerate(metric_specs):
             axis = axes[row_index, col]
             values = [row[metric] * scale for row in scenario_rows]

@@ -40,3 +40,4 @@ from .hf_terrains_cfg import (
     HfMountainTerrainCfg,
     HfConcentricMazeTerrainCfg,
 )
+from .room_corridor import RoomCorridorTerrainCfg, room_corridor_layout, room_corridor_terrain
