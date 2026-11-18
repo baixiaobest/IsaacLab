@@ -33,7 +33,6 @@ RESEARCH_AGENT_NAVIGATION_TASKS = frozenset(
         # Mixed static + pedestrian co-training and evaluation tasks.
         "Isaac-Mixed-Static-Pedestrian-Obstacle-Avoidance-Unitree-Go2-v0",
         "Isaac-Mixed-Static-Pedestrian-Obstacle-Avoidance-Unitree-Go2-Play-v0",
-        "Isaac-Mixed-Static-Pedestrian-Flow-Profiles-Obstacle-Avoidance-Unitree-Go2-Play-v0",
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-v0",
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Obstacle-Avoidance-Unitree-Go2-Play-v0",
         "Isaac-Mixed-Static-Pedestrian-Temporal-Lidar-Kp-Obstacle-Avoidance-Unitree-Go2-v0",
@@ -196,7 +195,6 @@ gym.register(
 ######################
 
 _PED_CROWD_ENTRY_POINT = f"{__name__}.pedestrian_crowd_env:PedestrianCrowdNavigationEnv"
-_FLOW_PROFILES_PLAY_ENTRY_POINT = f"{__name__}.pedestrian_crowd_env:FlowProfilesPlayEnv"
 
 gym.register(
     id="Isaac-Pedestrian-Obstacle-Avoidance-Unitree-Go2-v0",
@@ -260,16 +258,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.mixed_scenario_mixins:MixedObstacleAvoidanceEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0",
-    },
-)
-
-gym.register(
-    id="Isaac-Mixed-Static-Pedestrian-Flow-Profiles-Obstacle-Avoidance-Unitree-Go2-Play-v0",
-    entry_point=_FLOW_PROFILES_PLAY_ENTRY_POINT,
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.mixed_scenario_mixins:MixedFlowProfilesEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo2ObstacleAvoidanceNavPPORunnerCfg_v0",
     },
 )

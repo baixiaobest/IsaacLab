@@ -691,18 +691,6 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     return env_cfg
 
 
-@configclass
-class MixedFlowProfilesEnvCfg_PLAY(MixedObstacleAvoidanceEnvCfg):
-    """Playable evaluation setup with alternating with-flow and against-flow corridors."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        configure_dynamic_crowd_evaluation(self)
-        self.scene.num_envs = 2
-        self.observations.policy.enable_corruption = False
-        self.actions.pre_trained_policy_action.debug_vis = True
-
-
 def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
     """Overlay the 8-column static-plus-dynamic benchmark without changing PLAY tasks."""
     configure_dynamic_crowd_evaluation(env_cfg)

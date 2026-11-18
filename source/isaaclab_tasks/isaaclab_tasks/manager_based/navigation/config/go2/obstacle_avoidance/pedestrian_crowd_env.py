@@ -90,7 +90,6 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         self._write_pedestrians_to_sim()
         self._randomize_per_env_colors()
 
-
     def _ensure_held_scan_lidar_collector(self) -> None:
         """Create the optional collector once the scene is available."""
         if self._held_scan_lidar_collector is None and getattr(self.cfg, "held_scan_lidar_enabled", False):
@@ -156,21 +155,3 @@ class PedestrianCrowdNavigationEnv(ManagerBasedRLEnv):
         self._write_pedestrians_to_sim()
         if self._held_scan_lidar_collector is not None:
             self._held_scan_lidar_collector.reset(env_ids)
-
-
-class FlowProfilesPlayEnv(PedestrianCrowdNavigationEnv):
-    """Play only the two standard flow evaluation scenarios, alternating across envs."""
-
-    def __init__(self, cfg, render_mode: str | None = None, **kwargs):
-        super().__init__(cfg, render_mode=render_mode, **kwargs)
-        from .mixed_scenario_mixins import EVALUATION_SCENARIO_CODES, install_dynamic_crowd_evaluation_profiles
-
-        if self.num_envs < 2:
-            raise ValueError("Flow profiles play requires at least two environments to show both directions.")
-        env_ids = torch.arange(self.num_envs, device=self.device)
-        scenarios = torch.where(
-            env_ids % 2 == 0,
-            EVALUATION_SCENARIO_CODES["with_flow"],
-            EVALUATION_SCENARIO_CODES["against_flow"],
-        )
-        install_dynamic_crowd_evaluation_profiles(self, torch.full_like(env_ids, 4), scenarios)
