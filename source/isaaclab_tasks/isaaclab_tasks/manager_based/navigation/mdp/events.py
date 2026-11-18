@@ -213,6 +213,8 @@ def reset_evaluation_pedestrian_scenario_robot(
     slow_scenario_codes: tuple[int, ...] = (),
     crossing_scenario_codes: tuple[int, ...] = (0,),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    with_flow_pose_range: dict[str, tuple[float, float]] | None = None,
+    against_flow_pose_range: dict[str, tuple[float, float]] | None = None,
 ):
     """Reset a benchmark profile's robot pose.
 
@@ -262,6 +264,21 @@ def reset_evaluation_pedestrian_scenario_robot(
         ),
         torch.zeros_like(scenario),
     )
+    if with_flow_pose_range is not None and against_flow_pose_range is not None:
+        direction = env.evaluation_flow_goal_direction[env_ids]
+        # The reset helper samples one range for the batch, so handle each flow
+        # direction separately while keeping crossing resets together below.
+        for selected, pose_range in ((direction == 1, with_flow_pose_range), (direction == -1, against_flow_pose_range)):
+            selected_ids = env_ids[selected & ~is_crossing]
+            if len(selected_ids):
+                _reset_robot_from_pedestrian_modes(
+                    env, selected_ids, mode[selected & ~is_crossing], pose_range,
+                    crossing_south_pose_range, crossing_north_pose_range, velocity_range, asset_cfg,
+                )
+        env_ids = env_ids[is_crossing]
+        mode = mode[is_crossing]
+        if not len(env_ids):
+            return
     _reset_robot_from_pedestrian_modes(
         env,
         env_ids,
@@ -288,6 +305,8 @@ def reset_evaluation_robot_mixed(
     slow_scenario_codes: tuple[int, ...] = (),
     crossing_scenario_codes: tuple[int, ...] = (0,),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    with_flow_pose_range: dict[str, tuple[float, float]] | None = None,
+    against_flow_pose_range: dict[str, tuple[float, float]] | None = None,
 ):
     """Reset a static/dynamic benchmark while keeping static terrain entirely crowd-free."""
     from isaaclab.envs.mdp.events import reset_root_state_uniform
@@ -314,6 +333,8 @@ def reset_evaluation_robot_mixed(
             slow_scenario_codes=slow_scenario_codes,
             crossing_scenario_codes=crossing_scenario_codes,
             asset_cfg=asset_cfg,
+            with_flow_pose_range=with_flow_pose_range,
+            against_flow_pose_range=against_flow_pose_range,
         )
 
 

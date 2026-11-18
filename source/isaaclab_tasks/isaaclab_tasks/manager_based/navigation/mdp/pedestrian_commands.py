@@ -78,7 +78,8 @@ class _CorridorPose2dCommandBase(UniformPose2dCommand):
             )
             # Crossing profiles use zero because their flow-direction goal is irrelevant.
             direction = torch.where(direction == 0.0, random_direction, direction)
-        distance = torch.empty(n, device=self.device).uniform_(*self.cfg.goal_distance_range)
+        goal_distance_range = getattr(self._env, "evaluation_flow_goal_distance_range", self.cfg.goal_distance_range)
+        distance = torch.empty(n, device=self.device).uniform_(*goal_distance_range)
         flow_x = (direction * distance).clamp(-self.cfg.corridor_half_length, self.cfg.corridor_half_length)
         flow_y = torch.empty(n, device=self.device).uniform_(
             -self.cfg.corridor_half_width, self.cfg.corridor_half_width
@@ -118,7 +119,7 @@ class _CorridorPose2dCommandBase(UniformPose2dCommand):
                         local_x[local_index] = torch.empty((), device=self.device).uniform_(*self.cfg.crossing_x_range)
                         local_y[local_index] = cross_y[local_index]
                     else:
-                        new_distance = torch.empty((), device=self.device).uniform_(*self.cfg.goal_distance_range)
+                        new_distance = torch.empty((), device=self.device).uniform_(*goal_distance_range)
                         local_x[local_index] = (direction[local_index] * new_distance).clamp(
                             -self.cfg.corridor_half_length, self.cfg.corridor_half_length
                         )

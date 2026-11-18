@@ -520,6 +520,10 @@ training speeds without being as extreme as the single slow-leader cell.
 EVALUATION_CROWD_LATERAL_HEADING_MAX = PED_LATERAL_HEADING_MAX_HIGH
 """Fixed maximum pedestrian heading offset used by the dynamic-crowd benchmark [rad]."""
 
+EVALUATION_WITH_FLOW_SPAWN_POSE_RANGE = {"x": (-5.0, -4.0), "y": (-1.5, 1.5), "yaw": (-math.pi, math.pi)}
+EVALUATION_AGAINST_FLOW_SPAWN_POSE_RANGE = {"x": (4.0, 5.0), "y": (-1.5, 1.5), "yaw": (-math.pi, math.pi)}
+EVALUATION_FLOW_GOAL_DISTANCE_RANGE = (5.0, 7.0)
+
 EVALUATION_GOAL_REACHED_DISTANCE_THRESHOLD = 0.5
 """Maximum goal distance for an evaluation success [m]."""
 
@@ -647,6 +651,8 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
         mode="reset",
         params={
             "flow_pose_range": _FLOW_SPAWN_POSE_RANGE,
+            "with_flow_pose_range": EVALUATION_WITH_FLOW_SPAWN_POSE_RANGE,
+            "against_flow_pose_range": EVALUATION_AGAINST_FLOW_SPAWN_POSE_RANGE,
             "crossing_south_pose_range": _CROSSING_SOUTH_SPAWN_POSE_RANGE,
             "crossing_north_pose_range": _CROSSING_NORTH_SPAWN_POSE_RANGE,
             "velocity_range": _ZERO_VELOCITY_RANGE,
@@ -698,6 +704,8 @@ def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -
             "static_pose_range": _STATIC_SPAWN_POSE_RANGE,
             "static_velocity_range": _ZERO_VELOCITY_RANGE,
             "flow_pose_range": _FLOW_SPAWN_POSE_RANGE,
+            "with_flow_pose_range": EVALUATION_WITH_FLOW_SPAWN_POSE_RANGE,
+            "against_flow_pose_range": EVALUATION_AGAINST_FLOW_SPAWN_POSE_RANGE,
             "crossing_south_pose_range": _CROSSING_SOUTH_SPAWN_POSE_RANGE,
             "crossing_north_pose_range": _CROSSING_NORTH_SPAWN_POSE_RANGE,
             "pedestrian_velocity_range": _ZERO_VELOCITY_RANGE,
@@ -773,6 +781,7 @@ def install_dynamic_crowd_evaluation_profiles(
 
     env.evaluation_pedestrian_count = counts
     env.evaluation_scenario = scenarios
+    env.evaluation_flow_goal_distance_range = EVALUATION_FLOW_GOAL_DISTANCE_RANGE
     # Reset hooks fill these values for designated-leader episodes. Keeping them on the
     # environment lets the evaluator record the actual sampled conditions per accepted
     # episode, rather than merely documenting the configured ranges.
