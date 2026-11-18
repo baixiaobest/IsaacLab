@@ -54,10 +54,12 @@ navigation goal clear of loitering pedestrians so a last-second bump while the
 robot is settling into the goal pose doesn't register as a false-negative
 timeout/collision; ``d_i = |pos_i - goal_robot|``)::
 
-    f_i^robot_goal = a_robot_goal * exp((r_i + robot_goal_radius - d_i) / b_robot_goal) * (pos_i - goal_robot) / d_i
+    f_i^robot_goal = a_robot_goal * exp((r_i + robot_goal_radius - d_i) / b_robot_goal)
+                     * max(1 - d_i / robot_goal_radius, 0) * (pos_i - goal_robot) / d_i
 
-with strength ``a_robot_goal`` and falloff range ``b_robot_goal``. Disabled by
-default (``a_robot_goal = 0``); the robot itself is never affected by this term.
+with strength ``a_robot_goal`` and falloff range ``b_robot_goal``. The force tapers
+to zero at ``robot_goal_radius`` and is zero beyond it. Disabled by default
+(``a_robot_goal = 0``); the robot itself is never affected by this term.
 """
 
 from __future__ import annotations
@@ -140,7 +142,7 @@ class SocialForceCrowdCfg:
     """Falloff range of the robot-goal repulsion [m]."""
 
     robot_goal_radius: float = 0.6
-    """Effective radius of the zone kept clear around the robot's goal [m]."""
+    """Maximum center-to-center distance affected by goal repulsion [m]."""
 
     lateral_heading_max: float = 0.0
     """Maximum absolute pedestrian heading offset from the corridor flow axis [rad].
@@ -171,6 +173,8 @@ class SocialForceCrowdCfg:
     def __post_init__(self):
         if not 0.0 <= self.robot_ignore_probability <= 1.0:
             raise ValueError("robot_ignore_probability must lie in [0, 1].")
+        if self.a_robot_goal > 0.0 and self.robot_goal_radius <= 0.0:
+            raise ValueError("robot_goal_radius must be positive when goal repulsion is enabled.")
 
 
 class SocialForceCrowdManager:
@@ -188,6 +192,8 @@ class SocialForceCrowdManager:
             raise ValueError("robot_ignore_probability must lie in [0, 1].")
         if cfg.static_surface_point_spacing_m <= 0.0:
             raise ValueError("static_surface_point_spacing_m must be positive.")
+        if cfg.a_robot_goal > 0.0 and cfg.robot_goal_radius <= 0.0:
+            raise ValueError("robot_goal_radius must be positive when goal repulsion is enabled.")
 
         self.cfg = cfg
         self.num_envs = num_envs
@@ -640,6 +646,7 @@ class SocialForceCrowdManager:
             magnitude_goal = cfg.a_robot_goal * torch.exp(
                 (self.radius + cfg.robot_goal_radius - dist_goal) / cfg.b_robot_goal
             )
+            magnitude_goal *= (1.0 - dist_goal / cfg.robot_goal_radius).clamp(min=0.0)
             magnitude_goal = torch.where(active, magnitude_goal, torch.zeros_like(magnitude_goal))
             f_robot_goal = (magnitude_goal / dist_goal).unsqueeze(-1) * diff_goal
         else:
