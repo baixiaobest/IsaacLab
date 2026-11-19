@@ -1,4 +1,29 @@
-# Crossing behavior analysis
+# Behavior analysis
+
+`behavior_analysis.py` plots robot and pedestrian trajectories from a saved
+episode replay NPZ. Four presets reproduce the previous paper figure sets:
+
+```bash
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset crossing-episode
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset crossing-success
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset with-flow
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset against-flow
+```
+
+Each command writes three numbered PNGs under `paper_figures/`. To analyze a
+different replay, give the NPZ and phase times in seconds:
+
+```bash
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py \
+  /path/to/replay.npz --times 1.2 4.4 8.0 --highlight 1 4 \
+  --output /path/to/figures/behavior
+```
+
+Use `--time-to-goal` for times relative to the goal. `--x-limits`, `--y-limits`,
+`--history-s`, `--title`, and `--dpi` adjust the plots. A preset can be combined
+with `--input` to apply its layout to another replay.
+
+## Crossing behavior heatmap
 
 `crossing_behavior_analysis.py` builds a bird's-eye-view grid from the saved
 interaction replay clips. It reads each clip's existing `canonical_label` from
