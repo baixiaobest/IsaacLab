@@ -62,6 +62,9 @@ class ObstacleAvoidanceSceneCfg(LowLevelSceneCfg):
         terrain_generator=DISCRETE_OBSTACLES_MAZE,
         max_init_terrain_level=0,
         collision_group=-1,
+        visual_material=sim_utils.PreviewSurfaceCfg(
+            diffuse_color=(0.2, 0.2, 0.2), roughness=0.9, metallic=0.0
+        ),
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",

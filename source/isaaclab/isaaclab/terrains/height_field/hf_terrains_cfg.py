@@ -273,6 +273,9 @@ class HfConcentricMazeTerrainCfg(HfTerrainBaseCfg):
     """The (min, max) number of openings cut per side per ring.
     At difficulty=0 the maximum count is used; at difficulty=1 the minimum count is used."""
 
+    second_ring_num_openings: int | None = None
+    """Optional number of openings per side on the second ring outward from the center."""
+
     platform_width: float = 1.0
     """The width of the square platform at the center of the terrain. Defaults to 1.0."""
 

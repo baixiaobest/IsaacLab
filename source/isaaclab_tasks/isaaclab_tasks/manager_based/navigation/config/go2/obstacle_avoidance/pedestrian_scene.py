@@ -68,7 +68,9 @@ def _pedestrian_capsule_cfg(radius: float, height: float) -> sim_utils.CapsuleCf
         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         mass_props=sim_utils.MassPropertiesCfg(mass=70.0),
         collision_props=sim_utils.CollisionPropertiesCfg(),
-        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.65, 0.55)),
+        visual_material=sim_utils.PreviewSurfaceCfg(
+            diffuse_color=(0.2, 0.2, 0.2), roughness=0.9, metallic=0.0
+        ),
     )
 
 

@@ -582,8 +582,26 @@ def concentric_maze_terrain(difficulty: float, cfg: hf_terrains_cfg.HfConcentric
 
     hf_raw = np.zeros((width_pixels, length_pixels))
 
+    def opening_starts(span: int, count: int, distinct: bool) -> list[int]:
+        if span <= opening_px:
+            return []
+        if not distinct:
+            return [int(np.random.randint(0, span - opening_px)) for _ in range(count)]
+        candidates = np.arange(span - opening_px + 1)
+        starts = []
+        for _ in range(count):
+            if candidates.size == 0:
+                break
+            start = int(np.random.choice(candidates))
+            starts.append(start)
+            candidates = candidates[np.abs(candidates - start) >= opening_px]
+        return starts
+
     ring_half = platform_half + spacing_px
+    ring_index = 0
     while ring_half < cx and ring_half < cy:
+        second_ring_override = ring_index == 1 and cfg.second_ring_num_openings is not None
+        ring_openings = cfg.second_ring_num_openings if second_ring_override else num_openings
         xl = cx - ring_half
         xr = cx + ring_half
         yl = cy - ring_half
@@ -595,24 +613,23 @@ def concentric_maze_terrain(difficulty: float, cfg: hf_terrains_cfg.HfConcentric
         hf_raw[xl : xl + thick_px, yl:yr] = height_px       # west wall
         hf_raw[xr - thick_px : xr, yl:yr] = height_px       # east wall
 
-        if num_openings > 0 and opening_px > 0:
+        if ring_openings > 0 and opening_px > 0:
             # North and south walls: openings span along the x-axis
             for y0, y1 in [(yl, yl + thick_px), (yr - thick_px, yr)]:
                 span = xr - xl
-                for _ in range(num_openings):
-                    if span > opening_px:
-                        ox = xl + np.random.randint(0, span - opening_px)
-                        hf_raw[ox : ox + opening_px, y0:y1] = 0
+                for start in opening_starts(span, ring_openings, second_ring_override):
+                    ox = xl + start
+                    hf_raw[ox : ox + opening_px, y0:y1] = 0
 
             # West and east walls: openings span along the y-axis
             for x0, x1 in [(xl, xl + thick_px), (xr - thick_px, xr)]:
                 span = yr - yl
-                for _ in range(num_openings):
-                    if span > opening_px:
-                        oy = yl + np.random.randint(0, span - opening_px)
-                        hf_raw[x0:x1, oy : oy + opening_px] = 0
+                for start in opening_starts(span, ring_openings, second_ring_override):
+                    oy = yl + start
+                    hf_raw[x0:x1, oy : oy + opening_px] = 0
 
         ring_half += spacing_px
+        ring_index += 1
 
     # Keep center platform clear
     hf_raw[cx - platform_half : cx + platform_half, cy - platform_half : cy + platform_half] = 0
