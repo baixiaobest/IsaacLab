@@ -1,16 +1,30 @@
 # Behavior analysis
 
 `behavior_analysis.py` plots robot and pedestrian trajectories from a saved
-episode replay NPZ. Four presets reproduce the previous paper figure sets:
+episode replay NPZ. The presets reproduce the paper figure sets:
 
 ```bash
 python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset crossing-episode
 python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset crossing-success
 python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset with-flow
 python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset against-flow
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py --preset against-flow-69831
 ```
 
-Each command writes three numbered PNGs under `paper_figures/`. To analyze a
+Each command writes one PNG per phase under `paper_figures/`. The phase count
+comes from the number of entries in the preset's `phases` tuple. To put all
+phases in one figure with one shared speed colorbar and legend, add `--combined`:
+
+```bash
+python3 scripts/reinforcement_learning/rsl_rl/plotting/behavior_analysis.py \
+  --preset against-flow-69831 --combined
+```
+
+This writes `paper_figures/against_flow_69831_behavior_combined.png`.
+Combined figures default to 350 DPI across presets so panels have a consistent
+export scale; use `--dpi` to override it. Their plot heights can differ because
+each preset retains its own spatial limits and equal x/y scale.
+To analyze a
 different replay, give the NPZ and phase times in seconds:
 
 ```bash

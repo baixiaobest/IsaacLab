@@ -3,13 +3,14 @@
 
 Use a named preset to reproduce the paper figures, or pass an arbitrary replay
 with explicit phase times. Times are seconds from the start unless --time-to-goal
-is set. Each phase is saved as a separate PNG.
+is set. Use --combined to save all phases in one PNG with a shared colorbar.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from math import ceil
 from pathlib import Path
 
 import matplotlib
@@ -43,14 +44,14 @@ class Preset:
     ylim: tuple[float, float]
     time_to_goal: bool = True
     history_s: float | None = None
+    dpi: int = 350
 
 
 PRESETS = {
     "crossing-episode": Preset(
         "crossing_9705bc8caf1f467f94a4e236d26eafa7.npz", "crossing_9705bc8", "Crossing",
-        ((1.20, "assert_15", "Assert across the path of pedestrian 15"),
-         (4.40, "assert_yield", "Assert past pedestrian 3 while yielding to pedestrian 11"),
-         (8.00, "final_approach", "Final approach to the navigation goal")),
+        ((3.0, "Assert", "Assert across the path of pedestrian 15"),
+         (5.6, "Yield", "Assert past pedestrian 3 while yielding to pedestrian 11")),
         (15, 3, 11), (64.5, 75.5), (-33.5, -22.5), False,
     ),
     "crossing-success": Preset(
@@ -74,6 +75,13 @@ PRESETS = {
          (-4.48, "exploit_gap", "Exploit gap: complete the pass between the two pedestrians")),
         (7, 10, 1, 3), (41.0, 51.0), (-6.0, 4.0), True, 3.0,
     ),
+    "against-flow-69831": Preset(
+        "against_flow_69831eeee017455981e6e180c2f45518.npz",
+        "against_flow_69831_behavior", "Against flow",
+        ((4.40, "move sideway", ""),
+         (7.04, "stop and yield", "")),
+        (10, 1, 15), (62.0, 76.0), (-7.0, 6.0), False, None, 180,
+    ),
 }
 
 
@@ -82,6 +90,7 @@ def plot_case(
     highlights: tuple[int, ...] = (), xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None, time_to_goal: bool = False,
     history_s: float | None = None, title: str = "Behavior", dpi: int = 350,
+    combined: bool = False,
 ) -> list[Path]:
     with np.load(input_path) as data:
         time_s = data["time_s"]
@@ -97,6 +106,8 @@ def plot_case(
 
     if len(time_s) < 2:
         raise ValueError("Replay must contain at least two frames.")
+    if not phases:
+        raise ValueError("At least one phase is required.")
     if any(agent_id < 0 or agent_id >= active.shape[1] for agent_id in highlights):
         raise ValueError(f"Highlighted pedestrian IDs must be in [0, {active.shape[1] - 1}].")
     dt = float(np.median(np.diff(time_s)))
@@ -111,10 +122,18 @@ def plot_case(
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 13,
                          "axes.spines.top": False, "axes.spines.right": False})
     output_stem.parent.mkdir(parents=True, exist_ok=True)
-    outputs = []
-    for number, (requested_time, slug, description) in enumerate(phases, 1):
+    handles = [Line2D([0], [0], color=PEDESTRIAN_COLOR, lw=1.7, label="Ped. traj.")]
+    handles += [Line2D([0], [0], color=color, lw=2.5, label=f"Ped. {agent_id}")
+                for agent_id, color in highlight_colors.items()]
+    handles += [Line2D([0], [0], color=GOAL_COLOR, marker=">", lw=1.8, linestyle="--", label="Nav. goal"),
+                Line2D([0], [0], color="#718096", lw=2, linestyle="--", label="Robot (future)"),
+                Line2D([0], [0], color=NAVIGATION_VECTOR_COLOR, marker=">", lw=2.5, label="Nav. cmd.")]
+    if cbf_velocity is not None:
+        handles.append(Line2D([0], [0], color=CBF_VECTOR_COLOR, marker=">", lw=2.5, label="CBF cmd."))
+
+    def draw_phase(ax: plt.Axes, phase: tuple[float, str, str]):
+        requested_time, slug, description = phase
         frame = _nearest_index(time_s, goal_time + requested_time if time_to_goal else requested_time)
-        fig, ax = plt.subplots(figsize=(7.6, 7.1), constrained_layout=True)
         history = pedestrian_xy.copy()
         if history_s is not None:
             history[:max(0, frame - int(round(history_s / dt)) + 1)] = np.nan
@@ -151,18 +170,36 @@ def plot_case(
         ax.set(xlim=xlim, ylim=ylim, aspect="equal", xlabel="x (m)", ylabel="y (m)",
                title=f"{title} | {slug.replace('_', ' ').capitalize()} | {time_label}")
         ax.grid(color="#DCE3EA", linewidth=0.6, zorder=0)
-        ax.text(0.02, 0.02, description, transform=ax.transAxes, fontsize=11.5,
-                color="#4A5568", va="bottom")
+        if description:
+            ax.text(0.02, 0.02, description, transform=ax.transAxes, fontsize=11.5,
+                    color="#4A5568", va="bottom")
+        return collection
+
+    if combined:
+        columns = min(3, len(phases))
+        rows = ceil(len(phases) / columns)
+        fig, axes = plt.subplots(rows, columns, figsize=(6.8 * columns, 6.5 * rows),
+                                 constrained_layout=True, squeeze=False)
+        panels = list(axes.flat)
+        for ax, phase in zip(panels, phases):
+            collection = draw_phase(ax, phase)
+        for ax in panels[len(phases):]:
+            ax.set_visible(False)
+        fig.colorbar(collection, ax=panels[:len(phases)], location="right", pad=0.02,
+                     shrink=0.78, label="Robot speed (m/s): slow → fast")
+        fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0),
+                   ncol=min(4, len(handles)), frameon=True, fontsize=10.5)
+        path = output_stem.parent / f"{output_stem.name}_combined.png"
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        return [path]
+
+    outputs = []
+    for number, phase in enumerate(phases, 1):
+        fig, ax = plt.subplots(figsize=(7.6, 7.1), constrained_layout=True)
+        collection = draw_phase(ax, phase)
         fig.colorbar(collection, ax=ax, location="right", pad=0.02, shrink=0.78,
                      label="Robot speed (m/s): slow → fast")
-        handles = [Line2D([0], [0], color=PEDESTRIAN_COLOR, lw=1.7, label="Ped. traj.")]
-        handles += [Line2D([0], [0], color=color, lw=2.5, label=f"Ped. {agent_id}")
-                    for agent_id, color in highlight_colors.items()]
-        handles += [Line2D([0], [0], color=GOAL_COLOR, marker=">", lw=1.8, linestyle="--", label="Nav. goal"),
-                    Line2D([0], [0], color="#718096", lw=2, linestyle="--", label="Robot (future)"),
-                    Line2D([0], [0], color=NAVIGATION_VECTOR_COLOR, marker=">", lw=2.5, label="Nav. cmd.")]
-        if cbf_velocity is not None:
-            handles.append(Line2D([0], [0], color=CBF_VECTOR_COLOR, marker=">", lw=2.5, label="CBF cmd."))
         ax.legend(handles=handles, loc="upper left", frameon=True, framealpha=0.92, fontsize=10.5)
         path = output_stem.parent / f"{output_stem.name}_{number}.png"
         fig.savefig(path, dpi=dpi, bbox_inches="tight")
@@ -177,19 +214,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--preset", choices=PRESETS, help="Reproduce one of the existing paper figure sets.")
     parser.add_argument("--output", type=Path, help="Output filename prefix.")
     parser.add_argument("--times", type=float, nargs="+", help="Phase times in seconds.")
+    parser.add_argument("--combined", action="store_true", help="Plot all phases in one PNG with a shared colorbar.")
     parser.add_argument("--time-to-goal", action="store_true", help="Interpret --times relative to the goal.")
     parser.add_argument("--highlight", type=int, nargs="*", help="Pedestrian IDs to highlight.")
     parser.add_argument("--x-limits", type=float, nargs=2, metavar=("MIN", "MAX"))
     parser.add_argument("--y-limits", type=float, nargs=2, metavar=("MIN", "MAX"))
     parser.add_argument("--history-s", type=float, help="Length of pedestrian history in seconds.")
     parser.add_argument("--title", default=None)
-    parser.add_argument("--dpi", type=int, default=350)
+    parser.add_argument("--dpi", type=int, help="Output resolution (default: preset value or 350).")
     args = parser.parse_args(argv)
     if args.input is None and args.preset is None:
         parser.error("Provide an input NPZ or --preset.")
     if args.preset is None and args.times is None:
         parser.error("Provide --times for a replay without a preset.")
-    if args.dpi < 1 or (args.history_s is not None and args.history_s <= 0):
+    if (args.dpi is not None and args.dpi < 1) or (args.history_s is not None and args.history_s <= 0):
         parser.error("--dpi and --history-s must be positive.")
     for limits in (args.x_limits, args.y_limits):
         if limits is not None and (not np.all(np.isfinite(limits)) or limits[0] >= limits[1]):
@@ -211,7 +249,9 @@ def main(argv: list[str] | None = None) -> None:
         ylim=tuple(args.y_limits) if args.y_limits else (preset.ylim if preset else None),
         time_to_goal=args.time_to_goal or (preset.time_to_goal if preset and args.times is None else False),
         history_s=args.history_s if args.history_s is not None else (preset.history_s if preset else None),
-        title=args.title or (preset.title if preset else "Behavior"), dpi=args.dpi,
+        title=args.title or (preset.title if preset else "Behavior"),
+        dpi=args.dpi if args.dpi is not None else (350 if args.combined else preset.dpi if preset else 350),
+        combined=args.combined,
     ):
         print(f"Wrote {path}")
 
