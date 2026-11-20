@@ -573,20 +573,27 @@ normal band.  The codes are stable benchmark identifiers — never reuse or renu
 class FixedCoverageEvaluationTerrainImporter(TerrainImporter):
     """Pin every static/dynamic evaluation environment to one terrain-grid cell."""
 
+    selected_cell_ids: tuple[int, ...] | None = None
+
     def _compute_env_origins_curriculum(self, num_envs: int, origins):
         import torch
 
         num_rows, num_cols = origins.shape[:2]
         cells = num_rows * num_cols
-        if num_envs <= 0 or num_envs % cells:
+        selected_cells = self.selected_cell_ids or tuple(range(cells))
+        if any(cell < 0 or cell >= cells for cell in selected_cells):
+            raise ValueError("Selected evaluation cells must lie within the terrain grid.")
+        if num_envs <= 0 or num_envs % len(selected_cells):
             raise ValueError(
                 "Static/dynamic evaluation requires --num_envs to be a positive multiple of "
-                f"{cells} ({num_cols} columns x {num_rows} rows), got {num_envs}."
+                f"{len(selected_cells)} selected cells, got {num_envs}."
             )
-        cell_ids = torch.arange(num_envs, device=self.device) % cells
+        cell_ids = torch.as_tensor(selected_cells, device=self.device)[
+            torch.arange(num_envs, device=self.device) % len(selected_cells)
+        ]
         self.terrain_levels = torch.div(cell_ids, num_cols, rounding_mode="floor").to(torch.long)
         self.terrain_types = (cell_ids % num_cols).to(torch.long)
-        self.tile_replicas = torch.div(torch.arange(num_envs, device=self.device), cells, rounding_mode="floor")
+        self.tile_replicas = torch.div(torch.arange(num_envs, device=self.device), len(selected_cells), rounding_mode="floor")
         self.max_terrain_level = num_rows
         return origins[self.terrain_levels, self.terrain_types].clone()
 
@@ -691,9 +698,12 @@ def configure_dynamic_crowd_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) ->
     return env_cfg
 
 
-def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
+def configure_static_dynamic_evaluation(
+    env_cfg: MixedObstacleAvoidanceEnvCfg, selected_cell_ids: tuple[int, ...] | None = None
+) -> MixedObstacleAvoidanceEnvCfg:
     """Overlay the 8-column static-plus-dynamic benchmark without changing PLAY tasks."""
     configure_dynamic_crowd_evaluation(env_cfg)
+    FixedCoverageEvaluationTerrainImporter.selected_cell_ids = selected_cell_ids
     env_cfg.scene.terrain.class_type = FixedCoverageEvaluationTerrainImporter
     env_cfg.scene.terrain.terrain_generator = build_static_dynamic_evaluation_terrain()
     env_cfg.scene.terrain.max_init_terrain_level = None
@@ -724,9 +734,12 @@ def configure_static_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -
     return env_cfg
 
 
-def configure_indoor_dynamic_evaluation(env_cfg: MixedObstacleAvoidanceEnvCfg) -> MixedObstacleAvoidanceEnvCfg:
+def configure_indoor_dynamic_evaluation(
+    env_cfg: MixedObstacleAvoidanceEnvCfg, selected_cell_ids: tuple[int, ...] | None = None
+) -> MixedObstacleAvoidanceEnvCfg:
     """Overlay the fixed 4-count x 3-scenario indoor dynamic benchmark."""
     configure_dynamic_crowd_evaluation(env_cfg)
+    FixedCoverageEvaluationTerrainImporter.selected_cell_ids = selected_cell_ids
     env_cfg.scene.terrain.class_type = FixedCoverageEvaluationTerrainImporter
     env_cfg.scene.terrain.terrain_generator = build_indoor_dynamic_evaluation_terrain()
     env_cfg.scene.terrain.max_init_terrain_level = None

@@ -31,6 +31,7 @@ from evaluation import (  # isort: skip
     dynamic_crowd_profiles,
     indoor_dynamic_profiles,
     room_corridor_profiles,
+    select_scenario_profiles,
     fixed_grid_profile_indices,
     print_leader_outcomes,
     print_results,
@@ -48,7 +49,7 @@ parser = argparse.ArgumentParser(description="Evaluate an RSL-RL policy on the f
 parser.add_argument("--task", type=str, required=True, help="Existing mixed obstacle-avoidance task ID.")
 parser.add_argument(
     "--benchmark_suite", choices=("static_dynamic", "indoor_dynamic"), default="static_dynamic",
-    help="Benchmark terrain/profile suite; static_dynamic includes 56 legacy cells and 8 room/corridor cells.",
+    help="Benchmark terrain/profile suite; enabled scenarios are set in ENABLED_SCENARIOS.",
 )
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL-agent config entry point.")
 parser.add_argument(
@@ -237,9 +238,29 @@ SLOW_CROWD_AVAILABLE = (
 STATIC_DYNAMIC_GRID_CELLS = 64
 INDOOR_DYNAMIC_GRID_CELLS = 12
 
+# Set a scenario to False to skip all its terrain rows/counts during evaluation.
+# room_corridor controls all four room/corridor route types together.
+ENABLED_SCENARIOS = {
+    "static_dynamic": {
+        "static_obstacles": True,
+        "crossing": True,
+        "with_flow": True,
+        "against_flow": True,
+        "with_flow_slow_leader": True,
+        "crossing_slow": True,
+        "against_flow_slow": True,
+        "room_corridor": False,
+    },
+    "indoor_dynamic": {
+        "crossing": True,
+        "with_flow": True,
+        "against_flow": True,
+    },
+}
+
 
 def _fixed_grid_profile_indices(env, profiles) -> list[int]:
-    """Map row-major fixed terrain cells to column-major benchmark profiles."""
+    """Map selected terrain cells to their benchmark profiles."""
     terrain = env.scene["terrain"]
     levels = terrain.terrain_levels.detach().cpu().tolist()
     columns = terrain.terrain_types.detach().cpu().tolist()
@@ -522,7 +543,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
         if not RVO2_CROWD_EVAL:
             profiles.extend(room_corridor_profiles())
-    required_cells = INDOOR_DYNAMIC_GRID_CELLS if args_cli.benchmark_suite == "indoor_dynamic" else STATIC_DYNAMIC_GRID_CELLS
+    profiles = select_scenario_profiles(profiles, ENABLED_SCENARIOS[args_cli.benchmark_suite])
+    required_cells = len(profiles)
+    selected_cell_ids = tuple(sorted(
+        profile.terrain_level * (3 if args_cli.benchmark_suite == "indoor_dynamic" else 8)
+        + profile.terrain_column for profile in profiles
+    ))
     if args_cli.num_envs is None:
         args_cli.num_envs = required_cells
     if RVO2_CROWD_EVAL:
@@ -531,10 +557,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     elif args_cli.num_envs <= 0 or args_cli.num_envs % required_cells:
         raise ValueError(
             f"--num_envs must be a positive multiple of {required_cells} for the selected benchmark suite."
-        )
-    elif len(profiles) != required_cells:
-        raise RuntimeError(
-            "The selected fixed benchmark requires a complete profile grid."
         )
 
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
@@ -545,9 +567,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if RVO2_CROWD_EVAL:
         configure_rvo2_dynamic_crowd_evaluation(env_cfg)
     elif args_cli.benchmark_suite == "indoor_dynamic":
-        configure_indoor_dynamic_evaluation(env_cfg)
+        configure_indoor_dynamic_evaluation(env_cfg, selected_cell_ids=selected_cell_ids)
     else:
-        configure_static_dynamic_evaluation(env_cfg)
+        configure_static_dynamic_evaluation(env_cfg, selected_cell_ids=selected_cell_ids)
 
     lidar_cfg = getattr(env_cfg, "held_scan_lidar", None)
     coverage_sweep = bool(lidar_cfg is not None and lidar_cfg.sparse_sampling_enabled)
@@ -1020,12 +1042,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "terrain_grid": None if RVO2_CROWD_EVAL else (
                 {
                     "columns": 3, "rows": 4, "cells": INDOOR_DYNAMIC_GRID_CELLS,
-                    "replicas": args_cli.num_envs // INDOOR_DYNAMIC_GRID_CELLS,
+                    "selected_cells": required_cells, "replicas": args_cli.num_envs // required_cells,
                     "terrain_family": "indoor", "count_levels": [2, 4, 6, 8],
                 } if args_cli.benchmark_suite == "indoor_dynamic" else {
                     "columns": 8, "rows": 8, "cells": STATIC_DYNAMIC_GRID_CELLS,
-                    "replicas": args_cli.num_envs // STATIC_DYNAMIC_GRID_CELLS,
-                    "static_columns": [0, 7], "dynamic_columns": 6,
+                    "selected_cells": required_cells, "replicas": args_cli.num_envs // required_cells,
+                    "static_columns": sorted({
+                        profile.terrain_column for profile in profiles if profile.pedestrian_count == 0
+                    }),
+                    "dynamic_columns": len({
+                        profile.terrain_column for profile in profiles if profile.pedestrian_count > 0
+                    }),
                     "count_levels": [2, 4, 6, 8, 10, 12, 14, 16],
                 }
             ),

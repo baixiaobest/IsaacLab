@@ -296,6 +296,26 @@ def test_fixed_grid_profile_assignment_is_row_column_deterministic():
         evaluation.fixed_grid_profile_indices(profiles, [8], [0])
 
 
+def test_fixed_grid_profile_assignment_supports_selected_cells():
+    profiles = evaluation.dynamic_crowd_profiles()
+    selected = [profiles[0], profiles[17], profiles[55]]
+    assert evaluation.fixed_grid_profile_indices(selected, [7, 0, 1], [6, 0, 2]) == [2, 0, 1]
+    with pytest.raises(ValueError, match="no selected profile"):
+        evaluation.fixed_grid_profile_indices(selected, [0], [7])
+
+
+def test_scenario_selection_disables_entire_columns_and_room_group():
+    profiles = evaluation.dynamic_crowd_profiles() + evaluation.room_corridor_profiles()
+    enabled = {profile.scenario: True for profile in profiles}
+    enabled["room_corridor"] = False
+    enabled["crossing"] = False
+    selected = evaluation.select_scenario_profiles(profiles, enabled)
+
+    assert len(selected) == 48
+    assert {profile.terrain_column for profile in selected} == {0, 2, 3, 4, 5, 6}
+    assert not any(profile.scenario in evaluation.ROOM_CORRIDOR_SCENARIOS for profile in selected)
+
+
 def test_indoor_dynamic_profiles_cover_only_core_scenarios_and_lower_density_grid():
     profiles = evaluation.indoor_dynamic_profiles()
     assert len(profiles) == 12

@@ -959,6 +959,22 @@ def room_corridor_profiles() -> list[BenchmarkProfile]:
             for row in range(8)]
 
 
+def select_scenario_profiles(
+    profiles: list[BenchmarkProfile], enabled_scenarios: dict[str, bool]
+) -> list[BenchmarkProfile]:
+    """Select complete scenario columns, treating all room routes as one group."""
+    selected = []
+    for profile in profiles:
+        group = "room_corridor" if profile.scenario in ROOM_CORRIDOR_SCENARIOS else profile.scenario
+        if group not in enabled_scenarios:
+            raise ValueError(f"Missing evaluation scenario setting: {group}")
+        if enabled_scenarios[group]:
+            selected.append(profile)
+    if not selected:
+        raise ValueError("At least one benchmark scenario must remain enabled.")
+    return selected
+
+
 def indoor_dynamic_profiles() -> list[BenchmarkProfile]:
     """Return the 3 core indoor scenarios x 4 lower-density benchmark cells."""
     counts = (2, 4, 6, 8)
@@ -974,20 +990,21 @@ def fixed_grid_profile_indices(
     profiles: list[BenchmarkProfile], terrain_levels: Iterable[int], terrain_columns: Iterable[int],
     *, num_rows: int = 8, num_cols: int = 8,
 ) -> list[int]:
-    """Return the column-major profile index for each row-major terrain cell."""
+    """Return the selected profile index for each terrain cell."""
     levels = [int(value) for value in terrain_levels]
     columns = [int(value) for value in terrain_columns]
-    if len(levels) != len(columns) or len(profiles) != num_rows * num_cols:
-        raise ValueError("Fixed evaluation requires a complete profile grid and matched terrain coordinates.")
+    if len(levels) != len(columns):
+        raise ValueError("Fixed evaluation requires matched terrain coordinates.")
+    profile_by_cell = {(profile.terrain_column, profile.terrain_level): index for index, profile in enumerate(profiles)}
+    if len(profile_by_cell) != len(profiles):
+        raise ValueError("Fixed evaluation profiles must have distinct terrain coordinates.")
     indices = []
     for level, column in zip(levels, columns):
         if not 0 <= level < num_rows or not 0 <= column < num_cols:
             raise ValueError("Fixed evaluation terrain coordinates do not fit the configured grid.")
-        index = column * num_rows + level
-        profile = profiles[index]
-        if profile.terrain_column != column or profile.terrain_level != level:
-            raise ValueError("Fixed static/dynamic evaluation terrain/profile mapping is inconsistent.")
-        indices.append(index)
+        if (column, level) not in profile_by_cell:
+            raise ValueError("Fixed evaluation terrain coordinates have no selected profile.")
+        indices.append(profile_by_cell[(column, level)])
     return indices
 
 
