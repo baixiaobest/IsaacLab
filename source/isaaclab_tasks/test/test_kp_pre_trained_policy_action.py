@@ -49,6 +49,12 @@ CBF_360_PLAY_TASK_ID = (
 )
 
 
+@pytest.mark.parametrize("task_id", [KP_TASK_ID, KP_PLAY_TASK_ID, CBF_PLAY_TASK_ID, DYNAMIC_CBF_PLAY_TASK_ID])
+def test_kp_and_cbf_tasks_limit_yaw_rate_to_two_rad_per_second(task_id: str) -> None:
+    cfg = load_cfg_from_registry(task_id, "env_cfg_entry_point")
+    assert cfg.actions.pre_trained_policy_action.yaw_rate_limits == (-2.0, 2.0)
+
+
 def test_cbf_360_uses_dedicated_sensor_without_changing_existing_sources() -> None:
     cfg = MixedTemporalLidarKpStaticObstacleCbf360LidarObstacleAvoidanceEnvCfg_PLAY()
     action = cfg.actions.pre_trained_policy_action
@@ -130,9 +136,9 @@ def test_kp8_velocity_command_preserves_acceleration_and_velocity_limits() -> No
 
 
 def test_action_term_forwards_model_aware_velocity_and_unchanged_yaw() -> None:
-    """The private low-level command differs only in planar Kp preprocessing."""
+    """Yaw inside the configured envelope passes through unchanged."""
     term = object.__new__(KpPreTrainedPolicyAction)
-    term.cfg = SimpleNamespace(action_scales=(1.0, 1.0, 1.0), tracking_tau_s=0.30)
+    term.cfg = SimpleNamespace(action_scales=(1.0, 1.0, 1.0), tracking_tau_s=0.30, yaw_rate_limits=(-2.0, 2.0))
     term._action_scales = torch.ones(3)
     term._raw_actions = torch.zeros(1, 3)
     term._processed_actions = torch.tensor([[1.2, -1.2, 0.0]])
@@ -146,6 +152,23 @@ def test_action_term_forwards_model_aware_velocity_and_unchanged_yaw() -> None:
 
     assert torch.equal(term.nominal_acceleration, torch.tensor([[5.0, -5.0]]))
     assert torch.allclose(term.processed_actions, torch.tensor([[1.3, -1.3, 0.7]]))
+
+    term.process_actions(torch.tensor([[1.0, -1.0, 3.0]]))
+    term._update_model_aware_command()
+    assert term.processed_actions[0, 2].item() == 2.0
+
+
+@pytest.mark.parametrize("action_type", [KpPreTrainedPolicyAction, DynamicObstacleCbfPreTrainedPolicyAction])
+def test_kp_and_cbf_action_terms_bound_yaw_request(action_type: type) -> None:
+    term = object.__new__(action_type)
+    term.cfg = SimpleNamespace(yaw_rate_limits=(-2.0, 2.0))
+    term._action_scales = torch.ones(3)
+    term._raw_actions = torch.zeros(3, 3)
+
+    term.process_actions(torch.tensor([[0.0, 0.0, -3.0], [0.0, 0.0, 0.7], [0.0, 0.0, 4.0]]))
+
+    assert torch.equal(term._raw_actions[:, 2], torch.tensor([-3.0, 0.7, 4.0]))
+    assert torch.equal(term._bounded_yaw_rate(), torch.tensor([-2.0, 0.7, 2.0]))
 
 
 def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> None:

@@ -203,7 +203,8 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
     ``process_actions`` only stores the latest high-level RL command. At each
     low-level policy update, this term measures the robot velocity, constructs
     a nominal average acceleration, solves the QP, and maps it through the
-    first-order locomotion model. The yaw-rate action bypasses both Kp and CBF.
+    first-order locomotion model. The yaw-rate action bypasses Kp and CBF but
+    is limited to the configured locomotion command envelope.
     """
 
     cfg: DynamicObstacleCbfPreTrainedPolicyActionCfg
@@ -544,7 +545,7 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
         self._processed_actions[:, :2] = torch.clamp(
             commanded_velocity_b, min=self._velocity_lower, max=self._velocity_upper
         )
-        self._processed_actions[:, 2] = self._raw_actions[:, 2]
+        self._processed_actions[:, 2] = self._bounded_yaw_rate()
         self._slack[:] = slack
         self._mean_slack[:] = mean_slack
         self._minimum_barrier_residual[:] = minimum_residual

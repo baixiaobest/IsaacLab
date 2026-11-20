@@ -82,8 +82,8 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
     The high-level policy action remains ``(v_RL,x, v_RL,y, yaw_rate)``.  Its
     planar desired velocity is a body-frame value. The controller compares it
     with measured body velocity and sends a ZOH model-aware velocity command to
-    the low-level policy. The yaw command is intentionally passed through
-    unchanged.
+    the low-level policy. The yaw command is bounded separately before it is
+    supplied to the low-level policy.
     """
 
     cfg: KpPreTrainedPolicyActionCfg
@@ -97,6 +97,12 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             raise ValueError("KpPreTrainedPolicyAction requires exactly three actions: (v_x, v_y, yaw_rate).")
         if len(cfg.kp) != 2:
             raise ValueError("'kp' must provide one proportional gain for each planar axis.")
+        if (
+            len(cfg.yaw_rate_limits) != 2
+            or not all(math.isfinite(limit) for limit in cfg.yaw_rate_limits)
+            or cfg.yaw_rate_limits[0] > cfg.yaw_rate_limits[1]
+        ):
+            raise ValueError("'yaw_rate_limits' must be a finite (minimum, maximum) pair.")
 
         self.robot: Articulation = env.scene[cfg.asset_name]
         self._action_scales = torch.tensor(cfg.action_scales, device=self.device)
@@ -160,6 +166,10 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             )
         self._raw_actions[:] = actions * self._action_scales
 
+    def _bounded_yaw_rate(self) -> torch.Tensor:
+        """Return the requested yaw rate limited to the locomotion command envelope."""
+        return self._raw_actions[:, 2].clamp(*self.cfg.yaw_rate_limits)
+
     def _update_model_aware_command(self) -> None:
         """Recompute the held navigation target against the latest measured velocity."""
         measured_velocity = self.robot.data.root_lin_vel_b[:, :2]
@@ -174,7 +184,7 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             self._velocity_lower,
             self._velocity_upper,
         )
-        self._processed_actions[:, 2] = self._raw_actions[:, 2]
+        self._processed_actions[:, 2] = self._bounded_yaw_rate()
 
     def apply_actions(self):
         """Update the model-aware command at the locomotion-policy cadence."""
@@ -210,5 +220,7 @@ class KpPreTrainedPolicyActionCfg(PreTrainedPolicyActionCfg):
     """Body-frame component-wise acceleration bounds in m/s^2: ``((x_min, x_max), (y_min, y_max))``."""
     velocity_limits: tuple[tuple[float, float], tuple[float, float]] = ((-1.0, 1.0), (-1.0, 1.0))
     """Existing body-frame component-wise planar velocity bounds in m/s."""
+    yaw_rate_limits: tuple[float, float] = (-2.0, 2.0)
+    """Body-frame yaw-rate command bounds in rad/s, ordered (minimum, maximum)."""
     tracking_tau_s: float = 0.30
     """Fixed first-order locomotion tracking time constant used by ZOH preprocessing, in seconds."""
