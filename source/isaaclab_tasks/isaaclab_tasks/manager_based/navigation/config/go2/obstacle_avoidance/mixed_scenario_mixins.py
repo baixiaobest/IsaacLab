@@ -109,8 +109,8 @@ class _MixedSceneCfg:
             discrete_obstacles_proportion=1.0,
             concentric_maze_proportion=1.0,
             ped_corridor_proportion=1.0,
-            indoor_ped_corridor_proportion=2.0,
-            room_corridor_proportion=1.0,
+            indoor_ped_corridor_proportion=1.0,
+            room_corridor_proportion=0.0,
             num_cols=6,
         )
     )
