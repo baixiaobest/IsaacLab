@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 import json
 import math
 import os
 import sys
 import threading
-import time
 import types
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 import numpy as np
 import pytest
+from navigation_evaluation import telemetry as telemetry_impl
+from navigation_evaluation import common, coverage, interactions, metrics, profiles, replays
+from navigation_evaluation.progress import EvaluationProgressReporter
 
 try:
     import torch
@@ -26,6 +26,7 @@ except ImportError:
 
 MODULE_PATH = Path(__file__).with_name("evaluation.py")
 EVALUATE_PATH = Path(__file__).with_name("evaluate.py")
+OUTPUT_PATH = Path(__file__).parent / "navigation_evaluation" / "run_output.py"
 SPEC = importlib.util.spec_from_file_location("rsl_rl_evaluation", MODULE_PATH)
 assert SPEC and SPEC.loader
 evaluation = importlib.util.module_from_spec(SPEC)
@@ -62,6 +63,27 @@ def test_sparse_coverage_quota_preserves_total_and_balances_bands():
     assert evaluation_coverage.coverage_quotas(4, 1) == [[1, 1, 1, 1]]
     with pytest.raises(ValueError, match="at least four"):
         evaluation_coverage.coverage_quotas(3, 1)
+
+
+def test_legacy_evaluation_imports_resolve_to_package_implementations():
+    """Existing evaluators and diagnostics keep their original import paths."""
+    assert evaluation.BenchmarkProfile is common.BenchmarkProfile
+    assert evaluation.dynamic_crowd_profiles is profiles.dynamic_crowd_profiles
+    assert evaluation.CollisionReplayRecorder is replays.CollisionReplayRecorder
+    assert evaluation.InteractionEventCollector is interactions.InteractionEventCollector
+    assert evaluation.EpisodeMetricsCollector is metrics.EpisodeMetricsCollector
+    assert evaluation._result_row is metrics._result_row
+    assert evaluation_coverage.coverage_rows is coverage.coverage_rows
+    assert evaluation_telemetry.ParquetTelemetryRecorder is telemetry_impl.ParquetTelemetryRecorder
+    assert evaluation_telemetry._PendingEpisode is telemetry_impl._PendingEpisode
+
+
+def test_research_agent_navigation_entrypoint_remains_stable():
+    from research_agent_evaluation import resolve_evaluation_spec
+
+    spec = resolve_evaluation_spec("navigation", "Isaac-Mixed-Static-Pedestrian-Obstacle-Avoidance-Unitree-Go2-v0")
+    assert spec.entrypoint == "scripts/reinforcement_learning/rsl_rl/evaluate.py"
+    assert EVALUATE_PATH.exists()
 
 
 def test_coverage_snapshot_deltas_sum_to_pooled_counts():
@@ -186,7 +208,7 @@ def _extras(completed, success=(), collision=(), base_contact=(), velocity=()):
 
 def test_parquet_telemetry_writes_normalized_completed_episode(monkeypatch, tmp_path):
     pyarrow_parquet = pytest.importorskip("pyarrow.parquet")
-    monkeypatch.setattr(evaluation_telemetry, "TelemetryUploadClient", _FakeTelemetryUploader)
+    monkeypatch.setattr(telemetry_impl, "TelemetryUploadClient", _FakeTelemetryUploader)
     _FakeTelemetryUploader.initial_status = {
         "status": "uploading", "files": [], "max_episode_number": None,
     }
@@ -233,7 +255,7 @@ def test_parquet_telemetry_writes_normalized_completed_episode(monkeypatch, tmp_
 
 
 def test_parquet_telemetry_resume_uses_server_episode_watermark(monkeypatch, tmp_path):
-    monkeypatch.setattr(evaluation_telemetry, "TelemetryUploadClient", _FakeTelemetryUploader)
+    monkeypatch.setattr(telemetry_impl, "TelemetryUploadClient", _FakeTelemetryUploader)
     _FakeTelemetryUploader.initial_status = {
         "status": "uploading",
         "files": [
@@ -1419,22 +1441,16 @@ def test_failure_viewer_web_api_serves_replay_and_persists_tags(tmp_path):
     assert failure_viewer.load_case_tags(tmp_path) == {"collision_000001": ["late brake", "crossing"]}
 
 
-def test_multi_seed_evaluator_imports_json_for_per_seed_aggregates():
-    """The multi-seed completion path serializes ``per_seed_aggregates.json``."""
-    source = EVALUATE_PATH.read_text(encoding="utf-8")
+def test_multi_seed_evaluator_writes_per_seed_aggregates():
+    """The multi-seed completion path retains its artifact name and JSON writer."""
+    source = OUTPUT_PATH.read_text(encoding="utf-8")
     assert "import json" in source
     assert "per_seed_aggregates.json" in source
 
 
 def test_evaluator_publishes_throttled_live_progress_to_wandb():
     """A long remote benchmark exposes progress without depending on Pod logs."""
-    tree = ast.parse(EVALUATE_PATH.read_text(encoding="utf-8"))
-    reporter_node = next(
-        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EvaluationProgressReporter"
-    )
-    namespace = {"os": os, "time": time, "datetime": datetime, "timezone": timezone}
-    exec(compile(ast.Module(body=[reporter_node], type_ignores=[]), str(EVALUATE_PATH), "exec"), namespace)
-    reporter_class = namespace["EvaluationProgressReporter"]
+    reporter_class = EvaluationProgressReporter
 
     class FakeRun:
         def __init__(self):
