@@ -357,11 +357,7 @@ class DynamicObstacleCbfPreTrainedPolicyAction(KpPreTrainedPolicyAction):
 
     def process_actions(self, actions: torch.Tensor):
         """Hold the latest RL velocity target until the next navigation step."""
-        if actions.shape[-1] != self.action_dim:
-            raise ValueError(
-                f"Action dimension mismatch: expected {self.action_dim}, received {actions.shape[-1]}."
-            )
-        self._raw_actions[:] = actions * self._action_scales
+        super().process_actions(actions)
 
     def apply_actions(self):
         if self._counter % self.cfg.low_level_decimation == 0:

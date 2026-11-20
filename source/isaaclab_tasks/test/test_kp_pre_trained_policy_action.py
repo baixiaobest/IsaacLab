@@ -138,7 +138,10 @@ def test_kp8_velocity_command_preserves_acceleration_and_velocity_limits() -> No
 def test_action_term_forwards_model_aware_velocity_and_unchanged_yaw() -> None:
     """Yaw inside the configured envelope passes through unchanged."""
     term = object.__new__(KpPreTrainedPolicyAction)
-    term.cfg = SimpleNamespace(action_scales=(1.0, 1.0, 1.0), tracking_tau_s=0.30, yaw_rate_limits=(-2.0, 2.0))
+    term.cfg = SimpleNamespace(
+        action_scales=(1.0, 1.0, 1.0), tracking_tau_s=0.30,
+        yaw_rate_limits=(-2.0, 2.0), max_planar_speed_mps=None,
+    )
     term._action_scales = torch.ones(3)
     term._raw_actions = torch.zeros(1, 3)
     term._processed_actions = torch.tensor([[1.2, -1.2, 0.0]])
@@ -161,7 +164,9 @@ def test_action_term_forwards_model_aware_velocity_and_unchanged_yaw() -> None:
 @pytest.mark.parametrize("action_type", [KpPreTrainedPolicyAction, DynamicObstacleCbfPreTrainedPolicyAction])
 def test_kp_and_cbf_action_terms_bound_yaw_request(action_type: type) -> None:
     term = object.__new__(action_type)
-    term.cfg = SimpleNamespace(yaw_rate_limits=(-2.0, 2.0))
+    term.cfg = SimpleNamespace(
+        action_scales=(1.0, 1.0, 1.0), yaw_rate_limits=(-2.0, 2.0), max_planar_speed_mps=None
+    )
     term._action_scales = torch.ones(3)
     term._raw_actions = torch.zeros(3, 3)
 
@@ -169,6 +174,21 @@ def test_kp_and_cbf_action_terms_bound_yaw_request(action_type: type) -> None:
 
     assert torch.equal(term._raw_actions[:, 2], torch.tensor([-3.0, 0.7, 4.0]))
     assert torch.equal(term._bounded_yaw_rate(), torch.tensor([-2.0, 0.7, 2.0]))
+
+
+@pytest.mark.parametrize("action_type", [KpPreTrainedPolicyAction, DynamicObstacleCbfPreTrainedPolicyAction])
+def test_navigation_planar_target_is_capped_before_kp_or_cbf(action_type: type) -> None:
+    term = object.__new__(action_type)
+    term.cfg = SimpleNamespace(action_scales=(1.0, 1.0, 1.0), max_planar_speed_mps=1.5)
+    term._action_scales = torch.ones(3)
+    term._raw_actions = torch.zeros(3, 3)
+
+    term.process_actions(torch.tensor([[1.5, 1.5, 0.7], [0.3, 0.4, -0.2], [0.0, 0.0, 0.0]]))
+
+    assert torch.allclose(term._raw_actions[0, :2], torch.tensor([1.5, 1.5]) / 2**0.5)
+    assert torch.equal(term._raw_actions[1], torch.tensor([0.3, 0.4, -0.2]))
+    assert torch.equal(term._raw_actions[2], torch.zeros(3))
+    assert torch.equal(term._raw_actions[:, 2], torch.tensor([0.7, -0.2, 0.0]))
 
 
 def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> None:
@@ -184,6 +204,7 @@ def test_kp_task_preserves_baseline_temporal_lidar_and_action_dimensions() -> No
     assert kp_task.actions.pre_trained_policy_action.kp == (8.0, 8.0)
     assert kp_task.actions.pre_trained_policy_action.acceleration_limits == ((-5.0, 5.0), (-5.0, 5.0))
     assert kp_task.actions.pre_trained_policy_action.velocity_limits == ((-1.5, 1.5), (-1.5, 1.5))
+    assert kp_task.actions.pre_trained_policy_action.max_planar_speed_mps == 1.5
     assert kp_task.actions.pre_trained_policy_action.tracking_tau_s == 0.30
     assert kp_task.sim.dt * kp_task.decimation == 0.08
 

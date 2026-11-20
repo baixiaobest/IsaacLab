@@ -103,6 +103,10 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
             or cfg.yaw_rate_limits[0] > cfg.yaw_rate_limits[1]
         ):
             raise ValueError("'yaw_rate_limits' must be a finite (minimum, maximum) pair.")
+        if cfg.max_planar_speed_mps is not None and (
+            not math.isfinite(cfg.max_planar_speed_mps) or cfg.max_planar_speed_mps <= 0.0
+        ):
+            raise ValueError("'max_planar_speed_mps' must be positive and finite when set.")
 
         self.robot: Articulation = env.scene[cfg.asset_name]
         self._action_scales = torch.tensor(cfg.action_scales, device=self.device)
@@ -165,6 +169,11 @@ class KpPreTrainedPolicyAction(PreTrainedPolicyAction):
                 f"Action dimension mismatch: expected {self.action_dim}, received {actions.shape[-1]}."
             )
         self._raw_actions[:] = actions * self._action_scales
+        max_speed = self.cfg.max_planar_speed_mps
+        if max_speed is not None:
+            planar = self._raw_actions[:, :2]
+            speed = torch.linalg.vector_norm(planar, dim=-1, keepdim=True)
+            planar.mul_((max_speed / speed.clamp_min(1.0e-6)).clamp(max=1.0))
 
     def _bounded_yaw_rate(self) -> torch.Tensor:
         """Return the requested yaw rate limited to the locomotion command envelope."""
@@ -220,6 +229,8 @@ class KpPreTrainedPolicyActionCfg(PreTrainedPolicyActionCfg):
     """Body-frame component-wise acceleration bounds in m/s^2: ``((x_min, x_max), (y_min, y_max))``."""
     velocity_limits: tuple[tuple[float, float], tuple[float, float]] = ((-1.0, 1.0), (-1.0, 1.0))
     """Existing body-frame component-wise planar velocity bounds in m/s."""
+    max_planar_speed_mps: float | None = None
+    """Optional magnitude cap on the navigation planar target before Kp processing, in m/s."""
     yaw_rate_limits: tuple[float, float] = (-2.0, 2.0)
     """Body-frame yaw-rate command bounds in rad/s, ordered (minimum, maximum)."""
     tracking_tau_s: float = 0.30
