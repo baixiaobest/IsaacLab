@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 ESTIMATOR_TARGET_GROUP = "ground_truth"
-ESTIMATOR_TARGET_TERM_NAMES = ("base_lin_vel",)
+ESTIMATOR_TARGET_TERM_NAMES = ("base_lin_vel", "base_ang_vel")
 
 
 @dataclass(frozen=True)

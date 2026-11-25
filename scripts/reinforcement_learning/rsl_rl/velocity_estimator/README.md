@@ -40,11 +40,11 @@ This workflow assumes the task exposes:
 For the current GO2 locomotion setup, the important observation terms are:
 
 - `policy/base_lin_vel`
-- `policy/base_ang_vel`
 - `ground_truth/base_lin_vel`
 - `ground_truth/base_ang_vel`
 
 The estimator is trained to predict the `ground_truth` velocity terms from the remaining `policy` terms.
+`base_ang_vel` is an auxiliary estimator output: the current locomotion policy has no matching policy observation term.
 
 
 ## Rollout Data Generation
@@ -179,7 +179,7 @@ At every simulation step:
 2. It rebuilds the estimator input from the checkpoint `input_paths`.
 3. It maintains a rolling history buffer of shape `(num_envs, horizon, input_dim)`.
 4. The estimator predicts the current velocity.
-5. The predicted `base_lin_vel` and `base_ang_vel` replace the corresponding slices in the flat `policy` observation tensor.
+5. Predicted terms replace matching slices in the flat `policy` observation tensor. For the current GO2 policy, only `base_lin_vel` is replaced.
 6. The policy acts using this modified observation.
 7. The script compares estimator outputs with `ground_truth` and accumulates RMSE statistics.
 
@@ -239,15 +239,7 @@ where:
 - `input_dim` matches the flattened per-step estimator feature size
 - per-step feature ordering matches `input_paths` saved in the estimator checkpoint
 
-For the current GO2 run, the generator reported:
-
-```text
-Expected input shape: (batch, 10, 42)
-Input terms: ['policy/actions', 'policy/joint_pos', 'policy/joint_vel', 'policy/projected_gravity', 'policy/velocity_commands']
-Estimated velocity terms: ['base_ang_vel', 'base_lin_vel']
-```
-
-That means each step of the input horizon must contain the concatenation of those five policy terms in exactly that order.
+Read `input_paths` from the estimator checkpoint; `horizon` and `input_dim` are also stored on the exported module. The current deployed legacy JIT expects `(batch, 30, 48)` and returns three linear velocity values.
 
 ### What the JIT does internally
 
@@ -256,7 +248,7 @@ At inference time the scripted module:
 1. Runs the estimator on the full input horizon.
 2. Takes the newest frame from the horizon as the current non-velocity feature vector.
 3. Rebuilds the policy observation tensor.
-4. Inserts estimator outputs into the `base_lin_vel` and `base_ang_vel` slices.
+4. Inserts estimator outputs into policy observation slices only where matching terms exist; the current GO2 policy consumes estimated `base_lin_vel` while `base_ang_vel` remains available from `estimate_velocity()`.
 5. Applies the policy normalizer.
 6. Runs the policy actor.
 7. Returns the action tensor.
@@ -266,6 +258,8 @@ The scripted module also exports:
 - `forward(inputs)` for actions
 - `estimate_velocity(inputs)` for velocity-only prediction
 - `reset()` for recurrent policy state handling
+
+The legacy estimator returns linear xyz. A newly trained two-target estimator returns angular xyz followed by linear xyz (six values), because target paths are sorted by name. Hardware deployment accepts both outputs: it uses the gyroscope for odometry angular velocity with a legacy model and the estimated angular velocity with a new model. The policy observation layout stays the same.
 
 ### Example
 
@@ -294,5 +288,5 @@ The scripted module also exports:
 
 - The rollout and online scripts assume concatenated observation groups.
 - The estimator/export path currently supports manager-based RL environments.
-- The exported TorchScript module depends on the estimator checkpoint schema. If the observation layout changes, regenerate rollouts, retrain, and re-export.
+- A new two-target estimator requires rollouts containing `ground_truth/base_ang_vel`. Existing linear-only JIT files remain loadable, and the exporter accepts both legacy and new estimator checkpoints.
 - If HDF5 rollout files become unreadable, `dataset.py` will skip corrupted files when valid files are present and will fail with a detailed message if all files are invalid.

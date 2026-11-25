@@ -172,8 +172,12 @@ def _build_wrapper_layout(
     policy_specs = observation_specs.get("policy")
     if policy_specs is None:
         raise RuntimeError("The environment must expose a 'policy' observation group.")
+    ground_truth_specs = observation_specs.get("ground_truth")
+    if ground_truth_specs is None:
+        raise RuntimeError("The environment must expose a 'ground_truth' observation group.")
 
     policy_spec_map = {spec.name: spec for spec in policy_specs}
+    ground_truth_spec_map = {spec.name: spec for spec in ground_truth_specs}
     target_term_names = [Path(path).name for path in target_paths]
     target_term_name_set = set(target_term_names)
 
@@ -227,15 +231,20 @@ def _build_wrapper_layout(
     policy_target_stops: list[int] = []
     current_target_offset = 0
     for path in target_paths:
-        term_name = Path(path).name
-        if term_name not in policy_spec_map:
-            raise RuntimeError(f"Estimator target term '{term_name}' is not present in the policy observation group.")
-        policy_spec = policy_spec_map[term_name]
-        width = policy_spec.stop - policy_spec.start
-        estimator_target_starts.append(current_target_offset)
-        estimator_target_stops.append(current_target_offset + width)
-        policy_target_starts.append(policy_spec.start)
-        policy_target_stops.append(policy_spec.stop)
+        group_name, term_name = _split_schema_path(path)
+        if group_name != "ground_truth" or term_name not in ground_truth_spec_map:
+            raise RuntimeError(f"Estimator target path '{path}' is not present in the ground_truth observation group.")
+        ground_truth_spec = ground_truth_spec_map[term_name]
+        width = ground_truth_spec.stop - ground_truth_spec.start
+        if term_name in policy_spec_map:
+            policy_spec = policy_spec_map[term_name]
+            policy_width = policy_spec.stop - policy_spec.start
+            if policy_width != width:
+                raise RuntimeError(f"Estimator target term '{term_name}' has different policy and ground-truth widths.")
+            estimator_target_starts.append(current_target_offset)
+            estimator_target_stops.append(current_target_offset + width)
+            policy_target_starts.append(policy_spec.start)
+            policy_target_stops.append(policy_spec.stop)
         current_target_offset += width
 
     if current_target_offset != target_dim:
@@ -298,12 +307,11 @@ def main() -> None:
         input_paths = get_checkpoint_string_list(estimator_checkpoint, "input_paths")
         target_paths = get_checkpoint_string_list(estimator_checkpoint, "target_paths")
         checkpoint_target_terms = {Path(path).name for path in target_paths}
-        expected_target_terms = set(get_estimator_target_term_names())
-        if checkpoint_target_terms != expected_target_terms:
+        supported_target_terms = ({"base_lin_vel"}, set(get_estimator_target_term_names()))
+        if len(target_paths) != len(checkpoint_target_terms) or checkpoint_target_terms not in supported_target_terms:
             raise RuntimeError(
-                "The estimator checkpoint target terms do not match the current policy-estimator contract. "
-                f"expected={sorted(expected_target_terms)}, checkpoint={sorted(checkpoint_target_terms)}. "
-                "Retrain the estimator so it predicts linear velocity only."
+                "The estimator checkpoint must predict base_lin_vel alone or base_lin_vel and base_ang_vel. "
+                f"checkpoint={sorted(checkpoint_target_terms)}."
             )
         input_dim = get_checkpoint_int(estimator_checkpoint, "input_dim")
         target_dim = get_checkpoint_int(estimator_checkpoint, "target_dim")
