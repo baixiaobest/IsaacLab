@@ -24,6 +24,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from src.dataset import create_estimator_datasets
+from src.metrics import VelocityMetrics
 from src.model import VelocityEstimator
 from src.observation_utils import get_estimator_target_term_names
 
@@ -130,12 +131,12 @@ def _upload_file_to_wandb(wandb_run: Any, file_path: str, base_path: str) -> Non
     wandb_run.save(file_path, base_path=base_path, policy="now")
 
 
-def _evaluate(model: VelocityEstimator, data_loader: DataLoader, device: torch.device) -> tuple[float, float]:
+def _evaluate(
+    model: VelocityEstimator, data_loader: DataLoader, device: torch.device, target_paths: list[str], target_dim: int
+) -> dict[str, float]:
     """Run validation metrics."""
     model.eval()
-    total_loss = 0.0
-    total_mae = 0.0
-    total_examples = 0
+    accumulator = VelocityMetrics(target_paths, target_dim)
 
     with torch.inference_mode():
         for batch in data_loader:
@@ -143,14 +144,9 @@ def _evaluate(model: VelocityEstimator, data_loader: DataLoader, device: torch.d
             targets = batch["targets"].to(device=device, dtype=torch.float32)
             predictions = model(inputs)
 
-            batch_size = inputs.shape[0]
-            total_examples += batch_size
-            total_loss += F.mse_loss(predictions, targets, reduction="sum").item()
-            total_mae += F.l1_loss(predictions, targets, reduction="sum").item()
+            accumulator.update(predictions, targets)
 
-    if total_examples == 0:
-        return 0.0, 0.0
-    return total_loss / total_examples, total_mae / total_examples
+    return accumulator.values("validation")
 
 
 def _save_checkpoint(
@@ -283,9 +279,7 @@ def main() -> None:
     try:
         for epoch in range(1, args.epochs + 1):
             model.train()
-            total_train_loss = 0.0
-            total_train_mae = 0.0
-            total_examples = 0
+            train_accumulator = VelocityMetrics(dataset.target_paths, dataset.target_dim)
 
             for batch in train_loader:
                 inputs = batch["inputs"].to(device=device, dtype=torch.float32)
@@ -293,35 +287,37 @@ def main() -> None:
 
                 predictions = model(inputs)
                 loss = F.mse_loss(predictions, targets)
-                mae = F.l1_loss(predictions, targets)
 
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
 
-                batch_size = inputs.shape[0]
-                total_examples += batch_size
-                total_train_loss += loss.item() * batch_size
-                total_train_mae += mae.item() * batch_size
+                train_accumulator.update(predictions, targets)
 
-            train_loss = total_train_loss / max(total_examples, 1)
-            train_mae = total_train_mae / max(total_examples, 1)
-
-            validation_loss, validation_mae = _evaluate(model, validation_loader, device) if len(validation_subset) > 0 else (0.0, 0.0)
-
-            metrics = {
-                "train_loss": train_loss,
-                "train_mae": train_mae,
-                "validation_loss": validation_loss,
-                "validation_mae": validation_mae,
-            }
+            metrics = train_accumulator.values("train")
+            metrics.update(_evaluate(model, validation_loader, device, dataset.target_paths, dataset.target_dim))
+            train_loss = metrics["train_loss"]
+            train_mae = metrics["train_mae"]
+            validation_loss = metrics["validation_loss"]
+            validation_mae = metrics["validation_mae"]
 
             if writer is not None:
                 writer.add_scalar("loss/train", train_loss, epoch)
                 writer.add_scalar("mae/train", train_mae, epoch)
+                writer.add_scalar("rmse/train", metrics["train_rmse"], epoch)
                 if len(validation_subset) > 0:
                     writer.add_scalar("loss/val", validation_loss, epoch)
                     writer.add_scalar("mae/val", validation_mae, epoch)
+                    writer.add_scalar("rmse/val", metrics["validation_rmse"], epoch)
+                for term_name in train_accumulator.target_slices:
+                    for metric_name in ("mse", "mae", "rmse"):
+                        writer.add_scalar(
+                            f"{term_name}/{metric_name}/train", metrics[f"train_{term_name}_{metric_name}"], epoch
+                        )
+                        if len(validation_subset) > 0:
+                            writer.add_scalar(
+                                f"{term_name}/{metric_name}/val", metrics[f"validation_{term_name}_{metric_name}"], epoch
+                            )
 
             if wandb_run is not None:
                 wandb_run.log({"epoch": epoch, **metrics}, step=epoch)
@@ -342,7 +338,12 @@ def main() -> None:
 
             print(
                 f"[Epoch {epoch:03d}] train_loss={train_loss:.6f} train_mae={train_mae:.6f} "
-                f"val_loss={validation_loss:.6f} val_mae={validation_mae:.6f}"
+                f"val_loss={validation_loss:.6f} val_mae={validation_mae:.6f} "
+                + " ".join(
+                    f"{term_name}:train_rmse={metrics[f'train_{term_name}_rmse']:.6f},"
+                    f"val_rmse={metrics[f'validation_{term_name}_rmse']:.6f}"
+                    for term_name in train_accumulator.target_slices
+                )
             )
     finally:
         if writer is not None:

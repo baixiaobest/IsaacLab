@@ -138,6 +138,8 @@ The model flattens the horizon dimension internally before applying the MLP.
 - TensorBoard logs under `tensorboard/`
 - optional WandB artifacts
 
+TensorBoard and W&B log aggregate MSE (`train_loss`/`validation_loss`), MAE, and RMSE, plus separate MSE, MAE, and RMSE for `base_lin_vel` and `base_ang_vel`. Each metric is averaged over its samples and components. Training still optimizes the aggregate MSE; the separate metrics are diagnostic.
+
 Each checkpoint includes:
 
 - model weights
